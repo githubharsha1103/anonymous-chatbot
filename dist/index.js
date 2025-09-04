@@ -40,9 +40,9 @@ const telegraf_1 = require("telegraf");
 class ExtraTelegraf extends telegraf_1.Telegraf {
     constructor() {
         super(...arguments);
-        this.waiting = null;
-        this.runningChats = [];
-        this.messageMap = new Map();
+        this.waiting = null; // id
+        this.runningChats = []; // [id1, id2, id3, id4, ...]
+        this.messageMap = new Map(); // This map is used to map the message id of the users and the messages sent by the bot
     }
     getPartner(id) {
         let index = this.runningChats.indexOf(id);
