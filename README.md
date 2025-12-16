@@ -51,7 +51,7 @@ To host the bot yourself, follow these steps:
 
 ## Template Repository
 
-This project was created using the following template repo: [Telegraf Bot Template](https://github.com/sea-deep/telegraf-bot-template).
+This project was created using the following template repo: [Telegram Bot Template](https://github.com/sea-deep/telegram-bot-template).
 
 ## License
 
