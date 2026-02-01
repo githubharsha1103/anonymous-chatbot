@@ -9,17 +9,19 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.loadEvents = loadEvents;
 const glob_1 = require("glob");
-const node_url_1 = require("node:url");
 const index_1 = require("../index");
+const telegramErrorHandler_1 = require("./telegramErrorHandler");
 function loadEvents() {
     return __awaiter(this, void 0, void 0, function* () {
         try {
             const Files = yield (0, glob_1.glob)(`${process.cwd()}/dist/Events/**/*.js`);
             for (let file of Files) {
-                file = (0, node_url_1.pathToFileURL)(file).toString();
-                const eventFile = (yield import(file)).default;
-                const event = eventFile.default;
+                // Ensure absolute path for require
+                const absolutePath = require("path").resolve(file);
+                const eventFile = require(absolutePath).default;
+                const event = eventFile;
                 if (event.disabled)
                     continue;
                 const eventType = event.type;
@@ -27,11 +29,13 @@ function loadEvents() {
                     continue;
                 try {
                     index_1.bot.on(eventType, (ctx) => __awaiter(this, void 0, void 0, function* () {
+                        var _a;
                         try {
                             yield event.execute(ctx, index_1.bot);
                         }
                         catch (error) {
-                            console.error(`[EventHandler] -`, error);
+                            const userId = (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id;
+                            (0, telegramErrorHandler_1.handleTelegramError)(index_1.bot, error, userId);
                         }
                     }));
                 }
@@ -46,4 +50,3 @@ function loadEvents() {
         }
     });
 }
-loadEvents();

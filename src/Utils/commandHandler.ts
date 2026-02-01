@@ -1,7 +1,7 @@
 import { glob } from "glob";
 import { bot } from "../index";
-import { pathToFileURL } from "node:url";
 import { Context, Telegraf } from "telegraf";
+import { handleTelegramError } from "./telegramErrorHandler";
 
 export interface Command {
   name: string;
@@ -9,15 +9,15 @@ export interface Command {
   execute: (ctx: Context, bot: Telegraf<Context>) => Promise<any>;
   disabled?: boolean;
 }
-async function loadCommands() {
+export async function loadCommands() {
   try {
     const Files = await glob(`${process.cwd()}/dist/Commands/**/*.js`);
 
     for (let file of Files) {
-      file = pathToFileURL(file).toString();
-
-      const commandFile = (await import(file)).default as { default: Command };
-      const command = commandFile.default;
+      // Ensure absolute path for require
+      const absolutePath = require("path").resolve(file);
+      const commandFile = require(absolutePath).default;
+      const command = commandFile;
 
       if (!command || command.disabled || !command.name) {
         continue;
@@ -29,7 +29,8 @@ async function loadCommands() {
           try {
             await command.execute(ctx, bot)
           } catch (error) {
-            console.error(`[CommandHandler] -`, error);
+            const userId = ctx.from?.id;
+            handleTelegramError(bot, error, userId);
           }
         });
       } catch (error) {
@@ -42,5 +43,3 @@ async function loadCommands() {
     console.error(`[CommandHandler] -`, error);
   }
 }
-
-loadCommands();

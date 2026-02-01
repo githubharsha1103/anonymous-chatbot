@@ -23,7 +23,8 @@
     "telegraf": "^4.16.3"
   },
   "devDependencies": {
-    "@types/node": "^22.13.10",
-    "rimraf": "^5.0.10"
+    "@types/node": "^22.19.7",
+    "rimraf": "^5.0.10",
+    "typescript": "^5.9.3"
   }
 }

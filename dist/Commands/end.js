@@ -9,21 +9,32 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const telegraf_1 = require("telegraf");
+const telegramErrorHandler_1 = require("../Utils/telegramErrorHandler");
+const db_1 = require("../storage/db");
 exports.default = {
     name: "end",
-    description: "End the chat",
     execute: (ctx, bot) => __awaiter(void 0, void 0, void 0, function* () {
-        var _a, _b, _c;
-        if (bot.runningChats.includes((_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id)) {
-            let partner = bot.getPartner((_b = ctx.from) === null || _b === void 0 ? void 0 : _b.id);
-            bot.runningChats = bot.runningChats.filter(id => { var _a; return id !== ((_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id) && id !== partner; }); // Remove both users from the runningChats array
-            bot.messageMap.delete((_c = ctx.from) === null || _c === void 0 ? void 0 : _c.id); // Remove the user from the messageMap
-            bot.messageMap.delete(partner); // Remove the partner from the messageMap
-            yield ctx.telegram.sendMessage(partner, "Your partner has ended the chat!\nUse /search to start a new chat.");
-            return ctx.reply("You ended the chat.\n\nUse /search to start a new chat.");
+        var _a;
+        const id = (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id;
+        if (!bot.runningChats.includes(id)) {
+            return ctx.reply("You are not in a chat.");
         }
-        else {
-            return ctx.reply("You are not in a chat. Use /search to find a chat partner.");
+        const partner = bot.getPartner(id);
+        bot.runningChats = bot.runningChats.filter(u => u !== id && u !== partner);
+        bot.messageMap.delete(id);
+        bot.messageMap.delete(partner);
+        // Store partner ID for potential report
+        if (partner) {
+            (0, db_1.updateUser)(id, { reportingPartner: partner });
+            (0, db_1.updateUser)(partner, { reportingPartner: id });
         }
+        // Report keyboard
+        const reportKeyboard = telegraf_1.Markup.inlineKeyboard([
+            [telegraf_1.Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
+        ]);
+        // Use safeSendMessage to handle blocked partners
+        yield (0, telegramErrorHandler_1.safeSendMessage)(bot, partner, "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
+        return ctx.reply("🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
     })
 };

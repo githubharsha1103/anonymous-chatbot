@@ -1,7 +1,7 @@
 import { glob } from "glob";
-import { pathToFileURL } from "node:url";
 import { bot } from "../index";
 import { Context, Telegraf } from "telegraf";
+import { handleTelegramError } from "./telegramErrorHandler";
 
 
 export interface Event {
@@ -10,14 +10,15 @@ export interface Event {
   disabled?: boolean;
 }
 
-async function loadEvents() {
+export async function loadEvents() {
   try {
     const Files = await glob(`${process.cwd()}/dist/Events/**/*.js`);
 
     for (let file of Files) {
-      file = pathToFileURL(file).toString();
-      const eventFile = (await import(file)).default as { default: Event };
-      const event = eventFile.default;
+      // Ensure absolute path for require
+      const absolutePath = require("path").resolve(file);
+      const eventFile = require(absolutePath).default as Event;
+      const event = eventFile;
 
       if (event.disabled) continue;
 
@@ -30,7 +31,8 @@ async function loadEvents() {
             await event.execute(ctx, bot)
           }
           catch (error) {
-            console.error(`[EventHandler] -`, error);
+            const userId = ctx.from?.id;
+            handleTelegramError(bot, error, userId);
           }
         }
         );
@@ -44,4 +46,3 @@ async function loadEvents() {
   }
 }
 
-loadEvents();

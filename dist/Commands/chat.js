@@ -9,12 +9,20 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const telegraf_1 = require("telegraf");
 const db_1 = require("../storage/db");
 const telegramErrorHandler_1 = require("../Utils/telegramErrorHandler");
+// Generate unique chat tag
+function generateChatTag() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
+    for (let i = 0; i < 8; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+}
 exports.default = {
-    name: "next",
-    description: "Skip current chat and find new partner",
+    name: "chat",
+    description: "Find a new chat partner",
     execute: (ctx, bot) => __awaiter(void 0, void 0, void 0, function* () {
         var _a;
         const userId = (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id;
@@ -25,18 +33,16 @@ exports.default = {
             bot.runningChats = bot.runningChats.filter(u => u !== userId && u !== partner);
             bot.messageMap.delete(userId);
             bot.messageMap.delete(partner);
-            // Store partner ID for potential report (both ways)
+            // Get chat tag for reporting
+            const user = (0, db_1.getUser)(userId);
+            const chatTag = user.chatTag || "UNKNOWN";
+            // Store last partner for potential report
             if (partner) {
                 (0, db_1.updateUser)(userId, { reportingPartner: partner });
-                (0, db_1.updateUser)(partner, { reportingPartner: userId });
             }
-            // Report keyboard
-            const reportKeyboard = telegraf_1.Markup.inlineKeyboard([
-                [telegraf_1.Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
-            ]);
             // Use safeSendMessage to handle blocked partners
-            yield (0, telegramErrorHandler_1.safeSendMessage)(bot, partner, "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
-            return ctx.reply("🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
+            const exitMessage = `🚫 You left the chat\n\n/chat - Find new partner\n\n━━━━━━━━━━━━━━━━━\n⚠️ Report TAG: ${chatTag}\n\nTo report this chat:\n/report ${chatTag}`;
+            yield (0, telegramErrorHandler_1.safeSendMessage)(bot, partner, exitMessage);
         }
         // Remove from queue if already waiting
         const queueIndex = bot.waitingQueue.findIndex(w => w.id === userId);
@@ -59,9 +65,10 @@ exports.default = {
             const matchUser = (0, db_1.getUser)(match.id);
             bot.waitingQueue.splice(matchIndex, 1);
             bot.runningChats.push(match.id, userId);
-            // Store last partner and chat start time
-            (0, db_1.updateUser)(userId, { lastPartner: match.id, chatStartTime: Date.now() });
-            (0, db_1.updateUser)(match.id, { lastPartner: userId, chatStartTime: Date.now() });
+            // Generate chat tag and store for both users
+            const chatTag = generateChatTag();
+            (0, db_1.updateUser)(userId, { lastPartner: match.id, chatStartTime: Date.now(), chatTag });
+            (0, db_1.updateUser)(match.id, { lastPartner: userId, chatStartTime: Date.now(), chatTag });
             if (bot.waiting === match.id) {
                 bot.waiting = null;
             }
@@ -79,7 +86,7 @@ exports.default = {
 🚫 Links are restricted
 ⏱️ Media sharing unlocked after 2 minutes
 
-/end — Leave the chat`;
+/exit — Leave the chat`;
             const matchPartnerInfo = `✅ Partner Matched
 
 🔢 Age: ${user.age || "Not Set"}
@@ -89,7 +96,7 @@ exports.default = {
 🚫 Links are restricted
 ⏱️ Media sharing unlocked after 2 minutes
 
-/end — Leave the chat`;
+/exit — Leave the chat`;
             // Use safeSendMessage to handle blocked matches
             yield (0, telegramErrorHandler_1.safeSendMessage)(bot, match.id, matchPartnerInfo);
             return ctx.reply(userPartnerInfo);
