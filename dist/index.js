@@ -8,10 +8,14 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.bot = exports.ExtraTelegraf = void 0;
 require("dotenv/config");
+const express_1 = __importDefault(require("express"));
 const telegraf_1 = require("telegraf");
 const db_1 = require("./storage/db");
 const telegramErrorHandler_1 = require("./Utils/telegramErrorHandler");
@@ -157,6 +161,47 @@ exports.bot.command("setname", (ctx) => {
 });
 /* ---------------- START ---------------- */
 console.log("[INFO] - Bot is online");
-exports.bot.launch();
+// Get the port from environment (Render.com sets PORT)
+const PORT = parseInt(process.env.PORT || "3000", 10);
+const WEBHOOK_PATH = process.env.WEBHOOK_PATH || "/webhook";
+// For production (Render.com), use webhooks
+if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
+    const domain = process.env.WEBHOOK_URL || `https://${process.env.RENDER_EXTERNAL_HOSTNAME}`;
+    const webhookUrl = `${domain}${WEBHOOK_PATH}`;
+    console.log(`[INFO] - Setting webhook to: ${webhookUrl}`);
+    // Set webhook
+    exports.bot.telegram.setWebhook(webhookUrl).then(() => {
+        console.log("[INFO] - Webhook set successfully");
+    }).catch((err) => {
+        console.error("[ERROR] - Failed to set webhook:", err.message);
+    });
+    // Start HTTP server for webhooks
+    const app = (0, express_1.default)();
+    // Use express.json() middleware for parsing Telegram updates
+    app.use(express_1.default.json());
+    // Webhook endpoint
+    app.post(WEBHOOK_PATH, (req, res) => {
+        // Handle Telegram update
+        exports.bot.handleUpdate(req.body).then(() => {
+            res.sendStatus(200);
+        }).catch((err) => {
+            console.error("[ERROR] - Failed to handle update:", err.message);
+            res.sendStatus(500);
+        });
+    });
+    // Health check endpoint
+    app.get("/health", (req, res) => {
+        res.send("OK");
+    });
+    // Start the server
+    app.listen(PORT, "0.0.0.0", () => {
+        console.log(`[INFO] - Server listening on port ${PORT}`);
+    });
+}
+else {
+    // For local development, use long polling
+    console.log("[INFO] - Using long polling (local development)");
+    exports.bot.launch();
+}
 process.once("SIGINT", () => exports.bot.stop("SIGINT"));
 process.once("SIGTERM", () => exports.bot.stop("SIGTERM"));

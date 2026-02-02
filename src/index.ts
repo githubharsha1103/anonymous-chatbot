@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import express, { Request, Response } from 'express';
 import { Context, Telegraf } from "telegraf";
 
 import { 
@@ -185,7 +186,56 @@ bot.command("setname", (ctx) => {
 /* ---------------- START ---------------- */
 
 console.log("[INFO] - Bot is online");
-bot.launch();
+
+// Get the port from environment (Render.com sets PORT)
+const PORT = parseInt(process.env.PORT || "3000", 10);
+const WEBHOOK_PATH = process.env.WEBHOOK_PATH || "/webhook";
+
+// For production (Render.com), use webhooks
+if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
+  const domain = process.env.WEBHOOK_URL || `https://${process.env.RENDER_EXTERNAL_HOSTNAME}`;
+  const webhookUrl = `${domain}${WEBHOOK_PATH}`;
+  
+  console.log(`[INFO] - Setting webhook to: ${webhookUrl}`);
+  
+  // Set webhook
+  bot.telegram.setWebhook(webhookUrl).then(() => {
+    console.log("[INFO] - Webhook set successfully");
+  }).catch((err: Error) => {
+    console.error("[ERROR] - Failed to set webhook:", err.message);
+  });
+  
+  // Start HTTP server for webhooks
+  const app = express();
+  
+  // Use express.json() middleware for parsing Telegram updates
+  app.use(express.json());
+  
+  // Webhook endpoint
+  app.post(WEBHOOK_PATH, (req: Request, res: Response) => {
+    // Handle Telegram update
+    bot.handleUpdate(req.body).then(() => {
+      res.sendStatus(200);
+    }).catch((err: Error) => {
+      console.error("[ERROR] - Failed to handle update:", err.message);
+      res.sendStatus(500);
+    });
+  });
+  
+  // Health check endpoint
+  app.get("/health", (req: Request, res: Response) => {
+    res.send("OK");
+  });
+  
+  // Start the server
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`[INFO] - Server listening on port ${PORT}`);
+  });
+} else {
+  // For local development, use long polling
+  console.log("[INFO] - Using long polling (local development)");
+  bot.launch();
+}
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));

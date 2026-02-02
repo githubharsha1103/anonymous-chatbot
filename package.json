@@ -19,10 +19,12 @@
   },
   "dependencies": {
     "dotenv": "^16.4.7",
+    "express": "^5.2.1",
     "glob": "^11.0.1",
     "telegraf": "^4.16.3"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^22.19.7",
     "axios": "^1.13.4",
     "rimraf": "^5.0.10",
