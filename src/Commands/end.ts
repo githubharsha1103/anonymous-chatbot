@@ -1,6 +1,6 @@
 import { Context, Markup } from "telegraf";
 import { ExtraTelegraf } from "..";
-import { safeSendMessage } from "../Utils/telegramErrorHandler";
+import { sendMessageWithRetry, cleanupBlockedUser } from "../Utils/telegramErrorHandler";
 import { updateUser } from "../storage/db";
 
 export default {
@@ -33,13 +33,18 @@ export default {
       [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
     ]);
 
-    // Use safeSendMessage to handle blocked partners
-    await safeSendMessage(
+    // Use sendMessageWithRetry to handle blocked partners
+    const notifySent = await sendMessageWithRetry(
       bot,
       partner,
       "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
       reportKeyboard
     );
+
+    // If message failed to send, still clean up
+    if (!notifySent && partner) {
+      cleanupBlockedUser(bot, partner);
+    }
 
     return ctx.reply(
       "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",

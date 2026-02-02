@@ -87,8 +87,13 @@ exports.default = {
 ⏱️ Media sharing unlocked after 2 minutes
 
 /end — Leave the chat`;
-            // Use safeSendMessage to handle blocked partners
-            yield (0, telegramErrorHandler_1.safeSendMessage)(bot, match.id, matchPartnerInfo);
+            // Use sendMessageWithRetry to handle blocked partners
+            const matchSent = yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, match.id, matchPartnerInfo);
+            // If message failed to send (partner blocked/removed bot), end the chat
+            if (!matchSent) {
+                (0, telegramErrorHandler_1.endChatDueToError)(bot, userId, match.id);
+                return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+            }
             return ctx.reply(userPartnerInfo);
         }
         // No match found, add to queue

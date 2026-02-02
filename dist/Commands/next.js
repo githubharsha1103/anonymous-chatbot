@@ -34,8 +34,14 @@ exports.default = {
             const reportKeyboard = telegraf_1.Markup.inlineKeyboard([
                 [telegraf_1.Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
             ]);
-            // Use safeSendMessage to handle blocked partners
-            yield (0, telegramErrorHandler_1.safeSendMessage)(bot, partner, "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
+            // Use sendMessageWithRetry to handle blocked partners
+            const notifySent = yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, partner, "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
+            // If message failed to send, end the chat properly
+            if (!notifySent) {
+                (0, telegramErrorHandler_1.cleanupBlockedUser)(bot, partner);
+                (0, telegramErrorHandler_1.endChatDueToError)(bot, userId, partner);
+                return ctx.reply("🚫 Partner left the chat");
+            }
             return ctx.reply("🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
         }
         // Remove from queue if already waiting
@@ -90,8 +96,13 @@ exports.default = {
 ⏱️ Media sharing unlocked after 2 minutes
 
 /end — Leave the chat`;
-            // Use safeSendMessage to handle blocked matches
-            yield (0, telegramErrorHandler_1.safeSendMessage)(bot, match.id, matchPartnerInfo);
+            // Use sendMessageWithRetry to handle blocked matches
+            const matchSent = yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, match.id, matchPartnerInfo);
+            // If message failed to send, end the chat
+            if (!matchSent) {
+                (0, telegramErrorHandler_1.endChatDueToError)(bot, userId, match.id);
+                return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+            }
             return ctx.reply(userPartnerInfo);
         }
         // No match, add to queue

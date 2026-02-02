@@ -9,12 +9,9 @@ import {
   getAllUsers,
   updateUser
 } from "./storage/db";
-import { isBotBlockedError, cleanupBlockedUser } from "./Utils/telegramErrorHandler";
+import { isBotBlockedError, cleanupBlockedUser, broadcastWithRateLimit } from "./Utils/telegramErrorHandler";
 
 /* ---------------- BOT CLASS ---------------- */
-
-// Idle timeout in milliseconds (1 hour)
-const IDLE_TIMEOUT = 60 * 60 * 1000; // 1 hour
 
 export class ExtraTelegraf extends Telegraf<Context> {
   waiting: number | null = null;
@@ -30,9 +27,6 @@ export class ExtraTelegraf extends Telegraf<Context> {
 
   // Spectator mode - admin ID -> { user1, user2 }
   spectatingChats: Map<number, { user1: number; user2: number }> = new Map();
-
-  // Chat activity tracking - userId -> last message timestamp
-  chatActivity: Map<number, number> = new Map();
 
   getPartner(id: number) {
     const index = this.runningChats.indexOf(id);
@@ -67,125 +61,9 @@ export class ExtraTelegraf extends Telegraf<Context> {
     }
     return null;
   }
-
-  // Update chat activity timestamp
-  updateChatActivity(userId: number) {
-    this.chatActivity.set(userId, Date.now());
-  }
-
-  // Get chat activity timestamp
-  getChatActivity(userId: number): number | undefined {
-    return this.chatActivity.get(userId);
-  }
-
-  // Remove chat activity
-  removeChatActivity(userId: number) {
-    this.chatActivity.delete(userId);
-  }
 }
-
 
 export const bot = new ExtraTelegraf(process.env.BOT_TOKEN!);
-
-/* ---------------- IDLE CHAT CHECK ---------------- */
-
-async function checkIdleChats() {
-  const now = Date.now();
-  const chatsToEnd: number[] = [];
-
-  // Check each running chat
-  for (let i = 0; i < bot.runningChats.length; i += 2) {
-    const user1 = bot.runningChats[i];
-    const user2 = bot.runningChats[i + 1];
-
-    // Get last activity for both users
-    const activity1 = bot.getChatActivity(user1);
-    const activity2 = bot.getChatActivity(user2);
-
-    // If either user has no activity, use the time when the chat started
-    // For simplicity, we check if both users have been idle for 1 hour
-    if (activity1 && activity2) {
-      const idleTime1 = now - activity1;
-      const idleTime2 = now - activity2;
-
-      // If both users have been idle for more than 1 hour, end the chat
-      if (idleTime1 > IDLE_TIMEOUT && idleTime2 > IDLE_TIMEOUT) {
-        chatsToEnd.push(user1, user2);
-        console.log(`[IDLE CHECK] - Ending idle chat between ${user1} and ${user2} (idle for ${Math.round(idleTime1 / 60000)} minutes)`);
-      }
-    } else if (!activity1 && activity2) {
-      // If user1 has no activity but user2 does, check user2's activity
-      if (now - activity2 > IDLE_TIMEOUT) {
-        chatsToEnd.push(user1, user2);
-        console.log(`[IDLE CHECK] - Ending idle chat (user1 no activity, user2 idle for ${Math.round((now - activity2) / 60000)} minutes)`);
-      }
-    } else if (activity1 && !activity2) {
-      if (now - activity1 > IDLE_TIMEOUT) {
-        chatsToEnd.push(user1, user2);
-        console.log(`[IDLE CHECK] - Ending idle chat (user2 no activity, user1 idle for ${Math.round((now - activity1) / 60000)} minutes)`);
-      }
-    }
-    // If both have no activity, we don't end the chat (they might just have started)
-  }
-
-  // End the idle chats
-  for (const userId of chatsToEnd) {
-    try {
-      await bot.telegram.sendMessage(
-        userId,
-        "⏰ *Chat Ended Due to Inactivity*\n\nYour chat has been ended because there was no activity for 1 hour.\n\nUse /next to find a new partner.",
-        { parse_mode: "Markdown" }
-      );
-    } catch (error) {
-      // User might have blocked the bot
-    }
-
-    // Clean up chat state
-    const partner = bot.getPartner(userId);
-    bot.runningChats = bot.runningChats.filter(u => u !== userId && u !== partner);
-    bot.messageMap.delete(userId);
-    bot.messageMap.delete(partner);
-    bot.removeChatActivity(userId);
-    bot.removeChatActivity(partner);
-  }
-
-  // Also check waiting queue users (remove after 1 hour of waiting)
-  const waitingToRemove: number[] = [];
-
-  for (const waiting of bot.waitingQueue) {
-    // Check if user has been waiting for too long
-    const activity = bot.getChatActivity(waiting.id);
-    if (activity && now - activity > IDLE_TIMEOUT) {
-      waitingToRemove.push(waiting.id);
-      console.log(`[IDLE CHECK] - Removing user ${waiting.id} from waiting queue (waited ${Math.round((now - activity) / 60000)} minutes)`);
-    }
-  }
-
-  for (const userId of waitingToRemove) {
-    // Remove from waiting queue
-    bot.waitingQueue = bot.waitingQueue.filter(w => w.id !== userId);
-    bot.removeChatActivity(userId);
-
-    // Clear waiting if it was this user
-    if (bot.waiting === userId) {
-      bot.waiting = null;
-    }
-
-    // Notify user
-    try {
-      await bot.telegram.sendMessage(
-        userId,
-        "⏰ *Search Timeout*\n\nYour search has been cancelled due to inactivity.\n\nUse /next to try again.",
-        { parse_mode: "Markdown" }
-      );
-    } catch (error) {
-      // User might have blocked the bot
-    }
-  }
-}
-
-// Start idle check every 5 minutes
-setInterval(checkIdleChats, 5 * 60 * 1000);
 
 /* ---------------- LOADERS ---------------- */
 
@@ -258,33 +136,11 @@ bot.command("broadcast", async (ctx) => {
     return ctx.reply("No users to broadcast to.");
   }
 
-  let successCount = 0;
-  let failCount = 0;
+  // Send broadcast with rate limiting
+  const userIds = users.map(id => Number(id)).filter(id => !isNaN(id));
+  const { success, failed } = await broadcastWithRateLimit(bot, userIds, msg);
 
-  // Send messages to all users
-  for (const id of users) {
-    const userId = Number(id);
-    if (isNaN(userId)) {
-      failCount++;
-      continue;
-    }
-    
-    try {
-      await ctx.telegram.sendMessage(userId, msg);
-      successCount++;
-    } catch (error: any) {
-      // Check if user blocked the bot
-      if (isBotBlockedError(error)) {
-        cleanupBlockedUser(bot, userId);
-        console.log(`[BROADCAST] - User ${userId} blocked the bot, cleaned up`);
-      } else {
-        console.log(`[BROADCAST] - Failed to send to ${userId}: ${error.message || error}`);
-      }
-      failCount++;
-    }
-  }
-
-  ctx.reply(`Broadcast completed!\n✅ Sent: ${successCount}\n❌ Failed: ${failCount}`);
+  ctx.reply(`Broadcast completed!\n✅ Sent: ${success}\n❌ Failed: ${failed}`);
 });
 
 /* ---------------- ADMIN ACTIVE CHATS ---------------- */

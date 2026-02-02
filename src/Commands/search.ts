@@ -1,7 +1,7 @@
 import { Context, Markup } from "telegraf";
 import { ExtraTelegraf } from "..";
 import { getGender, getUser, updateUser } from "../storage/db";
-import { safeSendMessage } from "../Utils/telegramErrorHandler";
+import { sendMessageWithRetry, endChatDueToError } from "../Utils/telegramErrorHandler";
 
 // Type for users in waiting queue
 interface WaitingUser {
@@ -113,12 +113,18 @@ export default {
 
 /end — Leave the chat`;
 
-      // Use safeSendMessage to handle blocked partners
-      await safeSendMessage(
+      // Use sendMessageWithRetry to handle blocked partners
+      const matchSent = await sendMessageWithRetry(
         bot,
         match.id,
         matchPartnerInfo
       );
+
+      // If message failed to send (partner blocked/removed bot), end the chat
+      if (!matchSent) {
+        endChatDueToError(bot, userId, match.id);
+        return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+      }
 
       return ctx.reply(userPartnerInfo);
     }

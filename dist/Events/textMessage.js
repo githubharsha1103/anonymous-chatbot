@@ -46,76 +46,45 @@ exports.default = {
             if (users.length === 0) {
                 return ctx.reply("📢 *Broadcast Result*\n\n❌ No users to broadcast to.");
             }
-            let successCount = 0;
-            let failCount = 0;
-            // Send broadcast to all users
-            for (const id of users) {
-                const userId = Number(id);
-                if (isNaN(userId)) {
-                    failCount++;
-                    continue;
-                }
-                try {
-                    yield ctx.telegram.sendMessage(userId, broadcastText);
-                    successCount++;
-                }
-                catch (error) {
-                    if ((0, telegramErrorHandler_1.isBotBlockedError)(error)) {
-                        (0, telegramErrorHandler_1.cleanupBlockedUser)(bot, userId);
-                    }
-                    failCount++;
-                }
-            }
-            return ctx.reply(`📢 *Broadcast Result*\n\n✅ Sent: ${successCount}\n❌ Failed: ${failCount}\n\nTotal Users: ${users.length}`, { parse_mode: "Markdown" });
+            // Send broadcast with rate limiting
+            const userIds = users.map(id => Number(id)).filter(id => !isNaN(id));
+            const { success, failed } = yield (0, telegramErrorHandler_1.broadcastWithRateLimit)(bot, userIds, broadcastText);
+            return ctx.reply(`📢 *Broadcast Result*\n\n✅ Sent: ${success}\n❌ Failed: ${failed}\n\nTotal Users: ${users.length}`, { parse_mode: "Markdown" });
         }
         /* ================================
-           PROFILE INPUT HANDLER
+          CHAT FORWARDING CHECK
+          Only process profile inputs if user is NOT in a chat
         ================================= */
-        /* ================================
-        LINK FILTER
-       ================================ */
-        if (text) {
-            const linkPattern = /(https?:\/\/|www\.|t\.me\/|telegram\.me\/)/i;
-            if (linkPattern.test(text)) {
-                return ctx.reply("🚫 Links are not allowed for safety reasons.");
+        if (!bot.runningChats.includes(ctx.from.id)) {
+            // Check if user is in waiting queue
+            if (bot.waiting === ctx.from.id) {
+                return ctx.reply("⏳ Waiting for a partner...\n\nUse /end to stop searching.");
             }
-        }
-        /* ================================
-           LINK / USERNAME FILTER
-        ================================ */
-        if (text) {
-            const blockedPattern = /(https?:\/\/|www\.|t\.me\/|telegram\.me\/|@\w+|\b[a-z0-9-]+\.(com|net|org|in|io|me|gg|co|app)\b)/i;
-            if (blockedPattern.test(text)) {
-                return ctx.reply("🚫 Links and usernames are not allowed for safety reasons.");
-            }
-        }
-        if (text) {
-            const txt = text.toLowerCase();
-            // ✅ Gender
-            if (txt === "male" || txt === "female") {
-                (0, db_1.updateUser)(ctx.from.id, { gender: txt });
-                return ctx.reply("Gender updated ✅");
-            }
-            // ✅ Preference
-            if (txt === "any") {
-                (0, db_1.updateUser)(ctx.from.id, { preference: txt });
-                return ctx.reply("Preference updated ✅");
-            }
-            // ✅ Age (13-80) - Only process if user is in chat or setting up profile
-            if (/^\d+$/.test(txt)) {
-                const user = (0, db_1.getUser)(ctx.from.id);
-                // If user already has age set and is not in a chat, skip age processing
-                if (user.age && !bot.runningChats.includes(ctx.from.id)) {
-                    // Let it fall through to chat forwarding check
+            /* ================================
+               PROFILE INPUT HANDLER (only for non-chat users)
+            ================================= */
+            if (text) {
+                const txt = text.toLowerCase();
+                // ✅ Gender
+                if (txt === "male" || txt === "female") {
+                    (0, db_1.updateUser)(ctx.from.id, { gender: txt });
+                    return ctx.reply("Gender updated ✅");
                 }
-                else {
+                // ✅ Preference
+                if (txt === "any") {
+                    (0, db_1.updateUser)(ctx.from.id, { preference: txt });
+                    return ctx.reply("Preference updated ✅");
+                }
+                // ✅ Age (13-80)
+                if (/^\d+$/.test(txt)) {
+                    const user = (0, db_1.getUser)(ctx.from.id);
                     const age = Number(txt);
                     if (age < 13 || age > 80) {
                         return ctx.reply("Age must be between 13 and 80 ❌");
                     }
                     (0, db_1.updateUser)(ctx.from.id, { age });
-                    // After age is set, ask for state (no back button) - only for new users
-                    if (!user.state) {
+                    // After age is set, ask for state (no back button) - only for new users without state
+                    if (!user.state && !user.age) {
                         const stateKeyboard = telegraf_1.Markup.inlineKeyboard([
                             [telegraf_1.Markup.button.callback("Telangana", "SETUP_STATE_TELANGANA")],
                             [telegraf_1.Markup.button.callback("Andhra Pradesh", "SETUP_STATE_AP")]
@@ -127,23 +96,17 @@ exports.default = {
                     }
                     return;
                 }
-            }
-            // ✅ State (Telangana / Andhra Pradesh)
-            if (txt === "telangana" || txt === "andhra pradesh") {
-                (0, db_1.updateUser)(ctx.from.id, { state: txt });
-                return ctx.reply("State updated ✅");
-            }
-        }
-        /* ================================
-           CHAT FORWARDING
-        ================================= */
-        if (!bot.runningChats.includes(ctx.from.id)) {
-            // Check if user is in waiting queue
-            if (bot.waiting === ctx.from.id) {
-                return ctx.reply("⏳ Waiting for a partner...\n\nUse /end to stop searching.");
+                // ✅ State (Telangana / Andhra Pradesh)
+                if (txt === "telangana" || txt === "andhra pradesh") {
+                    (0, db_1.updateUser)(ctx.from.id, { state: txt });
+                    return ctx.reply("State updated ✅");
+                }
             }
             return ctx.reply("You are not in a chat...\n\nUse /next to find a new partner or /end to end searching.");
         }
+        /* =================================
+           CHAT FORWARDING
+        ================================= */
         /* =================================
            MEDIA RESTRICTION (2 minutes)
         ================================= */
@@ -210,9 +173,6 @@ exports.default = {
                 partnerMap[ctx.message.message_id] = sent.message_id;
                 bot.messageMap.set(partner, partnerMap);
             }
-            // Update chat activity timestamps for both users
-            bot.updateChatActivity(ctx.from.id);
-            bot.updateChatActivity(partner);
             /* =================================
                FORWARD TO SPECTATORS
             ================================= */
@@ -253,8 +213,50 @@ exports.default = {
                 ]);
                 return ctx.reply("🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
             }
-            // Re-throw other errors to be handled by the event handler
-            throw error;
+            // Check if partner restricted the bot (not enough rights)
+            if ((0, telegramErrorHandler_1.isNotEnoughRightsError)(error)) {
+                console.log(`[CHAT] - Partner ${partner} restricted bot, ending chat`);
+                // Clean up the chat state
+                (0, telegramErrorHandler_1.cleanupBlockedUser)(bot, partner);
+                // Also remove current user from running chats
+                bot.runningChats = bot.runningChats.filter(u => u !== ctx.from.id);
+                // Clean up message maps
+                bot.messageMap.delete(ctx.from.id);
+                bot.messageMap.delete(partner);
+                // Report keyboard
+                const reportKeyboard = telegraf_1.Markup.inlineKeyboard([
+                    [telegraf_1.Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
+                ]);
+                return ctx.reply("🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
+            }
+            // Handle rate limit errors gracefully
+            if ((0, telegramErrorHandler_1.isRateLimitError)(error)) {
+                const delay = (0, telegramErrorHandler_1.getRetryDelay)(error);
+                console.log(`[CHAT] - Rate limited, retrying after ${delay}s`);
+                // Add delay before retry
+                yield new Promise(resolve => setTimeout(resolve, delay * 1000));
+                // Retry the message send once
+                try {
+                    yield ctx.copyMessage(partner);
+                    return;
+                }
+                catch (retryError) {
+                    // If retry also fails, check if it's a block/not enough rights error
+                    if ((0, telegramErrorHandler_1.isBotBlockedError)(retryError) || (0, telegramErrorHandler_1.isNotEnoughRightsError)(retryError)) {
+                        (0, telegramErrorHandler_1.cleanupBlockedUser)(bot, partner);
+                        bot.runningChats = bot.runningChats.filter(u => u !== ctx.from.id);
+                        bot.messageMap.delete(ctx.from.id);
+                        bot.messageMap.delete(partner);
+                        const reportKeyboard = telegraf_1.Markup.inlineKeyboard([
+                            [telegraf_1.Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
+                        ]);
+                        return ctx.reply("🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
+                    }
+                    console.error(`[CHAT] - Retry failed:`, (retryError === null || retryError === void 0 ? void 0 : retryError.message) || retryError);
+                }
+            }
+            // Log other errors but don't crash the chat
+            console.error(`[CHAT ERROR] -`, (error === null || error === void 0 ? void 0 : error.message) || error);
         }
     })
 };

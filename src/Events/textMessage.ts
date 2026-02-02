@@ -3,7 +3,7 @@ import { Event } from "../Utils/eventHandler";
 import { ExtraTelegraf } from "..";
 import { Message, Update } from "telegraf/types";
 import { updateUser, getUser, getAllUsers } from "../storage/db";
-import { isBotBlockedError, cleanupBlockedUser } from "../Utils/telegramErrorHandler";
+import { isBotBlockedError, cleanupBlockedUser, isNotEnoughRightsError, isRateLimitError, getRetryDelay, broadcastWithRateLimit } from "../Utils/telegramErrorHandler";
 import { waitingForBroadcast } from "../Commands/adminaccess";
 import { Markup } from "telegraf";
 
@@ -51,119 +51,20 @@ export default {
             return ctx.reply("📢 *Broadcast Result*\n\n❌ No users to broadcast to.");
         }
 
-        let successCount = 0;
-        let failCount = 0;
-
-        // Send broadcast to all users
-        for (const id of users) {
-            const userId = Number(id);
-            if (isNaN(userId)) {
-                failCount++;
-                continue;
-            }
-
-            try {
-                await ctx.telegram.sendMessage(userId, broadcastText);
-                successCount++;
-            } catch (error: any) {
-                if (isBotBlockedError(error)) {
-                    cleanupBlockedUser(bot, userId);
-                }
-                failCount++;
-            }
-        }
+        // Send broadcast with rate limiting
+        const userIds = users.map(id => Number(id)).filter(id => !isNaN(id));
+        const { success, failed } = await broadcastWithRateLimit(bot, userIds, broadcastText);
 
         return ctx.reply(
-            `📢 *Broadcast Result*\n\n✅ Sent: ${successCount}\n❌ Failed: ${failCount}\n\nTotal Users: ${users.length}`,
+            `📢 *Broadcast Result*\n\n✅ Sent: ${success}\n❌ Failed: ${failed}\n\nTotal Users: ${users.length}`,
             { parse_mode: "Markdown" }
         );
     }
 
-    /* ================================
-       PROFILE INPUT HANDLER
-    ================================= */
-    /* ================================
-    LINK FILTER
-   ================================ */
-
-   if (text) {
-     const linkPattern = /(https?:\/\/|www\.|t\.me\/|telegram\.me\/)/i;
-
-     if (linkPattern.test(text)) {
-       return ctx.reply("🚫 Links are not allowed for safety reasons.");
-     }
-   }
-   /* ================================
-      LINK / USERNAME FILTER
-   ================================ */
-
-   if (text) {
-
-     const blockedPattern =
-       /(https?:\/\/|www\.|t\.me\/|telegram\.me\/|@\w+|\b[a-z0-9-]+\.(com|net|org|in|io|me|gg|co|app)\b)/i;
-
-     if (blockedPattern.test(text)) {
-       return ctx.reply("🚫 Links and usernames are not allowed for safety reasons.");
-     }
-   }
-
-     if (text) {
-       const txt = text.toLowerCase();
-
-       // ✅ Gender
-       if (txt === "male" || txt === "female") {
-         updateUser(ctx.from.id, { gender: txt });
-         return ctx.reply("Gender updated ✅");
-       }
-
-       // ✅ Preference
-       if (txt === "any") {
-         updateUser(ctx.from.id, { preference: txt });
-         return ctx.reply("Preference updated ✅");
-       }
-
-       // ✅ Age (13-80) - Only process if user is in chat or setting up profile
-       if (/^\d+$/.test(txt)) {
-         const user = getUser(ctx.from.id);
-         
-         // If user already has age set and is not in a chat, skip age processing
-         if (user.age && !bot.runningChats.includes(ctx.from.id)) {
-           // Let it fall through to chat forwarding check
-         } else {
-           const age = Number(txt);
-           if (age < 13 || age > 80) {
-             return ctx.reply("Age must be between 13 and 80 ❌");
-           }
-           updateUser(ctx.from.id, { age });
-           
-           // After age is set, ask for state (no back button) - only for new users
-           if (!user.state) {
-             const stateKeyboard = Markup.inlineKeyboard([
-                [Markup.button.callback("Telangana", "SETUP_STATE_TELANGANA")],
-                [Markup.button.callback("Andhra Pradesh", "SETUP_STATE_AP")]
-             ]);
-             
-             await ctx.reply(
-                "📝 *Step 3/3:* Select your state:",
-                { parse_mode: "Markdown", ...stateKeyboard }
-             );
-           } else {
-             await ctx.reply("Age updated ✅", backKeyboard);
-           }
-           return;
-         }
-       }
-
-       // ✅ State (Telangana / Andhra Pradesh)
-       if (txt === "telangana" || txt === "andhra pradesh") {
-         updateUser(ctx.from.id, { state: txt });
-         return ctx.reply("State updated ✅");
-       }
-     }
-
-    /* ================================
-       CHAT FORWARDING
-    ================================= */
+      /* ================================
+        CHAT FORWARDING CHECK
+        Only process profile inputs if user is NOT in a chat
+      ================================= */
 
     if (!bot.runningChats.includes(ctx.from.id)) {
       // Check if user is in waiting queue
@@ -172,10 +73,68 @@ export default {
           "⏳ Waiting for a partner...\n\nUse /end to stop searching."
         );
       }
+
+      /* ================================
+         PROFILE INPUT HANDLER (only for non-chat users)
+      ================================= */
+
+      if (text) {
+        const txt = text.toLowerCase();
+
+        // ✅ Gender
+        if (txt === "male" || txt === "female") {
+          updateUser(ctx.from.id, { gender: txt });
+          return ctx.reply("Gender updated ✅");
+        }
+
+        // ✅ Preference
+        if (txt === "any") {
+          updateUser(ctx.from.id, { preference: txt });
+          return ctx.reply("Preference updated ✅");
+        }
+
+        // ✅ Age (13-80)
+        if (/^\d+$/.test(txt)) {
+          const user = getUser(ctx.from.id);
+          const age = Number(txt);
+          
+          if (age < 13 || age > 80) {
+            return ctx.reply("Age must be between 13 and 80 ❌");
+          }
+          updateUser(ctx.from.id, { age });
+          
+          // After age is set, ask for state (no back button) - only for new users without state
+          if (!user.state && !user.age) {
+            const stateKeyboard = Markup.inlineKeyboard([
+               [Markup.button.callback("Telangana", "SETUP_STATE_TELANGANA")],
+               [Markup.button.callback("Andhra Pradesh", "SETUP_STATE_AP")]
+            ]);
+            
+            await ctx.reply(
+               "📝 *Step 3/3:* Select your state:",
+               { parse_mode: "Markdown", ...stateKeyboard }
+            );
+          } else {
+            await ctx.reply("Age updated ✅", backKeyboard);
+          }
+          return;
+        }
+
+        // ✅ State (Telangana / Andhra Pradesh)
+        if (txt === "telangana" || txt === "andhra pradesh") {
+          updateUser(ctx.from.id, { state: txt });
+          return ctx.reply("State updated ✅");
+        }
+      }
+
       return ctx.reply(
         "You are not in a chat...\n\nUse /next to find a new partner or /end to end searching."
       );
     }
+
+    /* =================================
+       CHAT FORWARDING
+    ================================= */
 
     /* =================================
        MEDIA RESTRICTION (2 minutes)
@@ -258,10 +217,6 @@ export default {
         bot.messageMap.set(partner, partnerMap);
       }
 
-      // Update chat activity timestamps for both users
-      bot.updateChatActivity(ctx.from.id);
-      bot.updateChatActivity(partner);
-
       /* =================================
          FORWARD TO SPECTATORS
       ================================= */
@@ -317,8 +272,67 @@ export default {
         );
       }
       
-      // Re-throw other errors to be handled by the event handler
-      throw error;
+      // Check if partner restricted the bot (not enough rights)
+      if (isNotEnoughRightsError(error)) {
+        console.log(`[CHAT] - Partner ${partner} restricted bot, ending chat`);
+        
+        // Clean up the chat state
+        cleanupBlockedUser(bot, partner);
+        
+        // Also remove current user from running chats
+        bot.runningChats = bot.runningChats.filter(u => u !== ctx.from.id);
+        
+        // Clean up message maps
+        bot.messageMap.delete(ctx.from.id);
+        bot.messageMap.delete(partner);
+        
+        // Report keyboard
+        const reportKeyboard = Markup.inlineKeyboard([
+            [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
+        ]);
+        
+        return ctx.reply(
+          "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
+          reportKeyboard
+        );
+      }
+      
+      // Handle rate limit errors gracefully
+      if (isRateLimitError(error)) {
+        const delay = getRetryDelay(error);
+        console.log(`[CHAT] - Rate limited, retrying after ${delay}s`);
+        
+        // Add delay before retry
+        await new Promise(resolve => setTimeout(resolve, delay * 1000));
+        
+        // Retry the message send once
+        try {
+          await ctx.copyMessage(partner);
+          return;
+        } catch (retryError: any) {
+          // If retry also fails, check if it's a block/not enough rights error
+          if (isBotBlockedError(retryError) || isNotEnoughRightsError(retryError)) {
+            cleanupBlockedUser(bot, partner);
+            bot.runningChats = bot.runningChats.filter(u => u !== ctx.from.id);
+            bot.messageMap.delete(ctx.from.id);
+            bot.messageMap.delete(partner);
+            
+            const reportKeyboard = Markup.inlineKeyboard([
+                [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
+            ]);
+            
+            return ctx.reply(
+              "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
+              reportKeyboard
+            );
+          }
+          
+          console.error(`[CHAT] - Retry failed:`, retryError?.message || retryError);
+        }
+      }
+      
+      // Log other errors but don't crash the chat
+      console.error(`[CHAT ERROR] -`, error?.message || error);
     }
   }
 } as Event;

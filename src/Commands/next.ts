@@ -1,7 +1,7 @@
 import { Context, Markup } from "telegraf";
 import { ExtraTelegraf } from "..";
 import { getGender, getUser, updateUser } from "../storage/db";
-import { cleanupBlockedUser, safeSendMessage } from "../Utils/telegramErrorHandler";
+import { sendMessageWithRetry, endChatDueToError, cleanupBlockedUser } from "../Utils/telegramErrorHandler";
 
 // Type for users in waiting queue
 interface WaitingUser {
@@ -41,13 +41,20 @@ export default {
         [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
       ]);
 
-      // Use safeSendMessage to handle blocked partners
-      await safeSendMessage(
+      // Use sendMessageWithRetry to handle blocked partners
+      const notifySent = await sendMessageWithRetry(
         bot,
         partner,
         "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
         reportKeyboard
       );
+
+      // If message failed to send, end the chat properly
+      if (!notifySent) {
+        cleanupBlockedUser(bot, partner);
+        endChatDueToError(bot, userId, partner);
+        return ctx.reply("🚫 Partner left the chat");
+      }
 
       return ctx.reply(
         "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
@@ -122,12 +129,18 @@ export default {
 
 /end — Leave the chat`;
 
-      // Use safeSendMessage to handle blocked matches
-      await safeSendMessage(
+      // Use sendMessageWithRetry to handle blocked matches
+      const matchSent = await sendMessageWithRetry(
         bot,
         match.id,
         matchPartnerInfo
       );
+
+      // If message failed to send, end the chat
+      if (!matchSent) {
+        endChatDueToError(bot, userId, match.id);
+        return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+      }
 
       return ctx.reply(userPartnerInfo);
     }

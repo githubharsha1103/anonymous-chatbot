@@ -33,8 +33,12 @@ exports.default = {
         const reportKeyboard = telegraf_1.Markup.inlineKeyboard([
             [telegraf_1.Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
         ]);
-        // Use safeSendMessage to handle blocked partners
-        yield (0, telegramErrorHandler_1.safeSendMessage)(bot, partner, "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
+        // Use sendMessageWithRetry to handle blocked partners
+        const notifySent = yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, partner, "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
+        // If message failed to send, still clean up
+        if (!notifySent && partner) {
+            (0, telegramErrorHandler_1.cleanupBlockedUser)(bot, partner);
+        }
         return ctx.reply("🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
     })
 };

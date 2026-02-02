@@ -11,9 +11,14 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.isBotBlockedError = isBotBlockedError;
 exports.isNotEnoughRightsError = isNotEnoughRightsError;
+exports.isRateLimitError = isRateLimitError;
+exports.getRetryDelay = getRetryDelay;
 exports.cleanupBlockedUser = cleanupBlockedUser;
+exports.endChatDueToError = endChatDueToError;
 exports.handleTelegramError = handleTelegramError;
 exports.safeSendMessage = safeSendMessage;
+exports.sendMessageWithRetry = sendMessageWithRetry;
+exports.broadcastWithRateLimit = broadcastWithRateLimit;
 const db_1 = require("../storage/db");
 /**
  * Check if an error is a "bot blocked by user" error (403)
@@ -25,15 +30,37 @@ function isBotBlockedError(error) {
 }
 /**
  * Check if an error is a "not enough rights" error (400)
- * This happens when user restricted bot or bot was removed from chat
+ * This happens when user restricted bot, bot was removed from chat, or no rights to send messages
  */
 function isNotEnoughRightsError(error) {
-    var _a, _b, _c;
+    var _a, _b, _c, _d, _e, _f, _g;
     return (((_a = error === null || error === void 0 ? void 0 : error.response) === null || _a === void 0 ? void 0 : _a.error_code) === 400 &&
-        ((_c = (_b = error === null || error === void 0 ? void 0 : error.response) === null || _b === void 0 ? void 0 : _b.description) === null || _c === void 0 ? void 0 : _c.includes("not enough rights")));
+        (((_c = (_b = error === null || error === void 0 ? void 0 : error.response) === null || _b === void 0 ? void 0 : _b.description) === null || _c === void 0 ? void 0 : _c.includes("not enough rights")) ||
+            ((_e = (_d = error === null || error === void 0 ? void 0 : error.response) === null || _d === void 0 ? void 0 : _d.description) === null || _e === void 0 ? void 0 : _e.includes("chat not found")) ||
+            ((_g = (_f = error === null || error === void 0 ? void 0 : error.response) === null || _f === void 0 ? void 0 : _f.description) === null || _g === void 0 ? void 0 : _g.includes("user is deactivated"))));
 }
 /**
- * Clean up user state when they block the bot
+ * Check if an error is a rate limit error (429)
+ */
+function isRateLimitError(error) {
+    var _a, _b, _c;
+    return (((_a = error === null || error === void 0 ? void 0 : error.response) === null || _a === void 0 ? void 0 : _a.error_code) === 429 ||
+        ((_c = (_b = error === null || error === void 0 ? void 0 : error.response) === null || _b === void 0 ? void 0 : _b.description) === null || _c === void 0 ? void 0 : _c.includes("Too Many Requests")));
+}
+/**
+ * Get retry delay from rate limit error (in seconds)
+ */
+function getRetryDelay(error) {
+    var _a, _b;
+    const match = (_b = (_a = error === null || error === void 0 ? void 0 : error.response) === null || _a === void 0 ? void 0 : _a.description) === null || _b === void 0 ? void 0 : _b.match(/retry after (\d+)/);
+    if (match) {
+        return parseInt(match[1], 10);
+    }
+    // Default delay if not specified
+    return 5;
+}
+/**
+ * Clean up user state when they block the bot or bot loses rights
  * This removes the user from waiting queues, active chats, etc.
  */
 function cleanupBlockedUser(bot, userId) {
@@ -43,7 +70,7 @@ function cleanupBlockedUser(bot, userId) {
     if (queueIndex !== -1) {
         bot.waitingQueue.splice(queueIndex, 1);
         cleanedUp = true;
-        console.log(`[CLEANUP] - User ${userId} removed from waiting queue (bot blocked)`);
+        console.log(`[CLEANUP] - User ${userId} removed from waiting queue`);
     }
     // Clear waiting if it was this user
     if (bot.waiting === userId) {
@@ -55,21 +82,18 @@ function cleanupBlockedUser(bot, userId) {
     if (chatIndex !== -1) {
         // Get partner before removing
         const partner = bot.getPartner(userId);
-        bot.runningChats.splice(chatIndex, 1);
-        // Remove the partner entry as well (paired entries)
-        const partnerIndex = bot.runningChats.indexOf(partner);
-        if (partnerIndex !== -1) {
-            bot.runningChats.splice(partnerIndex, 1);
-        }
+        bot.runningChats = bot.runningChats.filter(u => u !== userId && u !== partner);
         cleanedUp = true;
-        console.log(`[CLEANUP] - User ${userId} removed from running chats (bot blocked)`);
-        // Notify partner that user left
+        console.log(`[CLEANUP] - User ${userId} removed from running chats (partner: ${partner})`);
+        // Clean up message maps for both users
+        bot.messageMap.delete(userId);
         if (partner) {
-            console.log(`[CLEANUP] - Notifying partner ${partner} that user ${userId} left`);
+            bot.messageMap.delete(partner);
         }
+        return; // Partner cleanup handled, no need to notify
     }
     if (cleanedUp) {
-        console.log(`[CLEANUP] - Completed cleanup for blocked user ${userId}`);
+        console.log(`[CLEANUP] - Completed cleanup for user ${userId}`);
     }
     // Delete user data from database
     if ((0, db_1.deleteUser)(userId)) {
@@ -77,10 +101,21 @@ function cleanupBlockedUser(bot, userId) {
     }
 }
 /**
+ * End a chat properly when an error occurs with the partner
+ */
+function endChatDueToError(bot, userId, partnerId) {
+    // Remove both users from running chats
+    bot.runningChats = bot.runningChats.filter(u => u !== userId && u !== partnerId);
+    // Clean up message maps
+    bot.messageMap.delete(userId);
+    bot.messageMap.delete(partnerId);
+    console.log(`[CLEANUP] - Chat ended due to error: user ${userId}, partner ${partnerId}`);
+}
+/**
  * Handle a Telegram error, returning true if it was handled (e.g., bot blocked)
  */
 function handleTelegramError(bot, error, userId) {
-    var _a, _b;
+    var _a, _b, _c, _d;
     if (isBotBlockedError(error)) {
         const blockedUserId = userId || ((_b = (_a = error.on) === null || _a === void 0 ? void 0 : _a.payload) === null || _b === void 0 ? void 0 : _b.chat_id);
         if (blockedUserId) {
@@ -89,30 +124,145 @@ function handleTelegramError(bot, error, userId) {
         console.log(`[HANDLED] - Bot blocked by user ${blockedUserId}`);
         return true;
     }
+    if (isNotEnoughRightsError(error)) {
+        const affectedUserId = userId || ((_d = (_c = error.on) === null || _c === void 0 ? void 0 : _c.payload) === null || _d === void 0 ? void 0 : _d.chat_id);
+        if (affectedUserId) {
+            cleanupBlockedUser(bot, affectedUserId);
+        }
+        console.log(`[HANDLED] - Not enough rights error for user ${affectedUserId}`);
+        return true;
+    }
     // Log other errors but don't crash
     console.error(`[TELEGRAM ERROR] -`, error.message || error);
     return false;
 }
 /**
- * Safe send message wrapper that handles blocked user errors
+ * Rate limiter to prevent Too Many Requests errors
+ */
+const messageQueue = [];
+let isProcessingQueue = false;
+const MIN_DELAY_MS = 1000; // Minimum 1 second between messages
+let lastMessageTime = 0;
+/**
+ * Process the message queue with rate limiting
+ */
+function processMessageQueue() {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (isProcessingQueue || messageQueue.length === 0)
+            return;
+        isProcessingQueue = true;
+        while (messageQueue.length > 0) {
+            const now = Date.now();
+            const timeSinceLastMessage = now - lastMessageTime;
+            // Wait if we need to respect rate limits
+            if (timeSinceLastMessage < MIN_DELAY_MS) {
+                yield new Promise(resolve => setTimeout(resolve, MIN_DELAY_MS - timeSinceLastMessage));
+            }
+            const item = messageQueue.shift();
+            if (!item)
+                continue;
+            lastMessageTime = Date.now();
+            try {
+                const bot = require("../index").bot;
+                yield bot.telegram.sendMessage(item.chatId, item.text, item.extra);
+                item.resolve(true);
+            }
+            catch (error) {
+                if (isBotBlockedError(error)) {
+                    cleanupBlockedUser(require("../index").bot, item.chatId);
+                    item.resolve(false);
+                }
+                else if (isNotEnoughRightsError(error)) {
+                    cleanupBlockedUser(require("../index").bot, item.chatId);
+                    item.resolve(false);
+                }
+                else if (isRateLimitError(error)) {
+                    const delay = getRetryDelay(error) * 1000;
+                    console.log(`[RATE LIMIT] - Retrying after ${delay}ms`);
+                    // Put the message back at the front of the queue
+                    messageQueue.unshift(item);
+                    // Wait for the retry delay
+                    yield new Promise(resolve => setTimeout(resolve, delay));
+                }
+                else {
+                    console.error(`[SEND ERROR] -`, error.message || error);
+                    item.resolve(false);
+                }
+            }
+        }
+        isProcessingQueue = false;
+    });
+}
+/**
+ * Safe send message wrapper that handles all errors with rate limiting
  */
 function safeSendMessage(bot, chatId, text, extra) {
     return __awaiter(this, void 0, void 0, function* () {
-        try {
-            yield bot.telegram.sendMessage(chatId, text, extra);
-            return true;
-        }
-        catch (error) {
-            if (isBotBlockedError(error)) {
-                cleanupBlockedUser(bot, chatId);
-                return false;
+        return new Promise((resolve) => {
+            messageQueue.push({ chatId, text, extra, resolve });
+            processMessageQueue();
+            resolve(true); // Return immediately, actual result handled by queue
+        });
+    });
+}
+/**
+ * Send message immediately (for critical messages) with retry logic
+ */
+function sendMessageWithRetry(bot_1, chatId_1, text_1, extra_1) {
+    return __awaiter(this, arguments, void 0, function* (bot, chatId, text, extra, maxRetries = 3) {
+        let lastError;
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                yield bot.telegram.sendMessage(chatId, text, extra);
+                return true;
             }
-            if (isNotEnoughRightsError(error)) {
-                // User restricted bot or bot was removed from chat
-                cleanupBlockedUser(bot, chatId);
-                return false;
+            catch (error) {
+                lastError = error;
+                if (isBotBlockedError(error)) {
+                    cleanupBlockedUser(bot, chatId);
+                    return false;
+                }
+                if (isNotEnoughRightsError(error)) {
+                    cleanupBlockedUser(bot, chatId);
+                    return false;
+                }
+                if (isRateLimitError(error)) {
+                    const delay = getRetryDelay(error) * 1000;
+                    console.log(`[RATE LIMIT] - Retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
+                    yield new Promise(resolve => setTimeout(resolve, delay));
+                    continue;
+                }
+                // For other errors, log and continue
+                console.error(`[SEND ERROR] - Attempt ${attempt + 1}/${maxRetries}:`, error.message || error);
             }
-            throw error;
         }
+        console.error(`[SEND ERROR] - Failed after ${maxRetries} attempts:`, (lastError === null || lastError === void 0 ? void 0 : lastError.message) || lastError);
+        return false;
+    });
+}
+/**
+ * Broadcast message to multiple users with rate limiting
+ */
+function broadcastWithRateLimit(bot, userIds, text, onProgress) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let success = 0;
+        let failed = 0;
+        for (const userId of userIds) {
+            const result = yield sendMessageWithRetry(bot, userId, text);
+            if (result) {
+                success++;
+            }
+            else {
+                failed++;
+            }
+            if (onProgress) {
+                onProgress(success, failed);
+            }
+            // Add delay between broadcasts to avoid rate limits
+            if (userIds.indexOf(userId) < userIds.length - 1) {
+                yield new Promise(resolve => setTimeout(resolve, MIN_DELAY_MS));
+            }
+        }
+        return { success, failed };
     });
 }
