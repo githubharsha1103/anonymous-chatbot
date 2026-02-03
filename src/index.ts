@@ -237,5 +237,22 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   bot.launch();
 }
 
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+process.once("SIGINT", () => {
+  console.log("[INFO] - Stopping bot (SIGINT)...");
+  if (bot.botInfo) {
+    bot.stop("SIGINT");
+  } else {
+    console.log("[INFO] - Bot was not launched, skipping stop");
+  }
+  process.exit(0);
+});
+
+process.once("SIGTERM", () => {
+  console.log("[INFO] - Stopping bot (SIGTERM)...");
+  if (bot.botInfo) {
+    bot.stop("SIGTERM");
+  } else {
+    console.log("[INFO] - Bot was not launched, skipping stop");
+  }
+  process.exit(0);
+});

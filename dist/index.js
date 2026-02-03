@@ -203,5 +203,23 @@ else {
     console.log("[INFO] - Using long polling (local development)");
     exports.bot.launch();
 }
-process.once("SIGINT", () => exports.bot.stop("SIGINT"));
-process.once("SIGTERM", () => exports.bot.stop("SIGTERM"));
+process.once("SIGINT", () => {
+    console.log("[INFO] - Stopping bot (SIGINT)...");
+    if (exports.bot.botInfo) {
+        exports.bot.stop("SIGINT");
+    }
+    else {
+        console.log("[INFO] - Bot was not launched, skipping stop");
+    }
+    process.exit(0);
+});
+process.once("SIGTERM", () => {
+    console.log("[INFO] - Stopping bot (SIGTERM)...");
+    if (exports.bot.botInfo) {
+        exports.bot.stop("SIGTERM");
+    }
+    else {
+        console.log("[INFO] - Bot was not launched, skipping stop");
+    }
+    process.exit(0);
+});
