@@ -14,12 +14,14 @@ exports.isNotEnoughRightsError = isNotEnoughRightsError;
 exports.isRateLimitError = isRateLimitError;
 exports.getRetryDelay = getRetryDelay;
 exports.cleanupBlockedUser = cleanupBlockedUser;
+exports.cleanupBlockedUserAsync = cleanupBlockedUserAsync;
 exports.endChatDueToError = endChatDueToError;
 exports.handleTelegramError = handleTelegramError;
 exports.safeSendMessage = safeSendMessage;
 exports.sendMessageWithRetry = sendMessageWithRetry;
 exports.broadcastWithRateLimit = broadcastWithRateLimit;
 const db_1 = require("../storage/db");
+const telegraf_1 = require("telegraf");
 /**
  * Check if an error is a "bot blocked by user" error (403)
  */
@@ -82,7 +84,11 @@ function cleanupBlockedUser(bot, userId) {
     if (chatIndex !== -1) {
         // Get partner before removing
         const partner = bot.getPartner(userId);
-        bot.runningChats = bot.runningChats.filter(u => u !== userId && u !== partner);
+        // Remove both users from running chats (pair is broken)
+        bot.runningChats = bot.runningChats.filter(u => u !== userId);
+        if (partner) {
+            bot.runningChats = bot.runningChats.filter(u => u !== partner);
+        }
         cleanedUp = true;
         console.log(`[CLEANUP] - User ${userId} removed from running chats (partner: ${partner})`);
         // Clean up message maps for both users
@@ -90,7 +96,7 @@ function cleanupBlockedUser(bot, userId) {
         if (partner) {
             bot.messageMap.delete(partner);
         }
-        return; // Partner cleanup handled, no need to notify
+        return; // Partner cleanup handled synchronously
     }
     if (cleanedUp) {
         console.log(`[CLEANUP] - Completed cleanup for user ${userId}`);
@@ -99,6 +105,29 @@ function cleanupBlockedUser(bot, userId) {
     if ((0, db_1.deleteUser)(userId)) {
         console.log(`[CLEANUP] - Deleted user ${userId} data from database`);
     }
+}
+/**
+ * Async version of cleanupBlockedUser that also notifies the partner
+ */
+function cleanupBlockedUserAsync(bot, userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const partner = bot.getPartner(userId);
+        // First notify the partner (best effort)
+        if (partner) {
+            const reportKeyboard = telegraf_1.Markup.inlineKeyboard([
+                [telegraf_1.Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
+            ]);
+            try {
+                yield bot.telegram.sendMessage(partner, "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", Object.assign({}, reportKeyboard));
+                console.log(`[CLEANUP] - Notified partner ${partner} that user ${userId} left`);
+            }
+            catch (error) {
+                console.log(`[CLEANUP] - Could not notify partner ${partner}:`, error);
+            }
+        }
+        // Then perform cleanup
+        cleanupBlockedUser(bot, userId);
+    });
 }
 /**
  * End a chat properly when an error occurs with the partner
@@ -113,28 +142,31 @@ function endChatDueToError(bot, userId, partnerId) {
 }
 /**
  * Handle a Telegram error, returning true if it was handled (e.g., bot blocked)
+ * If partnerId is provided, the partner will be notified that the chat ended
  */
-function handleTelegramError(bot, error, userId) {
-    var _a, _b, _c, _d;
-    if (isBotBlockedError(error)) {
-        const blockedUserId = userId || ((_b = (_a = error.on) === null || _a === void 0 ? void 0 : _a.payload) === null || _b === void 0 ? void 0 : _b.chat_id);
-        if (blockedUserId) {
-            cleanupBlockedUser(bot, blockedUserId);
+function handleTelegramError(bot, error, userId, partnerId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a, _b, _c, _d;
+        if (isBotBlockedError(error)) {
+            const blockedUserId = userId || ((_b = (_a = error.on) === null || _a === void 0 ? void 0 : _a.payload) === null || _b === void 0 ? void 0 : _b.chat_id);
+            if (blockedUserId) {
+                yield cleanupBlockedUserAsync(bot, blockedUserId);
+            }
+            console.log(`[HANDLED] - Bot blocked by user ${blockedUserId}`);
+            return true;
         }
-        console.log(`[HANDLED] - Bot blocked by user ${blockedUserId}`);
-        return true;
-    }
-    if (isNotEnoughRightsError(error)) {
-        const affectedUserId = userId || ((_d = (_c = error.on) === null || _c === void 0 ? void 0 : _c.payload) === null || _d === void 0 ? void 0 : _d.chat_id);
-        if (affectedUserId) {
-            cleanupBlockedUser(bot, affectedUserId);
+        if (isNotEnoughRightsError(error)) {
+            const affectedUserId = userId || ((_d = (_c = error.on) === null || _c === void 0 ? void 0 : _c.payload) === null || _d === void 0 ? void 0 : _d.chat_id);
+            if (affectedUserId) {
+                yield cleanupBlockedUserAsync(bot, affectedUserId);
+            }
+            console.log(`[HANDLED] - Not enough rights error for user ${affectedUserId}`);
+            return true;
         }
-        console.log(`[HANDLED] - Not enough rights error for user ${affectedUserId}`);
-        return true;
-    }
-    // Log other errors but don't crash
-    console.error(`[TELEGRAM ERROR] -`, error.message || error);
-    return false;
+        // Log other errors but don't crash
+        console.error(`[TELEGRAM ERROR] -`, error.message || error);
+        return false;
+    });
 }
 /**
  * Rate limiter to prevent Too Many Requests errors
@@ -169,11 +201,11 @@ function processMessageQueue() {
             }
             catch (error) {
                 if (isBotBlockedError(error)) {
-                    cleanupBlockedUser(require("../index").bot, item.chatId);
+                    cleanupBlockedUserAsync(require("../index").bot, item.chatId);
                     item.resolve(false);
                 }
                 else if (isNotEnoughRightsError(error)) {
-                    cleanupBlockedUser(require("../index").bot, item.chatId);
+                    cleanupBlockedUserAsync(require("../index").bot, item.chatId);
                     item.resolve(false);
                 }
                 else if (isRateLimitError(error)) {
@@ -219,11 +251,11 @@ function sendMessageWithRetry(bot_1, chatId_1, text_1, extra_1) {
             catch (error) {
                 lastError = error;
                 if (isBotBlockedError(error)) {
-                    cleanupBlockedUser(bot, chatId);
+                    yield cleanupBlockedUserAsync(bot, chatId);
                     return false;
                 }
                 if (isNotEnoughRightsError(error)) {
-                    cleanupBlockedUser(bot, chatId);
+                    yield cleanupBlockedUserAsync(bot, chatId);
                     return false;
                 }
                 if (isRateLimitError(error)) {

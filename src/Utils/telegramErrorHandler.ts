@@ -1,5 +1,6 @@
 import { ExtraTelegraf } from "../index";
 import { deleteUser } from "../storage/db";
+import { Markup } from "telegraf";
 
 /**
  * Telegram API Error types
@@ -87,7 +88,12 @@ export function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): void {
   if (chatIndex !== -1) {
     // Get partner before removing
     const partner = bot.getPartner(userId);
-    bot.runningChats = bot.runningChats.filter(u => u !== userId && u !== partner);
+    
+    // Remove both users from running chats (pair is broken)
+    bot.runningChats = bot.runningChats.filter(u => u !== userId);
+    if (partner) {
+      bot.runningChats = bot.runningChats.filter(u => u !== partner);
+    }
     
     cleanedUp = true;
     console.log(`[CLEANUP] - User ${userId} removed from running chats (partner: ${partner})`);
@@ -98,7 +104,7 @@ export function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): void {
       bot.messageMap.delete(partner);
     }
 
-    return; // Partner cleanup handled, no need to notify
+    return; // Partner cleanup handled synchronously
   }
 
   if (cleanedUp) {
@@ -109,6 +115,34 @@ export function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): void {
   if (deleteUser(userId)) {
     console.log(`[CLEANUP] - Deleted user ${userId} data from database`);
   }
+}
+
+/**
+ * Async version of cleanupBlockedUser that also notifies the partner
+ */
+export async function cleanupBlockedUserAsync(bot: ExtraTelegraf, userId: number): Promise<void> {
+  const partner = bot.getPartner(userId);
+  
+  // First notify the partner (best effort)
+  if (partner) {
+    const reportKeyboard = Markup.inlineKeyboard([
+      [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
+    ]);
+    
+    try {
+      await bot.telegram.sendMessage(
+        partner,
+        "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
+        { ...reportKeyboard }
+      );
+      console.log(`[CLEANUP] - Notified partner ${partner} that user ${userId} left`);
+    } catch (error) {
+      console.log(`[CLEANUP] - Could not notify partner ${partner}:`, error);
+    }
+  }
+  
+  // Then perform cleanup
+  cleanupBlockedUser(bot, userId);
 }
 
 /**
@@ -127,16 +161,18 @@ export function endChatDueToError(bot: ExtraTelegraf, userId: number, partnerId:
 
 /**
  * Handle a Telegram error, returning true if it was handled (e.g., bot blocked)
+ * If partnerId is provided, the partner will be notified that the chat ended
  */
-export function handleTelegramError(
+export async function handleTelegramError(
   bot: ExtraTelegraf,
   error: any,
-  userId?: number
-): boolean {
+  userId?: number,
+  partnerId?: number
+): Promise<boolean> {
   if (isBotBlockedError(error)) {
     const blockedUserId = userId || error.on?.payload?.chat_id;
     if (blockedUserId) {
-      cleanupBlockedUser(bot, blockedUserId);
+      await cleanupBlockedUserAsync(bot, blockedUserId);
     }
     console.log(`[HANDLED] - Bot blocked by user ${blockedUserId}`);
     return true;
@@ -145,7 +181,7 @@ export function handleTelegramError(
   if (isNotEnoughRightsError(error)) {
     const affectedUserId = userId || error.on?.payload?.chat_id;
     if (affectedUserId) {
-      cleanupBlockedUser(bot, affectedUserId);
+      await cleanupBlockedUserAsync(bot, affectedUserId);
     }
     console.log(`[HANDLED] - Not enough rights error for user ${affectedUserId}`);
     return true;
@@ -195,10 +231,10 @@ async function processMessageQueue(): Promise<void> {
       item.resolve(true);
     } catch (error: any) {
       if (isBotBlockedError(error)) {
-        cleanupBlockedUser(require("../index").bot, item.chatId);
+        cleanupBlockedUserAsync(require("../index").bot, item.chatId);
         item.resolve(false);
       } else if (isNotEnoughRightsError(error)) {
-        cleanupBlockedUser(require("../index").bot, item.chatId);
+        cleanupBlockedUserAsync(require("../index").bot, item.chatId);
         item.resolve(false);
       } else if (isRateLimitError(error)) {
         const delay = getRetryDelay(error) * 1000;
@@ -255,12 +291,12 @@ export async function sendMessageWithRetry(
       lastError = error;
       
       if (isBotBlockedError(error)) {
-        cleanupBlockedUser(bot, chatId);
+        await cleanupBlockedUserAsync(bot, chatId);
         return false;
       }
       
       if (isNotEnoughRightsError(error)) {
-        cleanupBlockedUser(bot, chatId);
+        await cleanupBlockedUserAsync(bot, chatId);
         return false;
       }
       
