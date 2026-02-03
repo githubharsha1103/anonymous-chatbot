@@ -20,7 +20,6 @@ exports.handleTelegramError = handleTelegramError;
 exports.safeSendMessage = safeSendMessage;
 exports.sendMessageWithRetry = sendMessageWithRetry;
 exports.broadcastWithRateLimit = broadcastWithRateLimit;
-const db_1 = require("../storage/db");
 const telegraf_1 = require("telegraf");
 /**
  * Check if an error is a "bot blocked by user" error (403)
@@ -101,10 +100,7 @@ function cleanupBlockedUser(bot, userId) {
     if (cleanedUp) {
         console.log(`[CLEANUP] - Completed cleanup for user ${userId}`);
     }
-    // Delete user data from database
-    if ((0, db_1.deleteUser)(userId)) {
-        console.log(`[CLEANUP] - Deleted user ${userId} data from database`);
-    }
+    // Note: User data is NOT deleted from database to preserve statistics
 }
 /**
  * Async version of cleanupBlockedUser that also notifies the partner

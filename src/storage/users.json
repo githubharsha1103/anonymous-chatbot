@@ -37,12 +37,12 @@
     "daily": 0,
     "preference": "any",
     "state": "telangana",
-    "reportingPartner": 1257152666,
+    "reportingPartner": 1745352433,
     "reportReason": null,
-    "lastPartner": 1257152666,
-    "isAdminAuthenticated": true,
+    "lastPartner": 1745352433,
+    "isAdminAuthenticated": false,
     "name": "demonhunter1511",
-    "chatStartTime": 1770031921169
+    "chatStartTime": 1770116126564
   },
   "1177924639": {
     "gender": "male",
@@ -109,6 +109,20 @@
     "reportingPartner": null,
     "reportReason": null,
     "isAdminAuthenticated": false
+  },
+  "1745352433": {
+    "name": null,
+    "gender": null,
+    "age": null,
+    "state": null,
+    "premium": false,
+    "daily": 0,
+    "preference": "any",
+    "lastPartner": 1130645873,
+    "reportingPartner": 1130645873,
+    "reportReason": null,
+    "isAdminAuthenticated": false,
+    "chatStartTime": 1770116126566
   },
   "5998321235": {
     "gender": "male",
@@ -420,6 +434,21 @@
     "reportReason": null,
     "isAdminAuthenticated": false,
     "chatStartTime": 1770030562261,
+    "isNew": true
+  },
+  "8294452627": {
+    "name": "vky10000",
+    "gender": null,
+    "age": null,
+    "state": null,
+    "premium": false,
+    "daily": 0,
+    "preference": "any",
+    "lastPartner": null,
+    "reportingPartner": null,
+    "reportReason": null,
+    "isAdminAuthenticated": false,
+    "chatStartTime": null,
     "isNew": true
   }
 }

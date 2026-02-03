@@ -1,5 +1,4 @@
 import { ExtraTelegraf } from "../index";
-import { deleteUser } from "../storage/db";
 import { Markup } from "telegraf";
 
 /**
@@ -111,10 +110,7 @@ export function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): void {
     console.log(`[CLEANUP] - Completed cleanup for user ${userId}`);
   }
 
-  // Delete user data from database
-  if (deleteUser(userId)) {
-    console.log(`[CLEANUP] - Deleted user ${userId} data from database`);
-  }
+  // Note: User data is NOT deleted from database to preserve statistics
 }
 
 /**
