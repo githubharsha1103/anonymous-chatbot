@@ -60,8 +60,11 @@ async function getUsersCollection(): Promise<Collection<User>> {
 // Fallback to JSON for local development without MongoDB
 const JSON_FILE = "src/storage/users.json";
 const BANS_FILE = "src/storage/bans.json";
-let useMongoDB = true;
-let isFallbackMode = false;
+
+// Set to false to use JSON file storage (for Render.com without MongoDB Atlas)
+// Set to true to use MongoDB (requires MONGODB_URI environment variable)
+let useMongoDB = false;
+let isFallbackMode = true;
 
 // ==================== USER FUNCTIONS ====================
 
