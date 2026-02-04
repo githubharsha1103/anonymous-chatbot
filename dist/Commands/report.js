@@ -28,7 +28,7 @@ exports.default = {
     execute: (ctx, bot) => __awaiter(void 0, void 0, void 0, function* () {
         if (!ctx.from)
             return;
-        const user = (0, db_1.getUser)(ctx.from.id);
+        const user = yield (0, db_1.getUser)(ctx.from.id);
         let partnerId = null;
         let message = "Select a reason to report:";
         // If user is in a chat, report current partner
@@ -45,7 +45,7 @@ exports.default = {
             return ctx.reply("You haven't chatted with anyone yet.");
         }
         // Store the partner ID for this report session
-        (0, db_1.updateUser)(ctx.from.id, { reportingPartner: partnerId });
+        yield (0, db_1.updateUser)(ctx.from.id, { reportingPartner: partnerId });
         return ctx.reply(message, reportReasons);
     })
 };

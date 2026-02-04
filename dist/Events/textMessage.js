@@ -36,13 +36,13 @@ exports.default = {
             return;
         /* ================================
            ADMIN BROADCAST HANDLER
-        ================================= */
+         ================================= */
         // Check if admin is waiting to broadcast
         if (adminaccess_1.waitingForBroadcast.has(ctx.from.id)) {
             // Remove from waiting list
             adminaccess_1.waitingForBroadcast.delete(ctx.from.id);
             const broadcastText = text || "(No message content)";
-            const users = (0, db_1.getAllUsers)();
+            const users = yield (0, db_1.getAllUsers)();
             if (users.length === 0) {
                 return ctx.reply("📢 *Broadcast Result*\n\n❌ No users to broadcast to.");
             }
@@ -67,22 +67,22 @@ exports.default = {
                 const txt = text.toLowerCase();
                 // ✅ Gender
                 if (txt === "male" || txt === "female") {
-                    (0, db_1.updateUser)(ctx.from.id, { gender: txt });
+                    yield (0, db_1.updateUser)(ctx.from.id, { gender: txt });
                     return ctx.reply("Gender updated ✅");
                 }
                 // ✅ Preference
                 if (txt === "any") {
-                    (0, db_1.updateUser)(ctx.from.id, { preference: txt });
+                    yield (0, db_1.updateUser)(ctx.from.id, { preference: txt });
                     return ctx.reply("Preference updated ✅");
                 }
                 // ✅ Age (13-80)
                 if (/^\d+$/.test(txt)) {
-                    const user = (0, db_1.getUser)(ctx.from.id);
+                    const user = yield (0, db_1.getUser)(ctx.from.id);
                     const age = Number(txt);
                     if (age < 13 || age > 80) {
                         return ctx.reply("Age must be between 13 and 80 ❌");
                     }
-                    (0, db_1.updateUser)(ctx.from.id, { age });
+                    yield (0, db_1.updateUser)(ctx.from.id, { age: String(age) });
                     // After age is set, ask for state (no back button) - only for new users without state
                     if (!user.state && !user.age) {
                         const stateKeyboard = telegraf_1.Markup.inlineKeyboard([
@@ -98,7 +98,7 @@ exports.default = {
                 }
                 // ✅ State (Telangana / Andhra Pradesh)
                 if (txt === "telangana" || txt === "andhra pradesh") {
-                    (0, db_1.updateUser)(ctx.from.id, { state: txt });
+                    yield (0, db_1.updateUser)(ctx.from.id, { state: txt });
                     return ctx.reply("State updated ✅");
                 }
             }
@@ -119,7 +119,7 @@ exports.default = {
             "video_note" in ctx.message ||
             "sticker" in ctx.message;
         if (isMedia) {
-            const user = (0, db_1.getUser)(ctx.from.id);
+            const user = yield (0, db_1.getUser)(ctx.from.id);
             const chatStartTime = user.chatStartTime;
             if (chatStartTime) {
                 const elapsed = (Date.now() - chatStartTime) / 1000; // in seconds

@@ -62,7 +62,7 @@ export default {
             return ctx.reply("🚫 You are not authorized to access the admin panel.");
         }
 
-        updateUser(userId, { isAdminAuthenticated: true });
+        await updateUser(userId, { isAdminAuthenticated: true });
         return ctx.reply(
             "🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:",
             { parse_mode: "Markdown", ...mainKeyboard }
@@ -71,10 +71,23 @@ export default {
 } as Command;
 
 export function initAdminActions(bot: ExtraTelegraf) {
+    // Safe editMessageText that ignores "not modified" error
+    async function safeEditMessageText(ctx: any, text: string, extra?: any) {
+        try {
+            await ctx.editMessageText(text, extra);
+        } catch (error: any) {
+            // Ignore "message is not modified" error
+            if (!error.message?.includes("not modified")) {
+                console.error("[ADMIN ERROR] -", error.message || error);
+            }
+        }
+    }
+
     // Back to main menu
     bot.action("ADMIN_BACK", async (ctx) => {
         await safeAnswerCbQuery(ctx);
-        await ctx.editMessageText(
+        await safeEditMessageText(
+            ctx,
             "🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:",
             { parse_mode: "Markdown", ...mainKeyboard }
         );
@@ -91,7 +104,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
     // View bans
     bot.action("ADMIN_BANS", async (ctx) => {
         await safeAnswerCbQuery(ctx);
-        const bans = readBans();
+        const bans = await readBans();
         if (bans.length === 0) {
             await ctx.editMessageText(
                 "🚫 *Banned Users*\n\nNo users are currently banned.\n\nUse the button below to return to menu.",
@@ -109,8 +122,8 @@ export function initAdminActions(bot: ExtraTelegraf) {
     // View stats
     bot.action("ADMIN_STATS", async (ctx) => {
         await safeAnswerCbQuery(ctx);
-        const allUsers = getAllUsers();
-        const bans = readBans();
+        const allUsers = await getAllUsers();
+        const bans = await readBans();
         
         // Get total chats from bot instance
         const totalChats = bot.totalChats || 0;
@@ -253,7 +266,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
     bot.action("ADMIN_LOGOUT", async (ctx) => {
         await safeAnswerCbQuery(ctx);
         if (!ctx.from) return;
-        updateUser(ctx.from.id, { isAdminAuthenticated: false });
+        await updateUser(ctx.from.id, { isAdminAuthenticated: false });
         await ctx.editMessageText(
             "🔐 *Admin Panel*\n\nYou have been logged out.",
             { parse_mode: "Markdown" }
@@ -281,7 +294,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await safeAnswerCbQuery(ctx);
         const userId = parseInt(ctx.match[1]);
         const reason = "Banned by admin";
-        banUser(userId);
+        await banUser(userId);
         await showUserDetails(ctx, userId);
     });
 
@@ -289,7 +302,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
     bot.action(/ADMIN_UNBAN_USER_(\d+)/, async (ctx) => {
         await safeAnswerCbQuery(ctx);
         const userId = parseInt(ctx.match[1]);
-        unbanUser(userId);
+        await unbanUser(userId);
         await showUserDetails(ctx, userId);
     });
 
@@ -297,7 +310,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
     bot.action(/ADMIN_GRANT_PREMIUM_(\d+)/, async (ctx) => {
         await safeAnswerCbQuery(ctx, "Premium granted ✅");
         const userId = parseInt(ctx.match[1]);
-        updateUser(userId, { premium: true });
+        await updateUser(userId, { premium: true });
         await showUserDetails(ctx, userId);
     });
 
@@ -305,7 +318,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
     bot.action(/ADMIN_REVOKE_PREMIUM_(\d+)/, async (ctx) => {
         await safeAnswerCbQuery(ctx, "Premium revoked ❌");
         const userId = parseInt(ctx.match[1]);
-        updateUser(userId, { premium: false });
+        await updateUser(userId, { premium: false });
         await showUserDetails(ctx, userId);
     });
 
@@ -313,7 +326,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
     bot.action(/ADMIN_DELETE_USER_(\d+)/, async (ctx) => {
         await safeAnswerCbQuery(ctx, "User deleted ❌");
         const userId = parseInt(ctx.match[1]);
-        deleteUser(userId);
+        await deleteUser(userId, "admin_action");
         
         // Return to users list
         await showUsersPage(ctx, 0);
@@ -341,7 +354,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
     bot.action(/ADMIN_RESET_CHATS_(\d+)/, async (ctx) => {
         await safeAnswerCbQuery(ctx, "Chats reset ✅");
         const userId = parseInt(ctx.match[1]);
-        updateUser(userId, { daily: 0 });
+        await updateUser(userId, { daily: 0 });
         await showUserDetails(ctx, userId);
     });
 
@@ -349,13 +362,13 @@ export function initAdminActions(bot: ExtraTelegraf) {
     bot.action(/ADMIN_RESET_REPORTS_(\d+)/, async (ctx) => {
         await safeAnswerCbQuery(ctx, "Reports reset ✅");
         const userId = parseInt(ctx.match[1]);
-        updateUser(userId, { reportCount: 0, reportingPartner: null, reportReason: null });
+        await updateUser(userId, { reportCount: 0, reportingPartner: null, reportReason: null });
         await showUserDetails(ctx, userId);
     });
 }
 
 async function showUsersPage(ctx: any, page: number) {
-    const allUsers = getAllUsers();
+    const allUsers = await getAllUsers();
     const usersPerPage = 10;
     const totalPages = Math.ceil(allUsers.length / usersPerPage);
     const start = page * usersPerPage;
@@ -364,7 +377,7 @@ async function showUsersPage(ctx: any, page: number) {
     
     const userButtons = await Promise.all(pageUsers.map(async (id: string) => {
         const userId = parseInt(id);
-        const user = getUser(userId);
+        const user = await getUser(userId);
         
         // Use saved name or try to get from Telegram
         let name = user.name;
@@ -377,7 +390,7 @@ async function showUsersPage(ctx: any, page: number) {
             }
         }
         
-        const status = isBanned(userId) ? "🚫" : "✅";
+        const status = (await isBanned(userId)) ? "🚫" : "✅";
         return [Markup.button.callback(`${status} ${name} (${id})`, `ADMIN_USER_${id}`)];
     }));
     
@@ -398,13 +411,16 @@ async function showUsersPage(ctx: any, page: number) {
     const text = `👥 *All Users* (${allUsers.length})\n\nPage ${page + 1}/${totalPages}\n\nClick on a user to view details.`;
     try {
         await ctx.editMessageText(text, { parse_mode: "Markdown", ...keyboard });
-    } catch (e) {
+    } catch (e: any) {
         // Ignore "message is not modified" error
+        if (!e.message?.includes("not modified")) {
+            console.error("[ADMIN ERROR] -", e.message || e);
+        }
     }
 }
 
 async function showUserDetails(ctx: any, userId: number) {
-    const user = getUser(userId);
+    const user = await getUser(userId);
     if (!user) {
         await ctx.editMessageText(
             "User not found.",
@@ -428,9 +444,9 @@ async function showUserDetails(ctx: any, userId: number) {
     const age = user.age || "Not set";
     const state = user.state || "Not set";
     const totalChats = user.totalChats || 0;
-    const reports = getReportCount(userId);
-    const banReason = getBanReason(userId);
-    const isUserBanned = isBanned(userId);
+    const reports = await getReportCount(userId);
+    const banReason = await getBanReason(userId);
+    const isUserBanned = await isBanned(userId);
 
     let details = `👤 *User Details*\n\n` +
         `🆔 User ID: \`${userId}\`\n` +

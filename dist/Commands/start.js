@@ -31,9 +31,9 @@ exports.default = {
         const userId = (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id;
         // Save user's username if available
         const username = ((_b = ctx.from) === null || _b === void 0 ? void 0 : _b.username) || ((_c = ctx.from) === null || _c === void 0 ? void 0 : _c.first_name) || "Unknown";
-        (0, db_1.updateUser)(userId, { name: username });
+        yield (0, db_1.updateUser)(userId, { name: username });
         // Check if user is new and increment user count
-        const user = (0, db_1.getUser)(userId);
+        const user = yield (0, db_1.getUser)(userId);
         if (user.isNew) {
             bot.incrementUserCount();
             // New user - show profile setup (Gender → Age → State)

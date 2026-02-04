@@ -17,79 +17,94 @@ export default {
   execute: async (ctx: Context, bot: ExtraTelegraf) => {
 
     const userId = ctx.from?.id as number;
-    const gender = getGender(userId);
-    
-    if (!gender) {
-      return ctx.reply("Set gender first using /setgender");
+
+    // Check rate limit
+    if (bot.isRateLimited(userId)) {
+      return ctx.reply("⏳ Please wait a few seconds before searching again.");
     }
 
-    if (bot.runningChats.includes(userId)) {
-      return ctx.reply(
-        "You are already in a chat!\n\nUse /end to leave the chat or use /next to skip the current chat."
-      );
+    // Check queue size limit
+    if (bot.isQueueFull()) {
+      return ctx.reply("🚫 Queue is full. Please try again later.");
     }
 
-    // Check if already in queue
-    if (bot.waitingQueue.some(w => w.id === userId)) {
-      return ctx.reply("You are already in the queue!");
-    }
+    // Acquire mutex to prevent race conditions
+    await bot.queueMutex.acquire();
 
-    // Get user info and preference
-    const user = getUser(userId);
-    const preference = user.preference || "any";
-    const isPremium = user.premium || false;
-
-    // Find a compatible match from the queue
-    const matchIndex = bot.waitingQueue.findIndex(waiting => {
-      const w = waiting as WaitingUser;
+    try {
+      const gender = await getGender(userId);
       
-      // If current user has preference, check if waiting user's gender matches
-      const currentUserSatisfied = 
-        preference === "any" || preference === w.gender;
-      
-      // If waiting user has preference, check if current user's gender matches
-      const waitingUserSatisfied = 
-        w.preference === "any" || w.preference === gender;
-      
-      // Premium user preference takes priority:
-      // If current user is premium with a specific preference, match even if waiting user has no preference
-      const premiumPriority = isPremium && preference !== "any" && preference === w.gender;
-      
-      // If waiting user is premium with a specific preference, match even if current user has no preference
-      const waitingPremiumPriority = w.isPremium && w.preference !== "any" && w.preference === gender;
-      
-      return (currentUserSatisfied && waitingUserSatisfied) || premiumPriority || waitingPremiumPriority;
-    });
-
-    if (matchIndex !== -1) {
-      const match = bot.waitingQueue[matchIndex] as WaitingUser;
-      const matchUser = getUser(match.id);
-      bot.waitingQueue.splice(matchIndex, 1);
-
-      bot.runningChats.push(match.id, userId);
-
-      // Store last partner for both users
-      updateUser(userId, { lastPartner: match.id });
-      updateUser(match.id, { lastPartner: userId });
-
-      // Store chat start time for media restriction (2 minutes)
-      const chatStartTime = Date.now();
-      updateUser(userId, { chatStartTime });
-      updateUser(match.id, { chatStartTime });
-
-      // Clear waiting if it was this user
-      if (bot.waiting === match.id) {
-        bot.waiting = null;
+      if (!gender) {
+        return ctx.reply("Set gender first using /setgender");
       }
 
-      // Increment chat count
-      bot.incrementChatCount();
+      if (bot.runningChats.includes(userId)) {
+        return ctx.reply(
+          "You are already in a chat!\n\nUse /end to leave the chat or use /next to skip the current chat."
+        );
+      }
 
-      // Build partner info message
-      const partnerGender = isPremium ? (matchUser.gender ? matchUser.gender.charAt(0).toUpperCase() + matchUser.gender.slice(1) : "Not Set") : "Available with Premium";
-      const partnerAge = matchUser.age || "Not Set";
-      
-      const userPartnerInfo = 
+      // Check if already in queue
+      if (bot.waitingQueue.some(w => w.id === userId)) {
+        return ctx.reply("You are already in the queue!");
+      }
+
+      // Get user info and preference
+      const user = await getUser(userId);
+      const preference = user.preference || "any";
+      const isPremium = user.premium || false;
+
+      // Find a compatible match from the queue
+      const matchIndex = bot.waitingQueue.findIndex(waiting => {
+        const w = waiting as WaitingUser;
+        
+        // If current user has preference, check if waiting user's gender matches
+        const currentUserSatisfied = 
+          preference === "any" || preference === w.gender;
+        
+        // If waiting user has preference, check if current user's gender matches
+        const waitingUserSatisfied = 
+          w.preference === "any" || w.preference === gender;
+        
+        // Premium user preference takes priority:
+        // If current user is premium with a specific preference, match even if waiting user has no preference
+        const premiumPriority = isPremium && preference !== "any" && preference === w.gender;
+        
+        // If waiting user is premium with a specific preference, match even if current user has no preference
+        const waitingPremiumPriority = w.isPremium && w.preference !== "any" && w.preference === gender;
+        
+        return (currentUserSatisfied && waitingUserSatisfied) || premiumPriority || waitingPremiumPriority;
+      });
+
+      if (matchIndex !== -1) {
+        const match = bot.waitingQueue[matchIndex] as WaitingUser;
+        const matchUser = await getUser(match.id);
+        bot.waitingQueue.splice(matchIndex, 1);
+
+        bot.runningChats.push(match.id, userId);
+
+        // Store last partner for both users
+        await updateUser(userId, { lastPartner: match.id });
+        await updateUser(match.id, { lastPartner: userId });
+
+        // Store chat start time for media restriction (2 minutes)
+        const chatStartTime = Date.now();
+        await updateUser(userId, { chatStartTime });
+        await updateUser(match.id, { chatStartTime });
+
+        // Clear waiting if it was this user
+        if (bot.waiting === match.id) {
+          bot.waiting = null;
+        }
+
+        // Increment chat count
+        bot.incrementChatCount();
+
+        // Build partner info message
+        const partnerGender = isPremium ? (matchUser.gender ? matchUser.gender.charAt(0).toUpperCase() + matchUser.gender.slice(1) : "Not Set") : "Available with Premium";
+        const partnerAge = matchUser.age || "Not Set";
+        
+        const userPartnerInfo = 
 `✅ Partner Matched
 
 🔢 Age: ${partnerAge}
@@ -101,7 +116,7 @@ export default {
 
 /end — Leave the chat`;
 
-      const matchPartnerInfo = 
+        const matchPartnerInfo = 
 `✅ Partner Matched
 
 🔢 Age: ${user.age || "Not Set"}
@@ -113,25 +128,29 @@ export default {
 
 /end — Leave the chat`;
 
-      // Use sendMessageWithRetry to handle blocked partners
-      const matchSent = await sendMessageWithRetry(
-        bot,
-        match.id,
-        matchPartnerInfo
-      );
+        // Use sendMessageWithRetry to handle blocked partners
+        const matchSent = await sendMessageWithRetry(
+          bot,
+          match.id,
+          matchPartnerInfo
+        );
 
-      // If message failed to send (partner blocked/removed bot), end the chat
-      if (!matchSent) {
-        endChatDueToError(bot, userId, match.id);
-        return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+        // If message failed to send (partner blocked/removed bot), end the chat
+        if (!matchSent) {
+          endChatDueToError(bot, userId, match.id);
+          return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+        }
+
+        return ctx.reply(userPartnerInfo);
       }
 
-      return ctx.reply(userPartnerInfo);
+      // No match found, add to queue
+      bot.waitingQueue.push({ id: userId, preference, gender, isPremium } as WaitingUser);
+      bot.waiting = userId;
+      return ctx.reply("⏳ Waiting for a partner...");
+    } finally {
+      // Always release the mutex
+      bot.queueMutex.release();
     }
-
-    // No match found, add to queue
-    bot.waitingQueue.push({ id: userId, preference, gender, isPremium } as WaitingUser);
-    bot.waiting = userId;
-    return ctx.reply("⏳ Waiting for a partner...");
   }
 };

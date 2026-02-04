@@ -111,7 +111,7 @@ function showSettings(ctx) {
         var _a, _b, _c;
         if (!ctx.from)
             return;
-        const u = (0, db_1.getUser)(ctx.from.id);
+        const u = yield (0, db_1.getUser)(ctx.from.id);
         const text = `⚙ Settings
 
 👤 Gender: ${(_a = u.gender) !== null && _a !== void 0 ? _a : "Not Set"}
@@ -169,14 +169,14 @@ index_1.bot.action("SET_GENDER", (ctx) => __awaiter(void 0, void 0, void 0, func
 index_1.bot.action("GENDER_MALE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!ctx.from)
         return;
-    (0, db_1.updateUser)(ctx.from.id, { gender: "male" });
+    yield (0, db_1.updateUser)(ctx.from.id, { gender: "male" });
     yield safeAnswerCbQuery(ctx, "Gender set to Male ✅");
     yield showSettings(ctx);
 }));
 index_1.bot.action("GENDER_FEMALE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!ctx.from)
         return;
-    (0, db_1.updateUser)(ctx.from.id, { gender: "female" });
+    yield (0, db_1.updateUser)(ctx.from.id, { gender: "female" });
     yield safeAnswerCbQuery(ctx, "Gender set to Female ✅");
     yield showSettings(ctx);
 }));
@@ -193,14 +193,14 @@ index_1.bot.action("SET_STATE", (ctx) => __awaiter(void 0, void 0, void 0, funct
 index_1.bot.action("STATE_TELANGANA", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!ctx.from)
         return;
-    (0, db_1.updateUser)(ctx.from.id, { state: "telangana" });
+    yield (0, db_1.updateUser)(ctx.from.id, { state: "telangana" });
     yield safeAnswerCbQuery(ctx, "State set to Telangana ✅");
     yield showSettings(ctx);
 }));
 index_1.bot.action("STATE_AP", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!ctx.from)
         return;
-    (0, db_1.updateUser)(ctx.from.id, { state: "andhra pradesh" });
+    yield (0, db_1.updateUser)(ctx.from.id, { state: "andhra pradesh" });
     yield safeAnswerCbQuery(ctx, "State set to Andhra Pradesh ✅");
     yield showSettings(ctx);
 }));
@@ -213,25 +213,25 @@ index_1.bot.action("SET_PREFERENCE", (ctx) => __awaiter(void 0, void 0, void 0, 
 index_1.bot.action("PREF_MALE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!ctx.from)
         return;
-    const user = (0, db_1.getUser)(ctx.from.id);
+    const user = yield (0, db_1.getUser)(ctx.from.id);
     if (!user.premium) {
         yield safeAnswerCbQuery(ctx);
         return ctx.reply(premiumMessage, { parse_mode: "Markdown" });
     }
     yield safeAnswerCbQuery(ctx, "Preference saved: Male ✅");
-    (0, db_1.updateUser)(ctx.from.id, { preference: "male" });
+    yield (0, db_1.updateUser)(ctx.from.id, { preference: "male" });
     yield showSettings(ctx);
 }));
 index_1.bot.action("PREF_FEMALE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!ctx.from)
         return;
-    const user = (0, db_1.getUser)(ctx.from.id);
+    const user = yield (0, db_1.getUser)(ctx.from.id);
     if (!user.premium) {
         yield safeAnswerCbQuery(ctx);
         return ctx.reply(premiumMessage, { parse_mode: "Markdown" });
     }
     yield safeAnswerCbQuery(ctx, "Preference saved: Female ✅");
-    (0, db_1.updateUser)(ctx.from.id, { preference: "female" });
+    yield (0, db_1.updateUser)(ctx.from.id, { preference: "female" });
     yield showSettings(ctx);
 }));
 // Buy premium action
@@ -268,14 +268,14 @@ index_1.bot.action("OPEN_REPORT", (ctx) => __awaiter(void 0, void 0, void 0, fun
     yield safeAnswerCbQuery(ctx);
     if (!ctx.from)
         return;
-    const user = (0, db_1.getUser)(ctx.from.id);
+    const user = yield (0, db_1.getUser)(ctx.from.id);
     let partnerId = user.reportingPartner || user.lastPartner;
     let message = "Select a reason to report:";
     if (!partnerId) {
         return ctx.editMessageText("No user to report. Start a chat first.", backKeyboard);
     }
     // Store the partner ID for reporting
-    (0, db_1.updateUser)(ctx.from.id, { reportingPartner: partnerId });
+    yield (0, db_1.updateUser)(ctx.from.id, { reportingPartner: partnerId });
     return ctx.editMessageText(message, reportReasons);
 }));
 // Report reason handlers
@@ -290,13 +290,13 @@ for (const [action, reason] of Object.entries(reportReasonsMap)) {
         yield safeAnswerCbQuery(ctx);
         if (!ctx.from)
             return;
-        const user = (0, db_1.getUser)(ctx.from.id);
+        const user = yield (0, db_1.getUser)(ctx.from.id);
         const partnerId = user.reportingPartner;
         if (!partnerId) {
             return ctx.editMessageText("No user to report.", backKeyboard);
         }
         // Store the report reason temporarily
-        (0, db_1.updateUser)(ctx.from.id, { reportReason: reason });
+        yield (0, db_1.updateUser)(ctx.from.id, { reportReason: reason });
         return ctx.editMessageText(`Report reason: ${reason}\n\nAre you sure you want to report this user?`, confirmKeyboard);
     }));
 }
@@ -305,7 +305,7 @@ index_1.bot.action("REPORT_CONFIRM", (ctx) => __awaiter(void 0, void 0, void 0, 
     yield safeAnswerCbQuery(ctx);
     if (!ctx.from)
         return;
-    const user = (0, db_1.getUser)(ctx.from.id);
+    const user = yield (0, db_1.getUser)(ctx.from.id);
     const partnerId = user.reportingPartner;
     const reportReason = user.reportReason;
     if (!partnerId || !reportReason) {
@@ -328,7 +328,7 @@ index_1.bot.action("REPORT_CONFIRM", (ctx) => __awaiter(void 0, void 0, void 0, 
         }
     }
     // Clear report data
-    (0, db_1.updateUser)(ctx.from.id, { reportingPartner: null, reportReason: null });
+    yield (0, db_1.updateUser)(ctx.from.id, { reportingPartner: null, reportReason: null });
 }));
 // Cancel report
 index_1.bot.action("REPORT_CANCEL", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
@@ -336,7 +336,7 @@ index_1.bot.action("REPORT_CANCEL", (ctx) => __awaiter(void 0, void 0, void 0, f
     if (!ctx.from)
         return;
     // Clear report data
-    (0, db_1.updateUser)(ctx.from.id, { reportingPartner: null, reportReason: null });
+    yield (0, db_1.updateUser)(ctx.from.id, { reportingPartner: null, reportReason: null });
     return ctx.editMessageText("Report cancelled.", backKeyboard);
 }));
 // ========================================
@@ -347,14 +347,14 @@ index_1.bot.action("SETUP_GENDER_MALE", (ctx) => __awaiter(void 0, void 0, void 
     if (!ctx.from)
         return;
     yield safeAnswerCbQuery(ctx);
-    (0, db_1.updateUser)(ctx.from.id, { gender: "male" });
+    yield (0, db_1.updateUser)(ctx.from.id, { gender: "male" });
     yield ctx.editMessageText("📝 *Step 2/3:* Please enter your age (13-80):", Object.assign({ parse_mode: "Markdown" }, ageInputKeyboard));
 }));
 index_1.bot.action("SETUP_GENDER_FEMALE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!ctx.from)
         return;
     yield safeAnswerCbQuery(ctx);
-    (0, db_1.updateUser)(ctx.from.id, { gender: "female" });
+    yield (0, db_1.updateUser)(ctx.from.id, { gender: "female" });
     yield ctx.editMessageText("📝 *Step 2/3:* Please enter your age (13-80):", Object.assign({ parse_mode: "Markdown" }, ageInputKeyboard));
 }));
 // Setup: Cancel setup
@@ -367,14 +367,14 @@ index_1.bot.action("SETUP_STATE_TELANGANA", (ctx) => __awaiter(void 0, void 0, v
     if (!ctx.from)
         return;
     yield safeAnswerCbQuery(ctx);
-    (0, db_1.updateUser)(ctx.from.id, { state: "telangana" });
+    yield (0, db_1.updateUser)(ctx.from.id, { state: "telangana" });
     yield showSetupComplete(ctx);
 }));
 index_1.bot.action("SETUP_STATE_AP", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!ctx.from)
         return;
     yield safeAnswerCbQuery(ctx);
-    (0, db_1.updateUser)(ctx.from.id, { state: "andhra pradesh" });
+    yield (0, db_1.updateUser)(ctx.from.id, { state: "andhra pradesh" });
     yield showSetupComplete(ctx);
 }));
 // Show setup complete message with all commands
@@ -383,7 +383,7 @@ function showSetupComplete(ctx) {
         var _a, _b, _c;
         if (!ctx.from)
             return;
-        const user = (0, db_1.getUser)(ctx.from.id);
+        const user = yield (0, db_1.getUser)(ctx.from.id);
         const text = `✅ *Profile Setup Complete!*\n\n` +
             `👤 Gender: ${(_a = user.gender) !== null && _a !== void 0 ? _a : "Not Set"}\n` +
             `🎂 Age: ${(_b = user.age) !== null && _b !== void 0 ? _b : "Not Set"}\n` +

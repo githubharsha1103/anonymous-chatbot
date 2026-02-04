@@ -23,7 +23,7 @@ export default {
     execute: async (ctx: Context, bot: ExtraTelegraf) => {
         if (!ctx.from) return;
 
-        const user = getUser(ctx.from.id);
+        const user = await getUser(ctx.from.id);
         let partnerId: number | null = null;
         let message = "Select a reason to report:";
 
@@ -42,7 +42,7 @@ export default {
         }
 
         // Store the partner ID for this report session
-        updateUser(ctx.from.id, { reportingPartner: partnerId });
+        await updateUser(ctx.from.id, { reportingPartner: partnerId });
 
         return ctx.reply(message, reportReasons);
     }

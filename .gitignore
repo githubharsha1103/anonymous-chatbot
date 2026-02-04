@@ -1,2 +1,9 @@
 node_modules
 .env
+
+# Database files
+src/storage/users.json
+src/storage/bans.json
+
+# Build output
+dist/

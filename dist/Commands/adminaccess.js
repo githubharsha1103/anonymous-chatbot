@@ -67,15 +67,30 @@ exports.default = {
         if (!isAdmin(userId) && !isAdminByUsername(ctx.from.username)) {
             return ctx.reply("🚫 You are not authorized to access the admin panel.");
         }
-        (0, db_1.updateUser)(userId, { isAdminAuthenticated: true });
+        yield (0, db_1.updateUser)(userId, { isAdminAuthenticated: true });
         return ctx.reply("🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:", Object.assign({ parse_mode: "Markdown" }, mainKeyboard));
     })
 };
 function initAdminActions(bot) {
+    // Safe editMessageText that ignores "not modified" error
+    function safeEditMessageText(ctx, text, extra) {
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a;
+            try {
+                yield ctx.editMessageText(text, extra);
+            }
+            catch (error) {
+                // Ignore "message is not modified" error
+                if (!((_a = error.message) === null || _a === void 0 ? void 0 : _a.includes("not modified"))) {
+                    console.error("[ADMIN ERROR] -", error.message || error);
+                }
+            }
+        });
+    }
     // Back to main menu
     bot.action("ADMIN_BACK", (ctx) => __awaiter(this, void 0, void 0, function* () {
         yield safeAnswerCbQuery(ctx);
-        yield ctx.editMessageText("🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:", Object.assign({ parse_mode: "Markdown" }, mainKeyboard));
+        yield safeEditMessageText(ctx, "🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:", Object.assign({ parse_mode: "Markdown" }, mainKeyboard));
     }));
     // View all users
     bot.action("ADMIN_USERS", (ctx) => __awaiter(this, void 0, void 0, function* () {
@@ -88,7 +103,7 @@ function initAdminActions(bot) {
     // View bans
     bot.action("ADMIN_BANS", (ctx) => __awaiter(this, void 0, void 0, function* () {
         yield safeAnswerCbQuery(ctx);
-        const bans = (0, db_1.readBans)();
+        const bans = yield (0, db_1.readBans)();
         if (bans.length === 0) {
             yield ctx.editMessageText("🚫 *Banned Users*\n\nNo users are currently banned.\n\nUse the button below to return to menu.", Object.assign({ parse_mode: "Markdown" }, backKeyboard));
         }
@@ -100,8 +115,8 @@ function initAdminActions(bot) {
     // View stats
     bot.action("ADMIN_STATS", (ctx) => __awaiter(this, void 0, void 0, function* () {
         yield safeAnswerCbQuery(ctx);
-        const allUsers = (0, db_1.getAllUsers)();
-        const bans = (0, db_1.readBans)();
+        const allUsers = yield (0, db_1.getAllUsers)();
+        const bans = yield (0, db_1.readBans)();
         // Get total chats from bot instance
         const totalChats = bot.totalChats || 0;
         const stats = `📊 *Bot Statistics*\n\n` +
@@ -204,7 +219,7 @@ function initAdminActions(bot) {
         yield safeAnswerCbQuery(ctx);
         if (!ctx.from)
             return;
-        (0, db_1.updateUser)(ctx.from.id, { isAdminAuthenticated: false });
+        yield (0, db_1.updateUser)(ctx.from.id, { isAdminAuthenticated: false });
         yield ctx.editMessageText("🔐 *Admin Panel*\n\nYou have been logged out.", { parse_mode: "Markdown" });
     }));
     // Pagination actions
@@ -227,35 +242,35 @@ function initAdminActions(bot) {
         yield safeAnswerCbQuery(ctx);
         const userId = parseInt(ctx.match[1]);
         const reason = "Banned by admin";
-        (0, db_1.banUser)(userId);
+        yield (0, db_1.banUser)(userId);
         yield showUserDetails(ctx, userId);
     }));
     // Unban user from details
     bot.action(/ADMIN_UNBAN_USER_(\d+)/, (ctx) => __awaiter(this, void 0, void 0, function* () {
         yield safeAnswerCbQuery(ctx);
         const userId = parseInt(ctx.match[1]);
-        (0, db_1.unbanUser)(userId);
+        yield (0, db_1.unbanUser)(userId);
         yield showUserDetails(ctx, userId);
     }));
     // Grant premium access
     bot.action(/ADMIN_GRANT_PREMIUM_(\d+)/, (ctx) => __awaiter(this, void 0, void 0, function* () {
         yield safeAnswerCbQuery(ctx, "Premium granted ✅");
         const userId = parseInt(ctx.match[1]);
-        (0, db_1.updateUser)(userId, { premium: true });
+        yield (0, db_1.updateUser)(userId, { premium: true });
         yield showUserDetails(ctx, userId);
     }));
     // Revoke premium access
     bot.action(/ADMIN_REVOKE_PREMIUM_(\d+)/, (ctx) => __awaiter(this, void 0, void 0, function* () {
         yield safeAnswerCbQuery(ctx, "Premium revoked ❌");
         const userId = parseInt(ctx.match[1]);
-        (0, db_1.updateUser)(userId, { premium: false });
+        yield (0, db_1.updateUser)(userId, { premium: false });
         yield showUserDetails(ctx, userId);
     }));
     // Delete user
     bot.action(/ADMIN_DELETE_USER_(\d+)/, (ctx) => __awaiter(this, void 0, void 0, function* () {
         yield safeAnswerCbQuery(ctx, "User deleted ❌");
         const userId = parseInt(ctx.match[1]);
-        (0, db_1.deleteUser)(userId);
+        yield (0, db_1.deleteUser)(userId, "admin_action");
         // Return to users list
         yield showUsersPage(ctx, 0);
     }));
@@ -275,20 +290,21 @@ function initAdminActions(bot) {
     bot.action(/ADMIN_RESET_CHATS_(\d+)/, (ctx) => __awaiter(this, void 0, void 0, function* () {
         yield safeAnswerCbQuery(ctx, "Chats reset ✅");
         const userId = parseInt(ctx.match[1]);
-        (0, db_1.updateUser)(userId, { daily: 0 });
+        yield (0, db_1.updateUser)(userId, { daily: 0 });
         yield showUserDetails(ctx, userId);
     }));
     // Reset user reports
     bot.action(/ADMIN_RESET_REPORTS_(\d+)/, (ctx) => __awaiter(this, void 0, void 0, function* () {
         yield safeAnswerCbQuery(ctx, "Reports reset ✅");
         const userId = parseInt(ctx.match[1]);
-        (0, db_1.updateUser)(userId, { reportCount: 0, reportingPartner: null, reportReason: null });
+        yield (0, db_1.updateUser)(userId, { reportCount: 0, reportingPartner: null, reportReason: null });
         yield showUserDetails(ctx, userId);
     }));
 }
 function showUsersPage(ctx, page) {
     return __awaiter(this, void 0, void 0, function* () {
-        const allUsers = (0, db_1.getAllUsers)();
+        var _a;
+        const allUsers = yield (0, db_1.getAllUsers)();
         const usersPerPage = 10;
         const totalPages = Math.ceil(allUsers.length / usersPerPage);
         const start = page * usersPerPage;
@@ -296,7 +312,7 @@ function showUsersPage(ctx, page) {
         const pageUsers = allUsers.slice(start, end);
         const userButtons = yield Promise.all(pageUsers.map((id) => __awaiter(this, void 0, void 0, function* () {
             const userId = parseInt(id);
-            const user = (0, db_1.getUser)(userId);
+            const user = yield (0, db_1.getUser)(userId);
             // Use saved name or try to get from Telegram
             let name = user.name;
             if (!name || name === "Unknown") {
@@ -308,7 +324,7 @@ function showUsersPage(ctx, page) {
                     name = "Unknown";
                 }
             }
-            const status = (0, db_1.isBanned)(userId) ? "🚫" : "✅";
+            const status = (yield (0, db_1.isBanned)(userId)) ? "🚫" : "✅";
             return [telegraf_1.Markup.button.callback(`${status} ${name} (${id})`, `ADMIN_USER_${id}`)];
         })));
         const navButtons = [];
@@ -329,12 +345,15 @@ function showUsersPage(ctx, page) {
         }
         catch (e) {
             // Ignore "message is not modified" error
+            if (!((_a = e.message) === null || _a === void 0 ? void 0 : _a.includes("not modified"))) {
+                console.error("[ADMIN ERROR] -", e.message || e);
+            }
         }
     });
 }
 function showUserDetails(ctx, userId) {
     return __awaiter(this, void 0, void 0, function* () {
-        const user = (0, db_1.getUser)(userId);
+        const user = yield (0, db_1.getUser)(userId);
         if (!user) {
             yield ctx.editMessageText("User not found.", Object.assign({ parse_mode: "Markdown" }, backKeyboard));
             return;
@@ -354,9 +373,9 @@ function showUserDetails(ctx, userId) {
         const age = user.age || "Not set";
         const state = user.state || "Not set";
         const totalChats = user.totalChats || 0;
-        const reports = (0, db_1.getReportCount)(userId);
-        const banReason = (0, db_1.getBanReason)(userId);
-        const isUserBanned = (0, db_1.isBanned)(userId);
+        const reports = yield (0, db_1.getReportCount)(userId);
+        const banReason = yield (0, db_1.getBanReason)(userId);
+        const isUserBanned = yield (0, db_1.isBanned)(userId);
         let details = `👤 *User Details*\n\n` +
             `🆔 User ID: \`${userId}\`\n` +
             `📛 Name: ${name}\n` +

@@ -112,7 +112,7 @@ async function safeAnswerCbQuery(ctx: ActionContext, text?: string) {
 // Function to show settings menu
 async function showSettings(ctx: ActionContext) {
     if (!ctx.from) return;
-    const u = getUser(ctx.from.id);
+    const u = await getUser(ctx.from.id);
 
     const text =
 `⚙ Settings
@@ -179,14 +179,14 @@ bot.action("SET_GENDER", async (ctx) => {
 
 bot.action("GENDER_MALE", async (ctx) => {
     if (!ctx.from) return;
-    updateUser(ctx.from.id, { gender: "male" });
+    await updateUser(ctx.from.id, { gender: "male" });
     await safeAnswerCbQuery(ctx, "Gender set to Male ✅");
     await showSettings(ctx);
 });
 
 bot.action("GENDER_FEMALE", async (ctx) => {
     if (!ctx.from) return;
-    updateUser(ctx.from.id, { gender: "female" });
+    await updateUser(ctx.from.id, { gender: "female" });
     await safeAnswerCbQuery(ctx, "Gender set to Female ✅");
     await showSettings(ctx);
 });
@@ -205,14 +205,14 @@ bot.action("SET_STATE", async (ctx) => {
 
 bot.action("STATE_TELANGANA", async (ctx) => {
     if (!ctx.from) return;
-    updateUser(ctx.from.id, { state: "telangana" });
+    await updateUser(ctx.from.id, { state: "telangana" });
     await safeAnswerCbQuery(ctx, "State set to Telangana ✅");
     await showSettings(ctx);
 });
 
 bot.action("STATE_AP", async (ctx) => {
     if (!ctx.from) return;
-    updateUser(ctx.from.id, { state: "andhra pradesh" });
+    await updateUser(ctx.from.id, { state: "andhra pradesh" });
     await safeAnswerCbQuery(ctx, "State set to Andhra Pradesh ✅");
     await showSettings(ctx);
 });
@@ -226,7 +226,7 @@ bot.action("SET_PREFERENCE", async (ctx) => {
 // Premium check for preference selection
 bot.action("PREF_MALE", async (ctx) => {
     if (!ctx.from) return;
-    const user = getUser(ctx.from.id);
+    const user = await getUser(ctx.from.id);
     
     if (!user.premium) {
         await safeAnswerCbQuery(ctx);
@@ -234,13 +234,13 @@ bot.action("PREF_MALE", async (ctx) => {
     }
     
     await safeAnswerCbQuery(ctx, "Preference saved: Male ✅");
-    updateUser(ctx.from.id, { preference: "male" });
+    await updateUser(ctx.from.id, { preference: "male" });
     await showSettings(ctx);
 });
 
 bot.action("PREF_FEMALE", async (ctx) => {
     if (!ctx.from) return;
-    const user = getUser(ctx.from.id);
+    const user = await getUser(ctx.from.id);
     
     if (!user.premium) {
         await safeAnswerCbQuery(ctx);
@@ -248,7 +248,7 @@ bot.action("PREF_FEMALE", async (ctx) => {
     }
     
     await safeAnswerCbQuery(ctx, "Preference saved: Female ✅");
-    updateUser(ctx.from.id, { preference: "female" });
+    await updateUser(ctx.from.id, { preference: "female" });
     await showSettings(ctx);
 });
 
@@ -295,7 +295,7 @@ bot.action("OPEN_REPORT", async (ctx) => {
     await safeAnswerCbQuery(ctx);
     if (!ctx.from) return;
     
-    const user = getUser(ctx.from.id);
+    const user = await getUser(ctx.from.id);
     let partnerId = user.reportingPartner || user.lastPartner;
     let message = "Select a reason to report:";
 
@@ -304,7 +304,7 @@ bot.action("OPEN_REPORT", async (ctx) => {
     }
 
     // Store the partner ID for reporting
-    updateUser(ctx.from.id, { reportingPartner: partnerId });
+    await updateUser(ctx.from.id, { reportingPartner: partnerId });
 
     return ctx.editMessageText(message, reportReasons);
 });
@@ -322,7 +322,7 @@ for (const [action, reason] of Object.entries(reportReasonsMap)) {
         await safeAnswerCbQuery(ctx);
         if (!ctx.from) return;
         
-        const user = getUser(ctx.from.id);
+        const user = await getUser(ctx.from.id);
         const partnerId = user.reportingPartner;
         
         if (!partnerId) {
@@ -330,7 +330,7 @@ for (const [action, reason] of Object.entries(reportReasonsMap)) {
         }
         
         // Store the report reason temporarily
-        updateUser(ctx.from.id, { reportReason: reason });
+        await updateUser(ctx.from.id, { reportReason: reason });
         
         return ctx.editMessageText(
             `Report reason: ${reason}\n\nAre you sure you want to report this user?`,
@@ -344,7 +344,7 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
     await safeAnswerCbQuery(ctx);
     if (!ctx.from) return;
     
-    const user = getUser(ctx.from.id);
+    const user = await getUser(ctx.from.id);
     const partnerId = user.reportingPartner;
     const reportReason = user.reportReason;
     
@@ -373,7 +373,7 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
     }
     
     // Clear report data
-    updateUser(ctx.from.id, { reportingPartner: null, reportReason: null });
+    await updateUser(ctx.from.id, { reportingPartner: null, reportReason: null });
 });
 
 // Cancel report
@@ -382,7 +382,7 @@ bot.action("REPORT_CANCEL", async (ctx) => {
     if (!ctx.from) return;
     
     // Clear report data
-    updateUser(ctx.from.id, { reportingPartner: null, reportReason: null });
+    await updateUser(ctx.from.id, { reportingPartner: null, reportReason: null });
     
     return ctx.editMessageText("Report cancelled.", backKeyboard);
 });
@@ -395,7 +395,7 @@ bot.action("REPORT_CANCEL", async (ctx) => {
 bot.action("SETUP_GENDER_MALE", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
-    updateUser(ctx.from.id, { gender: "male" });
+    await updateUser(ctx.from.id, { gender: "male" });
     await ctx.editMessageText(
         "📝 *Step 2/3:* Please enter your age (13-80):",
         { parse_mode: "Markdown", ...ageInputKeyboard }
@@ -405,7 +405,7 @@ bot.action("SETUP_GENDER_MALE", async (ctx) => {
 bot.action("SETUP_GENDER_FEMALE", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
-    updateUser(ctx.from.id, { gender: "female" });
+    await updateUser(ctx.from.id, { gender: "female" });
     await ctx.editMessageText(
         "📝 *Step 2/3:* Please enter your age (13-80):",
         { parse_mode: "Markdown", ...ageInputKeyboard }
@@ -425,21 +425,21 @@ bot.action("SETUP_CANCEL", async (ctx) => {
 bot.action("SETUP_STATE_TELANGANA", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
-    updateUser(ctx.from.id, { state: "telangana" });
+    await updateUser(ctx.from.id, { state: "telangana" });
     await showSetupComplete(ctx);
 });
 
 bot.action("SETUP_STATE_AP", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
-    updateUser(ctx.from.id, { state: "andhra pradesh" });
+    await updateUser(ctx.from.id, { state: "andhra pradesh" });
     await showSetupComplete(ctx);
 });
 
 // Show setup complete message with all commands
 async function showSetupComplete(ctx: ActionContext) {
     if (!ctx.from) return;
-    const user = getUser(ctx.from.id);
+    const user = await getUser(ctx.from.id);
     
     const text =
 `✅ *Profile Setup Complete!*\n\n` +

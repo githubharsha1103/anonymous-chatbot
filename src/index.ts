@@ -8,15 +8,44 @@ import {
   banUser,
   isBanned,
   getAllUsers,
-  updateUser
+  updateUser,
+  closeDatabase,
+  getTotalChats,
+  incrementTotalChats
 } from "./storage/db";
 import { isBotBlockedError, cleanupBlockedUser, broadcastWithRateLimit } from "./Utils/telegramErrorHandler";
 
 /* ---------------- BOT CLASS ---------------- */
 
+// Simple mutex for race condition prevention
+class Mutex {
+  private locked = false;
+  private queue: (() => void)[] = [];
+
+  async acquire(): Promise<void> {
+    return new Promise(resolve => {
+      if (!this.locked) {
+        this.locked = true;
+        resolve();
+      } else {
+        this.queue.push(resolve);
+      }
+    });
+  }
+
+  release(): void {
+    if (this.queue.length > 0) {
+      const next = this.queue.shift();
+      if (next) next();
+    } else {
+      this.locked = false;
+    }
+  }
+}
+
 export class ExtraTelegraf extends Telegraf<Context> {
   waiting: number | null = null;
-  waitingQueue: { id: number; preference: string; gender: string }[] = [];
+  waitingQueue: { id: number; preference: string; gender: string; isPremium: boolean }[] = [];
   runningChats: number[] = [];
 
   // Message mapping for replies
@@ -29,6 +58,19 @@ export class ExtraTelegraf extends Telegraf<Context> {
   // Spectator mode - admin ID -> { user1, user2 }
   spectatingChats: Map<number, { user1: number; user2: number }> = new Map();
 
+  // Rate limiting - userId -> last command time
+  rateLimitMap: Map<number, number> = new Map();
+  
+  // Mutexes for race condition prevention
+  chatMutex = new Mutex();
+  queueMutex = new Mutex();
+
+  // Maximum queue size
+  MAX_QUEUE_SIZE = 10000;
+
+  // Rate limit window in milliseconds (5 seconds)
+  RATE_LIMIT_WINDOW = 5000;
+
   getPartner(id: number) {
     const index = this.runningChats.indexOf(id);
     if (index % 2 === 0) return this.runningChats[index + 1];
@@ -37,6 +79,8 @@ export class ExtraTelegraf extends Telegraf<Context> {
 
   incrementChatCount() {
     this.totalChats++;
+    // Persist to database (fire and forget, don't await)
+    incrementTotalChats().catch(err => console.error("[ERROR] - Failed to persist chat count:", err));
   }
 
   incrementUserCount() {
@@ -61,6 +105,22 @@ export class ExtraTelegraf extends Telegraf<Context> {
       }
     }
     return null;
+  }
+
+  // Check if user is rate limited
+  isRateLimited(userId: number): boolean {
+    const now = Date.now();
+    const lastCommand = this.rateLimitMap.get(userId);
+    if (lastCommand && (now - lastCommand) < this.RATE_LIMIT_WINDOW) {
+      return true;
+    }
+    this.rateLimitMap.set(userId, now);
+    return false;
+  }
+
+  // Check if queue is full
+  isQueueFull(): boolean {
+    return this.waitingQueue.length >= this.MAX_QUEUE_SIZE;
   }
 }
 
@@ -93,7 +153,7 @@ function isAdmin(id: number) {
 /* ---------------- GLOBAL BAN CHECK ---------------- */
 
 bot.use(async (ctx, next) => {
-  if (ctx.from && isBanned(ctx.from.id)) {
+  if (ctx.from && await isBanned(ctx.from.id)) {
     await ctx.reply("🚫 You are banned.");
     return;
   }
@@ -102,24 +162,24 @@ bot.use(async (ctx, next) => {
 
 /* ---------------- GENDER COMMAND ---------------- */
 
-bot.command("setgender", (ctx) => {
+bot.command("setgender", async (ctx) => {
   const g = ctx.message.text.split(" ")[1]?.toLowerCase();
   if (!g || !["male", "female"].includes(g)) {
     return ctx.reply("Use: /setgender male OR /setgender female");
   }
-  setGender(ctx.from.id, g);
+  await setGender(ctx.from.id, g);
   ctx.reply(`Gender set to ${g}`);
 });
 
 /* ---------------- ADMIN BAN ---------------- */
 
-bot.command("ban", (ctx) => {
+bot.command("ban", async (ctx) => {
   if (!isAdmin(ctx.from.id)) return;
 
   const id = Number(ctx.message.text.split(" ")[1]);
   if (!id) return ctx.reply("Usage: /ban USERID");
 
-  banUser(id);
+  await banUser(id);
   ctx.reply(`User ${id} banned`);
 });
 
@@ -131,7 +191,7 @@ bot.command("broadcast", async (ctx) => {
   const msg = ctx.message.text.replace("/broadcast", "").trim();
   if (!msg) return ctx.reply("Usage: /broadcast message");
 
-  const users = getAllUsers();
+  const users = await getAllUsers();
   
   if (users.length === 0) {
     return ctx.reply("No users to broadcast to.");
@@ -153,14 +213,17 @@ bot.command("active", (ctx) => {
 
 /* ---------------- ADMIN STATS ---------------- */
 
-bot.command("stats", (ctx) => {
+bot.command("stats", async (ctx) => {
   if (!isAdmin(ctx.from.id)) return;
+  
+  const allUsers = await getAllUsers();
+  const totalChats = await getTotalChats();
   
   const stats = `
 📊 *Bot Statistics*
 
-👥 *Total Users:* ${bot.totalUsers}
-💬 *Total Chats:* ${bot.totalChats}
+👥 *Total Users:* ${allUsers.length}
+💬 *Total Chats:* ${totalChats}
 💭 *Active Chats:* ${bot.runningChats.length / 2}
 ⏳ *Users Waiting:* ${bot.waitingQueue.length}
 `;
@@ -170,7 +233,7 @@ bot.command("stats", (ctx) => {
 
 /* ---------------- ADMIN SET NAME ---------------- */
 
-bot.command("setname", (ctx) => {
+bot.command("setname", async (ctx) => {
   if (!isAdmin(ctx.from.id)) return;
   
   const args = ctx.message.text.split(" ");
@@ -179,13 +242,21 @@ bot.command("setname", (ctx) => {
   
   if (!id || !name) return ctx.reply("Usage: /setname USERID NewName");
   
-  updateUser(id, { name });
+  await updateUser(id, { name });
   ctx.reply(`User ${id} name updated to: ${name}`);
 });
 
 /* ---------------- START ---------------- */
 
 console.log("[INFO] - Bot is online");
+
+// Load statistics from database
+getTotalChats().then(chats => {
+  bot.totalChats = chats;
+  console.log(`[INFO] - Loaded ${chats} total chats from database`);
+}).catch(err => {
+  console.error("[ERROR] - Failed to load statistics:", err);
+});
 
 // Get the port from environment (Render.com sets PORT)
 const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -237,22 +308,38 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   bot.launch();
 }
 
-process.once("SIGINT", () => {
+process.once("SIGINT", async () => {
   console.log("[INFO] - Stopping bot (SIGINT)...");
-  if (bot.botInfo) {
-    bot.stop("SIGINT");
-  } else {
-    console.log("[INFO] - Bot was not launched, skipping stop");
+  try {
+    if (bot.botInfo) {
+      await bot.stop("SIGINT");
+    }
+  } catch (error) {
+    console.log("[INFO] - Bot stop skipped:", (error as Error).message);
+  }
+  // Close database connection
+  try {
+    await closeDatabase();
+  } catch (error) {
+    // Ignore close errors
   }
   process.exit(0);
 });
 
-process.once("SIGTERM", () => {
+process.once("SIGTERM", async () => {
   console.log("[INFO] - Stopping bot (SIGTERM)...");
-  if (bot.botInfo) {
-    bot.stop("SIGTERM");
-  } else {
-    console.log("[INFO] - Bot was not launched, skipping stop");
+  try {
+    if (bot.botInfo) {
+      await bot.stop("SIGTERM");
+    }
+  } catch (error) {
+    console.log("[INFO] - Bot stop skipped:", (error as Error).message);
+  }
+  // Close database connection
+  try {
+    await closeDatabase();
+  } catch (error) {
+    // Ignore close errors
   }
   process.exit(0);
 });

@@ -20,6 +20,36 @@ const telegraf_1 = require("telegraf");
 const db_1 = require("./storage/db");
 const telegramErrorHandler_1 = require("./Utils/telegramErrorHandler");
 /* ---------------- BOT CLASS ---------------- */
+// Simple mutex for race condition prevention
+class Mutex {
+    constructor() {
+        this.locked = false;
+        this.queue = [];
+    }
+    acquire() {
+        return __awaiter(this, void 0, void 0, function* () {
+            return new Promise(resolve => {
+                if (!this.locked) {
+                    this.locked = true;
+                    resolve();
+                }
+                else {
+                    this.queue.push(resolve);
+                }
+            });
+        });
+    }
+    release() {
+        if (this.queue.length > 0) {
+            const next = this.queue.shift();
+            if (next)
+                next();
+        }
+        else {
+            this.locked = false;
+        }
+    }
+}
 class ExtraTelegraf extends telegraf_1.Telegraf {
     constructor() {
         super(...arguments);
@@ -33,6 +63,15 @@ class ExtraTelegraf extends telegraf_1.Telegraf {
         this.totalUsers = 0;
         // Spectator mode - admin ID -> { user1, user2 }
         this.spectatingChats = new Map();
+        // Rate limiting - userId -> last command time
+        this.rateLimitMap = new Map();
+        // Mutexes for race condition prevention
+        this.chatMutex = new Mutex();
+        this.queueMutex = new Mutex();
+        // Maximum queue size
+        this.MAX_QUEUE_SIZE = 10000;
+        // Rate limit window in milliseconds (5 seconds)
+        this.RATE_LIMIT_WINDOW = 5000;
     }
     getPartner(id) {
         const index = this.runningChats.indexOf(id);
@@ -42,6 +81,8 @@ class ExtraTelegraf extends telegraf_1.Telegraf {
     }
     incrementChatCount() {
         this.totalChats++;
+        // Persist to database (fire and forget, don't await)
+        (0, db_1.incrementTotalChats)().catch(err => console.error("[ERROR] - Failed to persist chat count:", err));
     }
     incrementUserCount() {
         this.totalUsers++;
@@ -64,6 +105,20 @@ class ExtraTelegraf extends telegraf_1.Telegraf {
         }
         return null;
     }
+    // Check if user is rate limited
+    isRateLimited(userId) {
+        const now = Date.now();
+        const lastCommand = this.rateLimitMap.get(userId);
+        if (lastCommand && (now - lastCommand) < this.RATE_LIMIT_WINDOW) {
+            return true;
+        }
+        this.rateLimitMap.set(userId, now);
+        return false;
+    }
+    // Check if queue is full
+    isQueueFull() {
+        return this.waitingQueue.length >= this.MAX_QUEUE_SIZE;
+    }
 }
 exports.ExtraTelegraf = ExtraTelegraf;
 exports.bot = new ExtraTelegraf(process.env.BOT_TOKEN);
@@ -85,32 +140,32 @@ function isAdmin(id) {
 }
 /* ---------------- GLOBAL BAN CHECK ---------------- */
 exports.bot.use((ctx, next) => __awaiter(void 0, void 0, void 0, function* () {
-    if (ctx.from && (0, db_1.isBanned)(ctx.from.id)) {
+    if (ctx.from && (yield (0, db_1.isBanned)(ctx.from.id))) {
         yield ctx.reply("🚫 You are banned.");
         return;
     }
     return next();
 }));
 /* ---------------- GENDER COMMAND ---------------- */
-exports.bot.command("setgender", (ctx) => {
+exports.bot.command("setgender", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     const g = (_a = ctx.message.text.split(" ")[1]) === null || _a === void 0 ? void 0 : _a.toLowerCase();
     if (!g || !["male", "female"].includes(g)) {
         return ctx.reply("Use: /setgender male OR /setgender female");
     }
-    (0, db_1.setGender)(ctx.from.id, g);
+    yield (0, db_1.setGender)(ctx.from.id, g);
     ctx.reply(`Gender set to ${g}`);
-});
+}));
 /* ---------------- ADMIN BAN ---------------- */
-exports.bot.command("ban", (ctx) => {
+exports.bot.command("ban", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!isAdmin(ctx.from.id))
         return;
     const id = Number(ctx.message.text.split(" ")[1]);
     if (!id)
         return ctx.reply("Usage: /ban USERID");
-    (0, db_1.banUser)(id);
+    yield (0, db_1.banUser)(id);
     ctx.reply(`User ${id} banned`);
-});
+}));
 /* ---------------- ADMIN BROADCAST ---------------- */
 exports.bot.command("broadcast", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!isAdmin(ctx.from.id))
@@ -118,7 +173,7 @@ exports.bot.command("broadcast", (ctx) => __awaiter(void 0, void 0, void 0, func
     const msg = ctx.message.text.replace("/broadcast", "").trim();
     if (!msg)
         return ctx.reply("Usage: /broadcast message");
-    const users = (0, db_1.getAllUsers)();
+    const users = yield (0, db_1.getAllUsers)();
     if (users.length === 0) {
         return ctx.reply("No users to broadcast to.");
     }
@@ -134,21 +189,23 @@ exports.bot.command("active", (ctx) => {
     ctx.reply(`Active chats: ${exports.bot.runningChats.length / 2}`);
 });
 /* ---------------- ADMIN STATS ---------------- */
-exports.bot.command("stats", (ctx) => {
+exports.bot.command("stats", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!isAdmin(ctx.from.id))
         return;
+    const allUsers = yield (0, db_1.getAllUsers)();
+    const totalChats = yield (0, db_1.getTotalChats)();
     const stats = `
 📊 *Bot Statistics*
 
-👥 *Total Users:* ${exports.bot.totalUsers}
-💬 *Total Chats:* ${exports.bot.totalChats}
+👥 *Total Users:* ${allUsers.length}
+💬 *Total Chats:* ${totalChats}
 💭 *Active Chats:* ${exports.bot.runningChats.length / 2}
 ⏳ *Users Waiting:* ${exports.bot.waitingQueue.length}
 `;
     ctx.reply(stats, { parse_mode: "Markdown" });
-});
+}));
 /* ---------------- ADMIN SET NAME ---------------- */
-exports.bot.command("setname", (ctx) => {
+exports.bot.command("setname", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!isAdmin(ctx.from.id))
         return;
     const args = ctx.message.text.split(" ");
@@ -156,11 +213,18 @@ exports.bot.command("setname", (ctx) => {
     const name = args.slice(2).join(" ").trim();
     if (!id || !name)
         return ctx.reply("Usage: /setname USERID NewName");
-    (0, db_1.updateUser)(id, { name });
+    yield (0, db_1.updateUser)(id, { name });
     ctx.reply(`User ${id} name updated to: ${name}`);
-});
+}));
 /* ---------------- START ---------------- */
 console.log("[INFO] - Bot is online");
+// Load statistics from database
+(0, db_1.getTotalChats)().then(chats => {
+    exports.bot.totalChats = chats;
+    console.log(`[INFO] - Loaded ${chats} total chats from database`);
+}).catch(err => {
+    console.error("[ERROR] - Failed to load statistics:", err);
+});
 // Get the port from environment (Render.com sets PORT)
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || "/webhook";
@@ -203,23 +267,41 @@ else {
     console.log("[INFO] - Using long polling (local development)");
     exports.bot.launch();
 }
-process.once("SIGINT", () => {
+process.once("SIGINT", () => __awaiter(void 0, void 0, void 0, function* () {
     console.log("[INFO] - Stopping bot (SIGINT)...");
-    if (exports.bot.botInfo) {
-        exports.bot.stop("SIGINT");
+    try {
+        if (exports.bot.botInfo) {
+            yield exports.bot.stop("SIGINT");
+        }
     }
-    else {
-        console.log("[INFO] - Bot was not launched, skipping stop");
+    catch (error) {
+        console.log("[INFO] - Bot stop skipped:", error.message);
+    }
+    // Close database connection
+    try {
+        yield (0, db_1.closeDatabase)();
+    }
+    catch (error) {
+        // Ignore close errors
     }
     process.exit(0);
-});
-process.once("SIGTERM", () => {
+}));
+process.once("SIGTERM", () => __awaiter(void 0, void 0, void 0, function* () {
     console.log("[INFO] - Stopping bot (SIGTERM)...");
-    if (exports.bot.botInfo) {
-        exports.bot.stop("SIGTERM");
+    try {
+        if (exports.bot.botInfo) {
+            yield exports.bot.stop("SIGTERM");
+        }
     }
-    else {
-        console.log("[INFO] - Bot was not launched, skipping stop");
+    catch (error) {
+        console.log("[INFO] - Bot stop skipped:", error.message);
+    }
+    // Close database connection
+    try {
+        yield (0, db_1.closeDatabase)();
+    }
+    catch (error) {
+        // Ignore close errors
     }
     process.exit(0);
-});
+}));

@@ -17,28 +17,39 @@ exports.default = {
     execute: (ctx, bot) => __awaiter(void 0, void 0, void 0, function* () {
         var _a;
         const id = (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id;
-        if (!bot.runningChats.includes(id)) {
-            return ctx.reply("You are not in a chat.");
+        // Check rate limit
+        if (bot.isRateLimited(id)) {
+            return ctx.reply("⏳ Please wait a few seconds before trying again.");
         }
-        const partner = bot.getPartner(id);
-        bot.runningChats = bot.runningChats.filter(u => u !== id && u !== partner);
-        bot.messageMap.delete(id);
-        bot.messageMap.delete(partner);
-        // Store partner ID for potential report
-        if (partner) {
-            (0, db_1.updateUser)(id, { reportingPartner: partner });
-            (0, db_1.updateUser)(partner, { reportingPartner: id });
+        // Acquire mutex to prevent race conditions
+        yield bot.chatMutex.acquire();
+        try {
+            if (!bot.runningChats.includes(id)) {
+                return ctx.reply("You are not in a chat.");
+            }
+            const partner = bot.getPartner(id);
+            bot.runningChats = bot.runningChats.filter(u => u !== id && u !== partner);
+            bot.messageMap.delete(id);
+            bot.messageMap.delete(partner);
+            // Store partner ID for potential report
+            if (partner) {
+                yield (0, db_1.updateUser)(id, { reportingPartner: partner });
+                yield (0, db_1.updateUser)(partner, { reportingPartner: id });
+            }
+            // Report keyboard
+            const reportKeyboard = telegraf_1.Markup.inlineKeyboard([
+                [telegraf_1.Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
+            ]);
+            // Use sendMessageWithRetry to handle blocked partners
+            const notifySent = yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, partner, "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
+            // If message failed to send, still clean up
+            if (!notifySent && partner) {
+                (0, telegramErrorHandler_1.cleanupBlockedUser)(bot, partner);
+            }
+            return ctx.reply("🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
         }
-        // Report keyboard
-        const reportKeyboard = telegraf_1.Markup.inlineKeyboard([
-            [telegraf_1.Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
-        ]);
-        // Use sendMessageWithRetry to handle blocked partners
-        const notifySent = yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, partner, "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
-        // If message failed to send, still clean up
-        if (!notifySent && partner) {
-            (0, telegramErrorHandler_1.cleanupBlockedUser)(bot, partner);
+        finally {
+            bot.chatMutex.release();
         }
-        return ctx.reply("🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
     })
 };

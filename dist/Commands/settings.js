@@ -19,7 +19,7 @@ exports.default = {
         var _a, _b, _c;
         if (!ctx.from)
             return;
-        const u = (0, db_1.getUser)(ctx.from.id);
+        const u = yield (0, db_1.getUser)(ctx.from.id);
         const text = `⚙ Settings
 
 👤 Gender: ${(_a = u.gender) !== null && _a !== void 0 ? _a : "Not Set"}

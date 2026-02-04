@@ -8,7 +8,7 @@ export default {
   execute: async (ctx, bot) => {
 
     if (!ctx.from) return;
-    const u = getUser(ctx.from.id);
+    const u = await getUser(ctx.from.id);
 
     const text =
 `⚙ Settings

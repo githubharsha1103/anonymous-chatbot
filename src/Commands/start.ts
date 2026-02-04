@@ -26,11 +26,11 @@ export default {
         
         // Save user's username if available
         const username = ctx.from?.username || ctx.from?.first_name || "Unknown";
-        updateUser(userId, { name: username });
+        await updateUser(userId, { name: username });
 
         // Check if user is new and increment user count
-        const user = getUser(userId);
-        if ((user as any).isNew) {
+        const user = await getUser(userId);
+        if (user.isNew) {
             (bot as ExtraTelegraf).incrementUserCount();
             
             // New user - show profile setup (Gender → Age → State)
