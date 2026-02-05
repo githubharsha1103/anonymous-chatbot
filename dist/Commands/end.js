@@ -76,10 +76,13 @@ exports.default = {
                 yield (0, db_1.updateUser)(id, { reportingPartner: partner });
                 yield (0, db_1.updateUser)(partner, { reportingPartner: id });
             }
-            // Clear chat start time
+            // Clear chat start time and increment chat count
             yield (0, db_1.updateUser)(id, { chatStartTime: null });
             if (partner) {
                 yield (0, db_1.updateUser)(partner, { chatStartTime: null });
+                // Increment total chats for both users
+                yield (0, db_1.incUserTotalChats)(id);
+                yield (0, db_1.incUserTotalChats)(partner);
             }
             // Report keyboard
             const reportKeyboard = telegraf_1.Markup.inlineKeyboard([
@@ -93,7 +96,7 @@ exports.default = {
 
 /next - Find new partner
 
-━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━
 To report this user:`;
             // User's enhanced exit message
             const userExitMessage = `💬 *Chat Ended*
@@ -101,7 +104,7 @@ To report this user:`;
 ⏱️ *Duration:* ${durationText}
 💭 *Messages:* ${messageCount}
 
-━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━
 How was your chat experience?`;
             // Use sendMessageWithRetry to handle blocked partners
             const notifySent = yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, partner, partnerLeftMessage, reportKeyboard);

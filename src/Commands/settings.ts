@@ -10,14 +10,19 @@ export default {
     if (!ctx.from) return;
     const u = await getUser(ctx.from.id);
 
+    // Safely get preference display text
+    const preferenceText = u.premium 
+      ? (u.preference === "any" ? "Any" : u.preference === "male" ? "Male" : u.preference === "female" ? "Female" : "Any")
+      : "🔒 Premium Only";
+
     const text =
 `⚙ Settings
 
 👤 Gender: ${u.gender ?? "Not Set"}
 🎂 Age: ${u.age ?? "Not Set"}
 📍 State: ${u.state ?? "Not Set"}
-💕 Preference: ${u.preference === "any" ? "Any" : u.preference === "male" ? "Male" : "Female"}
-💎 Premium: ${u.premium ? "Yes" : "No ❌"}
+💕 Preference: ${preferenceText}
+💎 Premium: ${u.premium ? "Yes ✅" : "No ❌"}
 💬 Daily chats left: ${100 - (u.daily || 0)}/100
 
 Use buttons below to update:`;

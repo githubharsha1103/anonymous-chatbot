@@ -395,6 +395,13 @@ export async function incrementTotalChats(): Promise<void> {
   fs.writeFileSync(statsFile, JSON.stringify(stats, null, 2));
 }
 
+// Increment user's total chats count
+export async function incUserTotalChats(id: number): Promise<void> {
+  const user = await getUser(id);
+  const currentTotal = user.totalChats || 0;
+  await updateUser(id, { totalChats: currentTotal + 1 });
+}
+
 // ==================== RE-ENGAGEMENT FUNCTIONS ====================
 
 // Update user's last active timestamp

@@ -1,7 +1,7 @@
 import { Context, Markup } from "telegraf";
 import { ExtraTelegraf } from "..";
 import { sendMessageWithRetry, cleanupBlockedUser } from "../Utils/telegramErrorHandler";
-import { updateUser, getUser } from "../storage/db";
+import { updateUser, getUser, incUserTotalChats } from "../storage/db";
 
 // Rating keyboard with emojis
 const ratingKeyboard = Markup.inlineKeyboard([
@@ -82,10 +82,13 @@ export default {
                 await updateUser(partner, { reportingPartner: id });
             }
 
-            // Clear chat start time
+            // Clear chat start time and increment chat count
             await updateUser(id, { chatStartTime: null });
             if (partner) {
                 await updateUser(partner, { chatStartTime: null });
+                // Increment total chats for both users
+                await incUserTotalChats(id);
+                await incUserTotalChats(partner);
             }
 
             // Report keyboard
@@ -102,7 +105,7 @@ export default {
 
 /next - Find new partner
 
-━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━
 To report this user:`;
 
             // User's enhanced exit message
@@ -112,7 +115,7 @@ To report this user:`;
 ⏱️ *Duration:* ${durationText}
 💭 *Messages:* ${messageCount}
 
-━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━
 How was your chat experience?`;
 
             // Use sendMessageWithRetry to handle blocked partners

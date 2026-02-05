@@ -28,6 +28,7 @@ exports.getBanReason = getBanReason;
 exports.deleteUser = deleteUser;
 exports.getTotalChats = getTotalChats;
 exports.incrementTotalChats = incrementTotalChats;
+exports.incUserTotalChats = incUserTotalChats;
 exports.updateLastActive = updateLastActive;
 exports.getInactiveUsers = getInactiveUsers;
 exports.getUserStats = getUserStats;
@@ -393,6 +394,14 @@ function incrementTotalChats() {
         }
         stats.totalChats = (stats.totalChats || 0) + 1;
         fs.writeFileSync(statsFile, JSON.stringify(stats, null, 2));
+    });
+}
+// Increment user's total chats count
+function incUserTotalChats(id) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const user = yield getUser(id);
+        const currentTotal = user.totalChats || 0;
+        yield updateUser(id, { totalChats: currentTotal + 1 });
     });
 }
 // ==================== RE-ENGAGEMENT FUNCTIONS ====================

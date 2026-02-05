@@ -384,15 +384,25 @@ function showUserDetails(ctx, userId) {
         const reports = yield (0, db_1.getReportCount)(userId);
         const banReason = yield (0, db_1.getBanReason)(userId);
         const isUserBanned = yield (0, db_1.isBanned)(userId);
+        // Format preference safely
+        const preference = user.premium
+            ? (user.preference === "any" ? "Any" : user.preference === "male" ? "Male" : user.preference === "female" ? "Female" : "Any")
+            : "🔒 Premium Only";
+        // Format last active time
+        const lastActiveText = user.lastActive
+            ? new Date(user.lastActive).toLocaleString()
+            : "Never";
         let details = `👤 *User Details*\n\n` +
             `🆔 User ID: \`${userId}\`\n` +
             `📛 Name: ${name}\n` +
             `⚧️ Gender: ${gender}\n` +
             `🎂 Age: ${age}\n` +
             `📍 State: ${state}\n` +
+            `💕 Preference: ${preference}\n` +
             `💬 Total Chats: ${totalChats}\n` +
             `⚠️ Reports: ${reports}\n` +
-            `💎 Premium: ${user.premium ? "Yes ✅" : "No ❌"}`;
+            `💎 Premium: ${user.premium ? "Yes ✅" : "No ❌"}\n` +
+            `🕐 Last Active: ${lastActiveText}`;
         if (isUserBanned) {
             details += `\n🚫 *Banned*: Yes\n` +
                 `📝 Ban Reason: ${banReason || "Not specified"}`;

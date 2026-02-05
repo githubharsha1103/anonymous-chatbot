@@ -515,7 +515,6 @@ bot.action("SETUP_BACK_GENDER", async (ctx) => {
 bot.action("SETUP_COUNTRY_INDIA", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
-    await updateUser(ctx.from.id, { state: "" }); // Clear state, will be set below
     await ctx.editMessageText(
         "📝 *Step 3 of 3*\n\n" +
         "📍 *Select your state:*\n" +

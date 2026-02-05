@@ -457,6 +457,16 @@ async function showUserDetails(ctx: any, userId: number) {
     const reports = await getReportCount(userId);
     const banReason = await getBanReason(userId);
     const isUserBanned = await isBanned(userId);
+    
+    // Format preference safely
+    const preference = user.premium 
+      ? (user.preference === "any" ? "Any" : user.preference === "male" ? "Male" : user.preference === "female" ? "Female" : "Any")
+      : "🔒 Premium Only";
+    
+    // Format last active time
+    const lastActiveText = user.lastActive 
+      ? new Date(user.lastActive).toLocaleString()
+      : "Never";
 
     let details = `👤 *User Details*\n\n` +
         `🆔 User ID: \`${userId}\`\n` +
@@ -464,9 +474,11 @@ async function showUserDetails(ctx: any, userId: number) {
         `⚧️ Gender: ${gender}\n` +
         `🎂 Age: ${age}\n` +
         `📍 State: ${state}\n` +
+        `💕 Preference: ${preference}\n` +
         `💬 Total Chats: ${totalChats}\n` +
         `⚠️ Reports: ${reports}\n` +
-        `💎 Premium: ${user.premium ? "Yes ✅" : "No ❌"}`;
+        `💎 Premium: ${user.premium ? "Yes ✅" : "No ❌"}\n` +
+        `🕐 Last Active: ${lastActiveText}`;
 
     if (isUserBanned) {
         details += `\n🚫 *Banned*: Yes\n` +

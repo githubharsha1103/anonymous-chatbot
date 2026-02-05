@@ -441,7 +441,6 @@ index_1.bot.action("SETUP_COUNTRY_INDIA", (ctx) => __awaiter(void 0, void 0, voi
     if (!ctx.from)
         return;
     yield safeAnswerCbQuery(ctx);
-    yield (0, db_1.updateUser)(ctx.from.id, { state: "" }); // Clear state, will be set below
     yield ctx.editMessageText("📝 *Step 3 of 3*\n\n" +
         "📍 *Select your state:*\n" +
         "(Optional - helps match you with nearby people)", Object.assign({ parse_mode: "Markdown" }, setupStateKeyboard));
