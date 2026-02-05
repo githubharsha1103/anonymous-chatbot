@@ -28,6 +28,9 @@ exports.getBanReason = getBanReason;
 exports.deleteUser = deleteUser;
 exports.getTotalChats = getTotalChats;
 exports.incrementTotalChats = incrementTotalChats;
+exports.updateLastActive = updateLastActive;
+exports.getInactiveUsers = getInactiveUsers;
+exports.getUserStats = getUserStats;
 exports.closeDatabase = closeDatabase;
 const mongodb_1 = require("mongodb");
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
@@ -63,8 +66,17 @@ function getUsersCollection() {
 // Fallback to JSON for local development without MongoDB
 const JSON_FILE = "src/storage/users.json";
 const BANS_FILE = "src/storage/bans.json";
-let useMongoDB = true;
-let isFallbackMode = false;
+// Set to true to use MongoDB (requires MONGODB_URI environment variable)
+// Auto-detect based on whether MONGODB_URI is set
+let useMongoDB = !!process.env.MONGODB_URI;
+let isFallbackMode = !useMongoDB;
+// Log which storage mode is being used
+if (useMongoDB) {
+    console.log("[INFO] - MongoDB URI detected, will use MongoDB for data storage");
+}
+else {
+    console.log("[INFO] - No MongoDB URI found, using JSON file storage");
+}
 // ==================== USER FUNCTIONS ====================
 function getUser(id) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -381,6 +393,84 @@ function incrementTotalChats() {
         }
         stats.totalChats = (stats.totalChats || 0) + 1;
         fs.writeFileSync(statsFile, JSON.stringify(stats, null, 2));
+    });
+}
+// ==================== RE-ENGAGEMENT FUNCTIONS ====================
+// Update user's last active timestamp
+function updateLastActive(id) {
+    return __awaiter(this, void 0, void 0, function* () {
+        yield updateUser(id, { lastActive: Date.now() });
+    });
+}
+// Get users who haven't been active for X days
+function getInactiveUsers(daysInactive) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const cutoffTime = Date.now() - (daysInactive * 24 * 60 * 60 * 1000);
+        if (useMongoDB && !isFallbackMode) {
+            try {
+                const collection = yield getUsersCollection();
+                // Find users who haven't been active since the cutoff time
+                // Also include users who never had lastActive set (created before cutoff but no activity)
+                const users = yield collection.find({
+                    $or: [
+                        { lastActive: { $lt: cutoffTime } },
+                        { lastActive: { $exists: false }, createdAt: { $lt: cutoffTime } }
+                    ]
+                }).toArray();
+                return users.map((u) => u.telegramId.toString());
+            }
+            catch (error) {
+                console.error("[ERROR] - MongoDB error getting inactive users:", error);
+                isFallbackMode = true;
+            }
+        }
+        // JSON fallback
+        const fs = require("fs");
+        if (!fs.existsSync(JSON_FILE))
+            return [];
+        const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+        const inactiveIds = [];
+        for (const [id, userData] of Object.entries(dbObj)) {
+            const user = userData;
+            const lastActive = user.lastActive || user.createdAt || 0;
+            if (lastActive < cutoffTime) {
+                inactiveIds.push(id);
+            }
+        }
+        return inactiveIds;
+    });
+}
+// Get user count by inactivity status
+function getUserStats() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const allUsers = yield getAllUsers();
+        const now = Date.now();
+        const oneDayAgo = now - (1 * 24 * 60 * 60 * 1000);
+        const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
+        const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+        let activeToday = 0;
+        let inactive7Days = 0;
+        let inactive30Days = 0;
+        for (const id of allUsers) {
+            const userId = parseInt(id);
+            const user = yield getUser(userId);
+            const lastActive = user.lastActive || user.createdAt || 0;
+            if (lastActive >= oneDayAgo) {
+                activeToday++;
+            }
+            if (lastActive < sevenDaysAgo) {
+                inactive7Days++;
+            }
+            if (lastActive < thirtyDaysAgo) {
+                inactive30Days++;
+            }
+        }
+        return {
+            total: allUsers.length,
+            activeToday,
+            inactive7Days,
+            inactive30Days
+        };
     });
 }
 // Close MongoDB connection on process exit

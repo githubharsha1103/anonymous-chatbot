@@ -35,6 +35,7 @@ const mainKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("📊 Bot Statistics", "ADMIN_STATS")],
     [telegraf_1.Markup.button.callback("💬 Active Chats", "ADMIN_ACTIVE_CHATS")],
     [telegraf_1.Markup.button.callback("📢 Broadcast Message", "ADMIN_BROADCAST")],
+    [telegraf_1.Markup.button.callback("📣 Re-engagement", "ADMIN_REENGAGE")],
     [telegraf_1.Markup.button.callback("👤 Ban User", "ADMIN_BAN_USER")],
     [telegraf_1.Markup.button.callback("🔒 Logout", "ADMIN_LOGOUT")]
 ]);
@@ -213,6 +214,13 @@ function initAdminActions(bot) {
             "To ban a user, use the /ban command with their User ID.\n\n" +
             "Example: /ban 1130645873\n\n" +
             "Use the button below to return to menu.", Object.assign({ parse_mode: "Markdown" }, backKeyboard));
+    }));
+    // Re-engagement campaign
+    bot.action("ADMIN_REENGAGE", (ctx) => __awaiter(this, void 0, void 0, function* () {
+        yield safeAnswerCbQuery(ctx);
+        // Import and execute reengagement command
+        const reengagementCommand = require("./reengagement").default;
+        yield reengagementCommand.execute(ctx, bot);
     }));
     // Logout
     bot.action("ADMIN_LOGOUT", (ctx) => __awaiter(this, void 0, void 0, function* () {

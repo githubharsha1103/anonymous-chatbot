@@ -27,6 +27,8 @@ export interface User {
   totalChats?: number;
   chatRating?: number; // User's rating of their chat experience (1-5)
   messageCount?: number; // Number of messages in current chat
+  lastActive?: number; // Timestamp of last activity
+  createdAt?: number; // Account creation timestamp
 }
 
 // Extended user with isNew flag
@@ -391,6 +393,92 @@ export async function incrementTotalChats(): Promise<void> {
   }
   stats.totalChats = (stats.totalChats || 0) + 1;
   fs.writeFileSync(statsFile, JSON.stringify(stats, null, 2));
+}
+
+// ==================== RE-ENGAGEMENT FUNCTIONS ====================
+
+// Update user's last active timestamp
+export async function updateLastActive(id: number): Promise<void> {
+  await updateUser(id, { lastActive: Date.now() });
+}
+
+// Get users who haven't been active for X days
+export async function getInactiveUsers(daysInactive: number): Promise<string[]> {
+  const cutoffTime = Date.now() - (daysInactive * 24 * 60 * 60 * 1000);
+  
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getUsersCollection();
+      // Find users who haven't been active since the cutoff time
+      // Also include users who never had lastActive set (created before cutoff but no activity)
+      const users = await collection.find({
+        $or: [
+          { lastActive: { $lt: cutoffTime } },
+          { lastActive: { $exists: false }, createdAt: { $lt: cutoffTime } }
+        ]
+      }).toArray();
+      return users.map((u: User) => u.telegramId.toString());
+    } catch (error) {
+      console.error("[ERROR] - MongoDB error getting inactive users:", error);
+      isFallbackMode = true;
+    }
+  }
+  
+  // JSON fallback
+  const fs = require("fs");
+  if (!fs.existsSync(JSON_FILE)) return [];
+  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+  
+  const inactiveIds: string[] = [];
+  for (const [id, userData] of Object.entries(dbObj)) {
+    const user = userData as any;
+    const lastActive = user.lastActive || user.createdAt || 0;
+    if (lastActive < cutoffTime) {
+      inactiveIds.push(id);
+    }
+  }
+  return inactiveIds;
+}
+
+// Get user count by inactivity status
+export async function getUserStats(): Promise<{
+  total: number;
+  activeToday: number;
+  inactive7Days: number;
+  inactive30Days: number;
+}> {
+  const allUsers = await getAllUsers();
+  const now = Date.now();
+  const oneDayAgo = now - (1 * 24 * 60 * 60 * 1000);
+  const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
+  const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+  
+  let activeToday = 0;
+  let inactive7Days = 0;
+  let inactive30Days = 0;
+  
+  for (const id of allUsers) {
+    const userId = parseInt(id);
+    const user = await getUser(userId);
+    const lastActive = user.lastActive || user.createdAt || 0;
+    
+    if (lastActive >= oneDayAgo) {
+      activeToday++;
+    }
+    if (lastActive < sevenDaysAgo) {
+      inactive7Days++;
+    }
+    if (lastActive < thirtyDaysAgo) {
+      inactive30Days++;
+    }
+  }
+  
+  return {
+    total: allUsers.length,
+    activeToday,
+    inactive7Days,
+    inactive30Days
+  };
 }
 
 // Close MongoDB connection on process exit

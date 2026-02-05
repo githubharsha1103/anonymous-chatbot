@@ -43,19 +43,23 @@ exports.default = {
             const user = yield (0, db_1.getUser)(userId);
             const preference = user.preference || "any";
             const isPremium = user.premium || false;
+            // SIMPLIFIED MATCHING LOGIC:
+            // - Normal users (non-premium): preference is locked to "any" → match with BOTH genders randomly
+            // - Premium users: can set preference → match ONLY with preferred gender
+            // If user is premium AND has specific preference, match only with that gender
+            // Otherwise (free user or "any" preference), match with anyone
+            const matchPreference = (isPremium && preference !== "any") ? preference : null;
             // Find a compatible match from the queue
             const matchIndex = bot.waitingQueue.findIndex(waiting => {
                 const w = waiting;
-                // If current user has preference, check if waiting user's gender matches
-                const currentUserSatisfied = preference === "any" || preference === w.gender;
-                // If waiting user has preference, check if current user's gender matches
-                const waitingUserSatisfied = w.preference === "any" || w.preference === gender;
-                // Premium user preference takes priority:
-                // If current user is premium with a specific preference, match even if waiting user has no preference
-                const premiumPriority = isPremium && preference !== "any" && preference === w.gender;
-                // If waiting user is premium with a specific preference, match even if current user has no preference
-                const waitingPremiumPriority = w.isPremium && w.preference !== "any" && w.preference === gender;
-                return (currentUserSatisfied && waitingUserSatisfied) || premiumPriority || waitingPremiumPriority;
+                if (matchPreference) {
+                    // Premium user with specific preference - only match with that gender
+                    return w.gender === matchPreference;
+                }
+                else {
+                    // Normal user or "any" preference - match with anyone
+                    return true;
+                }
             });
             if (matchIndex !== -1) {
                 const match = bot.waitingQueue[matchIndex];
@@ -69,14 +73,19 @@ exports.default = {
                 const chatStartTime = Date.now();
                 yield (0, db_1.updateUser)(userId, { chatStartTime });
                 yield (0, db_1.updateUser)(match.id, { chatStartTime });
+                // Initialize message count for both users
+                bot.messageCountMap.set(userId, 0);
+                bot.messageCountMap.set(match.id, 0);
                 // Clear waiting if it was this user
                 if (bot.waiting === match.id) {
                     bot.waiting = null;
                 }
                 // Increment chat count
                 bot.incrementChatCount();
-                // Build partner info message
-                const partnerGender = isPremium ? (matchUser.gender ? matchUser.gender.charAt(0).toUpperCase() + matchUser.gender.slice(1) : "Not Set") : "Available with Premium";
+                // Build partner info message - hide gender for non-premium users
+                const partnerGender = isPremium
+                    ? (matchUser.gender ? matchUser.gender.charAt(0).toUpperCase() + matchUser.gender.slice(1) : "Not Set")
+                    : "🔒 Hidden";
                 const partnerAge = matchUser.age || "Not Set";
                 const userPartnerInfo = `✅ Partner Matched
 
@@ -88,10 +97,14 @@ exports.default = {
 ⏱️ Media sharing unlocked after 2 minutes
 
 /end — Leave the chat`;
+                // For match user - also hide gender if they're not premium
+                const matchUserGender = user.premium
+                    ? (user.gender ? user.gender.charAt(0).toUpperCase() + user.gender.slice(1) : "Not Set")
+                    : "🔒 Hidden";
                 const matchPartnerInfo = `✅ Partner Matched
 
 🔢 Age: ${user.age || "Not Set"}
-👥 Gender: ${user.gender ? user.gender.charAt(0).toUpperCase() + user.gender.slice(1) : "Not Set"}
+👥 Gender: ${matchUserGender}
 🌍 Country: 🇮🇳 India${user.state ? ` - ${user.state.charAt(0).toUpperCase() + user.state.slice(1)}` : ""}
 
 🚫 Links are restricted

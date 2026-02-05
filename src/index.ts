@@ -51,6 +51,9 @@ export class ExtraTelegraf extends Telegraf<Context> {
   // Message mapping for replies
   messageMap: Map<number, { [key: number]: number }> = new Map();
 
+  // Message count tracking for chat statistics
+  messageCountMap: Map<number, number> = new Map();
+
   // Statistics
   totalChats: number = 0;
   totalUsers: number = 0;
@@ -141,6 +144,11 @@ loadActions();
 
 import { initAdminActions } from "./Commands/adminaccess.js";
 initAdminActions(bot);
+
+/* ---------------- RE-ENGAGEMENT ---------------- */
+
+import { initReengagementActions } from "./Commands/reengagement.js";
+initReengagementActions(bot);
 
 /* ---------------- ADMIN ---------------- */
 

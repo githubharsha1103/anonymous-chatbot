@@ -39,11 +39,15 @@ export default {
         
         bot.messageMap.delete(userId);
         bot.messageMap.delete(partner);
+        
+        // Clean up message count
+        bot.messageCountMap.delete(userId);
+        bot.messageCountMap.delete(partner);
 
         // Store partner ID for potential report (both ways)
         if (partner) {
-          await updateUser(userId, { reportingPartner: partner });
-          await updateUser(partner, { reportingPartner: userId });
+          await updateUser(userId, { reportingPartner: partner, chatStartTime: null });
+          await updateUser(partner, { reportingPartner: userId, chatStartTime: null });
         }
         
         // Report keyboard
@@ -83,14 +87,24 @@ export default {
       const preference = user.preference || "any";
       const isPremium = user.premium || false;
 
+      // SIMPLIFIED MATCHING LOGIC:
+      // - Normal users (non-premium): preference is locked to "any" → match with BOTH genders randomly
+      // - Premium users: can set preference → match ONLY with preferred gender
+      // If user is premium AND has specific preference, match only with that gender
+      // Otherwise (free user or "any" preference), match with anyone
+      const matchPreference = (isPremium && preference !== "any") ? preference : null;
+
       // Find a compatible match
       const matchIndex = bot.waitingQueue.findIndex(waiting => {
         const w = waiting as WaitingUser;
-        const currentUserSatisfied = 
-          preference === "any" || preference === w.gender;
-        const waitingUserSatisfied = 
-          w.preference === "any" || w.preference === gender;
-        return currentUserSatisfied && waitingUserSatisfied;
+        
+        if (matchPreference) {
+          // Premium user with specific preference - only match with that gender
+          return w.gender === matchPreference;
+        } else {
+          // Normal user or "any" preference - match with anyone
+          return true;
+        }
       });
 
       if (matchIndex !== -1) {
@@ -104,6 +118,10 @@ export default {
         await updateUser(userId, { lastPartner: match.id, chatStartTime: Date.now() });
         await updateUser(match.id, { lastPartner: userId, chatStartTime: Date.now() });
 
+        // Initialize message count for both users
+        bot.messageCountMap.set(userId, 0);
+        bot.messageCountMap.set(match.id, 0);
+
         if (bot.waiting === match.id) {
           bot.waiting = null;
         }
@@ -111,8 +129,10 @@ export default {
         // Increment chat count for new chat
         bot.incrementChatCount();
 
-        // Build partner info message
-        const partnerGender = isPremium ? (matchUser.gender ? matchUser.gender.charAt(0).toUpperCase() + matchUser.gender.slice(1) : "Not Set") : "Available with Premium";
+        // Build partner info message - hide gender for non-premium users
+        const partnerGender = isPremium 
+            ? (matchUser.gender ? matchUser.gender.charAt(0).toUpperCase() + matchUser.gender.slice(1) : "Not Set")
+            : "🔒 Hidden";
         const partnerAge = matchUser.age || "Not Set";
         
         const userPartnerInfo = 
@@ -127,11 +147,16 @@ export default {
 
 /end — Leave the chat`;
 
+        // For match user - also hide gender if they're not premium
+        const matchUserGender = user.premium 
+            ? (user.gender ? user.gender.charAt(0).toUpperCase() + user.gender.slice(1) : "Not Set")
+            : "🔒 Hidden";
+            
         const matchPartnerInfo = 
 `✅ Partner Matched
 
 🔢 Age: ${user.age || "Not Set"}
-👥 Gender: ${user.gender ? user.gender.charAt(0).toUpperCase() + user.gender.slice(1) : "Not Set"}
+👥 Gender: ${matchUserGender}
 🌍 Country: 🇮🇳 India${user.state ? ` - ${user.state.charAt(0).toUpperCase() + user.state.slice(1)}` : ""}
 
 🚫 Links are restricted

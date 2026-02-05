@@ -27,6 +27,7 @@ const mainKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("📊 Bot Statistics", "ADMIN_STATS")],
     [Markup.button.callback("💬 Active Chats", "ADMIN_ACTIVE_CHATS")],
     [Markup.button.callback("📢 Broadcast Message", "ADMIN_BROADCAST")],
+    [Markup.button.callback("📣 Re-engagement", "ADMIN_REENGAGE")],
     [Markup.button.callback("👤 Ban User", "ADMIN_BAN_USER")],
     [Markup.button.callback("🔒 Logout", "ADMIN_LOGOUT")]
 ]);
@@ -260,6 +261,15 @@ export function initAdminActions(bot: ExtraTelegraf) {
             "Use the button below to return to menu.",
             { parse_mode: "Markdown", ...backKeyboard }
         );
+    });
+
+    // Re-engagement campaign
+    bot.action("ADMIN_REENGAGE", async (ctx) => {
+        await safeAnswerCbQuery(ctx);
+        
+        // Import and execute reengagement command
+        const reengagementCommand = require("./reengagement").default;
+        await reengagementCommand.execute(ctx, bot);
     });
 
     // Logout

@@ -172,6 +172,11 @@ exports.default = {
                 let partnerMap = bot.messageMap.get(partner) || {};
                 partnerMap[ctx.message.message_id] = sent.message_id;
                 bot.messageMap.set(partner, partnerMap);
+                // Increment message count for both users
+                const currentCount = bot.messageCountMap.get(ctx.from.id) || 0;
+                bot.messageCountMap.set(ctx.from.id, currentCount + 1);
+                const partnerCount = bot.messageCountMap.get(partner) || 0;
+                bot.messageCountMap.set(partner, partnerCount + 1);
             }
             /* =================================
                FORWARD TO SPECTATORS

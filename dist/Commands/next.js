@@ -32,10 +32,13 @@ exports.default = {
                 bot.runningChats = bot.runningChats.filter(u => u !== userId && u !== partner);
                 bot.messageMap.delete(userId);
                 bot.messageMap.delete(partner);
+                // Clean up message count
+                bot.messageCountMap.delete(userId);
+                bot.messageCountMap.delete(partner);
                 // Store partner ID for potential report (both ways)
                 if (partner) {
-                    yield (0, db_1.updateUser)(userId, { reportingPartner: partner });
-                    yield (0, db_1.updateUser)(partner, { reportingPartner: userId });
+                    yield (0, db_1.updateUser)(userId, { reportingPartner: partner, chatStartTime: null });
+                    yield (0, db_1.updateUser)(partner, { reportingPartner: userId, chatStartTime: null });
                 }
                 // Report keyboard
                 const reportKeyboard = telegraf_1.Markup.inlineKeyboard([
@@ -60,12 +63,23 @@ exports.default = {
             const user = yield (0, db_1.getUser)(userId);
             const preference = user.preference || "any";
             const isPremium = user.premium || false;
+            // SIMPLIFIED MATCHING LOGIC:
+            // - Normal users (non-premium): preference is locked to "any" → match with BOTH genders randomly
+            // - Premium users: can set preference → match ONLY with preferred gender
+            // If user is premium AND has specific preference, match only with that gender
+            // Otherwise (free user or "any" preference), match with anyone
+            const matchPreference = (isPremium && preference !== "any") ? preference : null;
             // Find a compatible match
             const matchIndex = bot.waitingQueue.findIndex(waiting => {
                 const w = waiting;
-                const currentUserSatisfied = preference === "any" || preference === w.gender;
-                const waitingUserSatisfied = w.preference === "any" || w.preference === gender;
-                return currentUserSatisfied && waitingUserSatisfied;
+                if (matchPreference) {
+                    // Premium user with specific preference - only match with that gender
+                    return w.gender === matchPreference;
+                }
+                else {
+                    // Normal user or "any" preference - match with anyone
+                    return true;
+                }
             });
             if (matchIndex !== -1) {
                 const match = bot.waitingQueue[matchIndex];
@@ -75,13 +89,18 @@ exports.default = {
                 // Store last partner and chat start time
                 yield (0, db_1.updateUser)(userId, { lastPartner: match.id, chatStartTime: Date.now() });
                 yield (0, db_1.updateUser)(match.id, { lastPartner: userId, chatStartTime: Date.now() });
+                // Initialize message count for both users
+                bot.messageCountMap.set(userId, 0);
+                bot.messageCountMap.set(match.id, 0);
                 if (bot.waiting === match.id) {
                     bot.waiting = null;
                 }
                 // Increment chat count for new chat
                 bot.incrementChatCount();
-                // Build partner info message
-                const partnerGender = isPremium ? (matchUser.gender ? matchUser.gender.charAt(0).toUpperCase() + matchUser.gender.slice(1) : "Not Set") : "Available with Premium";
+                // Build partner info message - hide gender for non-premium users
+                const partnerGender = isPremium
+                    ? (matchUser.gender ? matchUser.gender.charAt(0).toUpperCase() + matchUser.gender.slice(1) : "Not Set")
+                    : "🔒 Hidden";
                 const partnerAge = matchUser.age || "Not Set";
                 const userPartnerInfo = `✅ Partner Matched
 
@@ -93,10 +112,14 @@ exports.default = {
 ⏱️ Media sharing unlocked after 2 minutes
 
 /end — Leave the chat`;
+                // For match user - also hide gender if they're not premium
+                const matchUserGender = user.premium
+                    ? (user.gender ? user.gender.charAt(0).toUpperCase() + user.gender.slice(1) : "Not Set")
+                    : "🔒 Hidden";
                 const matchPartnerInfo = `✅ Partner Matched
 
 🔢 Age: ${user.age || "Not Set"}
-👥 Gender: ${user.gender ? user.gender.charAt(0).toUpperCase() + user.gender.slice(1) : "Not Set"}
+👥 Gender: ${matchUserGender}
 🌍 Country: 🇮🇳 India${user.state ? ` - ${user.state.charAt(0).toUpperCase() + user.state.slice(1)}` : ""}
 
 🚫 Links are restricted

@@ -58,6 +58,8 @@ class ExtraTelegraf extends telegraf_1.Telegraf {
         this.runningChats = [];
         // Message mapping for replies
         this.messageMap = new Map();
+        // Message count tracking for chat statistics
+        this.messageCountMap = new Map();
         // Statistics
         this.totalChats = 0;
         this.totalUsers = 0;
@@ -133,6 +135,9 @@ const actionHandler_1 = require("./Utils/actionHandler");
 /* ---------------- ADMIN PANEL ---------------- */
 const adminaccess_js_1 = require("./Commands/adminaccess.js");
 (0, adminaccess_js_1.initAdminActions)(exports.bot);
+/* ---------------- RE-ENGAGEMENT ---------------- */
+const reengagement_js_1 = require("./Commands/reengagement.js");
+(0, reengagement_js_1.initReengagementActions)(exports.bot);
 /* ---------------- ADMIN ---------------- */
 const ADMINS = ((_a = process.env.ADMIN_IDS) === null || _a === void 0 ? void 0 : _a.split(",")) || [];
 function isAdmin(id) {
