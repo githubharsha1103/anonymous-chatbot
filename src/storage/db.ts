@@ -1,7 +1,19 @@
 import { MongoClient, Db, Collection, ObjectId } from "mongodb";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
-const DB_NAME = process.env.DB_NAME || "anonymous_chatbot";
+const DB_NAME = process.env.DB_NAME || "telugu_anomybot";
+
+// MongoDB connection options for better SSL/TLS compatibility
+const MONGO_OPTIONS = {
+  maxPoolSize: 10,
+  minPoolSize: 2,
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+  tls: true,
+  tlsAllowInvalidCertificates: false,
+  retryWrites: true,
+  w: "majority" as const
+};
 
 let client: MongoClient | null = null;
 let db: Db | null = null;
@@ -41,7 +53,7 @@ async function connectToDatabase(): Promise<Db> {
   if (db) return db;
 
   try {
-    client = new MongoClient(MONGODB_URI);
+    client = new MongoClient(MONGODB_URI, MONGO_OPTIONS);
     await client.connect();
     db = client.db(DB_NAME);
     console.log("[INFO] - Connected to MongoDB");

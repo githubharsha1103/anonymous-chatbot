@@ -71,12 +71,16 @@ const BANS_FILE = "src/storage/bans.json";
 // Auto-detect based on whether MONGODB_URI is set
 let useMongoDB = !!process.env.MONGODB_URI;
 let isFallbackMode = !useMongoDB;
+let mongoConnectionFailed = false;
 // Log which storage mode is being used
-if (useMongoDB) {
+if (useMongoDB && !isFallbackMode) {
     console.log("[INFO] - MongoDB URI detected, will use MongoDB for data storage");
 }
-else {
+else if (!useMongoDB) {
     console.log("[INFO] - No MongoDB URI found, using JSON file storage");
+}
+else {
+    console.log("[INFO] - MongoDB connection failed, using JSON file storage");
 }
 // ==================== USER FUNCTIONS ====================
 function getUser(id) {
@@ -109,8 +113,9 @@ function getUser(id) {
                 return Object.assign(Object.assign({}, newUser), { isNew: true });
             }
             catch (error) {
-                console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-                isFallbackMode = true;
+                console.error("[ERROR] - MongoDB getUser error:", error);
+                // Don't permanently switch to fallback - MongoDB might recover
+                // Continue to try JSON fallback for this operation only
             }
         }
         // JSON fallback
@@ -148,8 +153,8 @@ function updateUser(id, data) {
                 return;
             }
             catch (error) {
-                console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-                isFallbackMode = true;
+                console.error("[ERROR] - MongoDB updateUser error:", error);
+                // Continue to JSON fallback for this operation
             }
         }
         // JSON fallback
@@ -209,8 +214,8 @@ function banUser(id) {
                 return;
             }
             catch (error) {
-                console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-                isFallbackMode = true;
+                console.error("[ERROR] - MongoDB error:", error);
+                // Don't switch to fallback permanently
             }
         }
         // JSON fallback
@@ -232,8 +237,8 @@ function unbanUser(id) {
                 return;
             }
             catch (error) {
-                console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-                isFallbackMode = true;
+                console.error("[ERROR] - MongoDB error:", error);
+                // Don't switch to fallback permanently
             }
         }
         // JSON fallback
@@ -256,8 +261,8 @@ function isBanned(id) {
                 return !!ban;
             }
             catch (error) {
-                console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-                isFallbackMode = true;
+                console.error("[ERROR] - MongoDB error:", error);
+                // Don't switch to fallback permanently
             }
         }
         // JSON fallback
@@ -276,8 +281,8 @@ function readBans() {
                 return bans.map((b) => b.telegramId);
             }
             catch (error) {
-                console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-                isFallbackMode = true;
+                console.error("[ERROR] - MongoDB error:", error);
+                // Don't switch to fallback permanently
             }
         }
         // JSON fallback
@@ -297,8 +302,8 @@ function getAllUsers() {
                 return users.map((u) => u.telegramId.toString());
             }
             catch (error) {
-                console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-                isFallbackMode = true;
+                console.error("[ERROR] - MongoDB error:", error);
+                // Don't switch to fallback permanently
             }
         }
         // JSON fallback
@@ -331,8 +336,8 @@ function deleteUser(id, reason) {
                 return result.deletedCount > 0;
             }
             catch (error) {
-                console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-                isFallbackMode = true;
+                console.error("[ERROR] - MongoDB error:", error);
+                // Don't switch to fallback permanently
             }
         }
         // JSON fallback
@@ -358,7 +363,7 @@ function getTotalChats() {
             }
             catch (error) {
                 console.error("[ERROR] - MongoDB error getting stats:", error);
-                isFallbackMode = true;
+                // Don't switch to fallback permanently
             }
         }
         // JSON fallback - read from file
@@ -382,7 +387,7 @@ function incrementTotalChats() {
             }
             catch (error) {
                 console.error("[ERROR] - MongoDB error updating stats:", error);
-                isFallbackMode = true;
+                // Don't switch to fallback permanently
             }
         }
         // JSON fallback - update file
@@ -430,7 +435,7 @@ function getInactiveUsers(daysInactive) {
             }
             catch (error) {
                 console.error("[ERROR] - MongoDB error getting inactive users:", error);
-                isFallbackMode = true;
+                // Don't switch to fallback permanently
             }
         }
         // JSON fallback

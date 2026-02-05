@@ -5,12 +5,14 @@
  * Usage: npx ts-node migrateToMongoDB.ts
  */
 
+import "dotenv/config";
 import { MongoClient, ObjectId } from "mongodb";
 import fs from "fs";
 import path from "path";
 
+// Read from environment variables (loaded from .env)
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
-const DB_NAME = process.env.DB_NAME || "anonymous_chatbot";
+const DB_NAME = process.env.DB_NAME || "telugu_anomybot";
 const JSON_FILE = "src/storage/users.json";
 
 interface UserData {

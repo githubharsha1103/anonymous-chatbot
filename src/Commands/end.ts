@@ -3,11 +3,11 @@ import { ExtraTelegraf } from "..";
 import { sendMessageWithRetry, cleanupBlockedUser } from "../Utils/telegramErrorHandler";
 import { updateUser, getUser, incUserTotalChats } from "../storage/db";
 
-// Rating keyboard with emojis
+// Rating keyboard with emojis and next button
 const ratingKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("😊 Good", "RATE_GOOD")],
-    [Markup.button.callback("😐 Okay", "RATE_OKAY")],
-    [Markup.button.callback("😞 Bad", "RATE_BAD")]
+    [Markup.button.callback("😊 Good", "RATE_GOOD"), Markup.button.callback("😐 Okay", "RATE_OKAY"), Markup.button.callback("😞 Bad", "RATE_BAD")],
+    [Markup.button.callback("🔍 Find New Partner", "START_SEARCH")],
+    [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
 ]);
 
 // Main menu keyboard after chat ends
@@ -91,29 +91,12 @@ export default {
                 await incUserTotalChats(partner);
             }
 
-            // Report keyboard
-            const reportKeyboard = Markup.inlineKeyboard([
-                [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
-            ]);
-
-            // Partner notification
-            const partnerLeftMessage = 
+            // Common exit message for both users
+const exitMessage = 
 `🚫 Partner left the chat
 
 💬 Chat Duration: ${durationText}
 💭 Messages Exchanged: ${messageCount}
-
-/next - Find new partner
-
-━━━━━━━━━━━━━━━━━
-To report this user:`;
-
-            // User's enhanced exit message
-            const userExitMessage = 
-`💬 *Chat Ended*
-
-⏱️ *Duration:* ${durationText}
-💭 *Messages:* ${messageCount}
 
 ━━━━━━━━━━━━━━━━━
 How was your chat experience?`;
@@ -122,8 +105,8 @@ How was your chat experience?`;
             const notifySent = await sendMessageWithRetry(
                 bot,
                 partner,
-                partnerLeftMessage,
-                reportKeyboard
+                exitMessage,
+                ratingKeyboard
             );
 
             // If message failed to send, still clean up
@@ -131,9 +114,9 @@ How was your chat experience?`;
                 cleanupBlockedUser(bot, partner);
             }
 
-            // Send enhanced exit message with rating
+            // Send exit message with rating and buttons to user who ended chat
             return ctx.reply(
-                userExitMessage,
+                exitMessage,
                 { parse_mode: "Markdown", ...ratingKeyboard }
             );
 
