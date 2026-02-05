@@ -25,6 +25,8 @@ export interface User {
   reportCount?: number;
   banReason?: string | null;
   totalChats?: number;
+  chatRating?: number; // User's rating of their chat experience (1-5)
+  messageCount?: number; // Number of messages in current chat
 }
 
 // Extended user with isNew flag
@@ -61,10 +63,17 @@ async function getUsersCollection(): Promise<Collection<User>> {
 const JSON_FILE = "src/storage/users.json";
 const BANS_FILE = "src/storage/bans.json";
 
-// Set to false to use JSON file storage (for Render.com without MongoDB Atlas)
 // Set to true to use MongoDB (requires MONGODB_URI environment variable)
-let useMongoDB = false;
-let isFallbackMode = true;
+// Auto-detect based on whether MONGODB_URI is set
+let useMongoDB = !!process.env.MONGODB_URI;
+let isFallbackMode = !useMongoDB;
+
+// Log which storage mode is being used
+if (useMongoDB) {
+  console.log("[INFO] - MongoDB URI detected, will use MongoDB for data storage");
+} else {
+  console.log("[INFO] - No MongoDB URI found, using JSON file storage");
+}
 
 // ==================== USER FUNCTIONS ====================
 
