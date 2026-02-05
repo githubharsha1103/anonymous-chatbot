@@ -69,12 +69,15 @@ const BANS_FILE = "src/storage/bans.json";
 // Auto-detect based on whether MONGODB_URI is set
 let useMongoDB = !!process.env.MONGODB_URI;
 let isFallbackMode = !useMongoDB;
+let mongoConnectionFailed = false;
 
 // Log which storage mode is being used
-if (useMongoDB) {
+if (useMongoDB && !isFallbackMode) {
   console.log("[INFO] - MongoDB URI detected, will use MongoDB for data storage");
-} else {
+} else if (!useMongoDB) {
   console.log("[INFO] - No MongoDB URI found, using JSON file storage");
+} else {
+  console.log("[INFO] - MongoDB connection failed, using JSON file storage");
 }
 
 // ==================== USER FUNCTIONS ====================
@@ -109,8 +112,9 @@ export async function getUser(id: number): Promise<UserWithNew> {
       await collection.insertOne(newUser);
       return { ...newUser, isNew: true };
     } catch (error) {
-      console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-      isFallbackMode = true;
+      console.error("[ERROR] - MongoDB getUser error:", error);
+      // Don't permanently switch to fallback - MongoDB might recover
+      // Continue to try JSON fallback for this operation only
     }
   }
   
@@ -151,8 +155,8 @@ export async function updateUser(id: number, data: Partial<User>): Promise<void>
       );
       return;
     } catch (error) {
-      console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-      isFallbackMode = true;
+      console.error("[ERROR] - MongoDB updateUser error:", error);
+      // Continue to JSON fallback for this operation
     }
   }
   
@@ -205,8 +209,8 @@ export async function banUser(id: number): Promise<void> {
       await bansCollection.insertOne({ telegramId: id });
       return;
     } catch (error) {
-      console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-      isFallbackMode = true;
+      console.error("[ERROR] - MongoDB error:", error);
+      // Don't switch to fallback permanently
     }
   }
   
@@ -227,8 +231,8 @@ export async function unbanUser(id: number): Promise<void> {
       await bansCollection.deleteOne({ telegramId: id });
       return;
     } catch (error) {
-      console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-      isFallbackMode = true;
+      console.error("[ERROR] - MongoDB error:", error);
+      // Don't switch to fallback permanently
     }
   }
   
@@ -250,8 +254,8 @@ export async function isBanned(id: number): Promise<boolean> {
       const ban = await bansCollection.findOne({ telegramId: id });
       return !!ban;
     } catch (error) {
-      console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-      isFallbackMode = true;
+      console.error("[ERROR] - MongoDB error:", error);
+      // Don't switch to fallback permanently
     }
   }
   
@@ -269,8 +273,8 @@ export async function readBans(): Promise<number[]> {
       const bans = await bansCollection.find({}).toArray();
       return bans.map((b: { telegramId: number }) => b.telegramId);
     } catch (error) {
-      console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-      isFallbackMode = true;
+      console.error("[ERROR] - MongoDB error:", error);
+      // Don't switch to fallback permanently
     }
   }
   
@@ -289,8 +293,8 @@ export async function getAllUsers(): Promise<string[]> {
       const users = await collection.find({}).toArray();
       return users.map((u: User) => u.telegramId.toString());
     } catch (error) {
-      console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-      isFallbackMode = true;
+      console.error("[ERROR] - MongoDB error:", error);
+      // Don't switch to fallback permanently
     }
   }
   
@@ -320,8 +324,8 @@ export async function deleteUser(id: number, reason?: string): Promise<boolean> 
       const result = await collection.deleteOne({ telegramId: id });
       return result.deletedCount > 0;
     } catch (error) {
-      console.error("[ERROR] - MongoDB error, falling back to JSON:", error);
-      isFallbackMode = true;
+      console.error("[ERROR] - MongoDB error:", error);
+      // Don't switch to fallback permanently
     }
   }
   
@@ -354,7 +358,7 @@ export async function getTotalChats(): Promise<number> {
       return stats?.totalChats || 0;
     } catch (error) {
       console.error("[ERROR] - MongoDB error getting stats:", error);
-      isFallbackMode = true;
+      // Don't switch to fallback permanently
     }
   }
   
@@ -380,7 +384,7 @@ export async function incrementTotalChats(): Promise<void> {
       return;
     } catch (error) {
       console.error("[ERROR] - MongoDB error updating stats:", error);
-      isFallbackMode = true;
+      // Don't switch to fallback permanently
     }
   }
   
@@ -427,7 +431,7 @@ export async function getInactiveUsers(daysInactive: number): Promise<string[]> 
       return users.map((u: User) => u.telegramId.toString());
     } catch (error) {
       console.error("[ERROR] - MongoDB error getting inactive users:", error);
-      isFallbackMode = true;
+      // Don't switch to fallback permanently
     }
   }
   

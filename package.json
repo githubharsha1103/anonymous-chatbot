@@ -15,7 +15,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "npx tsc && node dist/index.js",
     "clean": "rimraf dist",
-    "build": "npm run clean && npx tsc"
+    "build": "npm run clean && npx tsc",
+    "init-db": "npx ts-node initDb.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
