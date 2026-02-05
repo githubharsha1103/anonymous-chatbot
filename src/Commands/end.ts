@@ -40,7 +40,7 @@ export default {
 
         // Check rate limit
         if (bot.isRateLimited(id)) {
-            return ctx.reply("⏳ Please wait a few seconds before trying again.");
+            return ctx.reply("⏳ Please wait a moment before trying again.");
         }
 
         // Acquire mutex to prevent race conditions

@@ -71,8 +71,8 @@ export class ExtraTelegraf extends Telegraf<Context> {
   // Maximum queue size
   MAX_QUEUE_SIZE = 10000;
 
-  // Rate limit window in milliseconds (5 seconds)
-  RATE_LIMIT_WINDOW = 5000;
+  // Rate limit window in milliseconds (1 second - faster for real-time chat)
+  RATE_LIMIT_WINDOW = 1000;
 
   getPartner(id: number) {
     const index = this.runningChats.indexOf(id);
