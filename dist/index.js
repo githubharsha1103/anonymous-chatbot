@@ -72,8 +72,8 @@ class ExtraTelegraf extends telegraf_1.Telegraf {
         this.queueMutex = new Mutex();
         // Maximum queue size
         this.MAX_QUEUE_SIZE = 10000;
-        // Rate limit window in milliseconds (5 seconds)
-        this.RATE_LIMIT_WINDOW = 5000;
+        // Rate limit window in milliseconds (1 second - faster for real-time chat)
+        this.RATE_LIMIT_WINDOW = 1000;
     }
     getPartner(id) {
         const index = this.runningChats.indexOf(id);

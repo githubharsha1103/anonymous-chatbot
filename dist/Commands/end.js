@@ -12,11 +12,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const telegraf_1 = require("telegraf");
 const telegramErrorHandler_1 = require("../Utils/telegramErrorHandler");
 const db_1 = require("../storage/db");
-// Rating keyboard with emojis
+// Rating keyboard with emojis and next button
 const ratingKeyboard = telegraf_1.Markup.inlineKeyboard([
-    [telegraf_1.Markup.button.callback("😊 Good", "RATE_GOOD")],
-    [telegraf_1.Markup.button.callback("😐 Okay", "RATE_OKAY")],
-    [telegraf_1.Markup.button.callback("😞 Bad", "RATE_BAD")]
+    [telegraf_1.Markup.button.callback("😊 Good", "RATE_GOOD"), telegraf_1.Markup.button.callback("😐 Okay", "RATE_OKAY"), telegraf_1.Markup.button.callback("😞 Bad", "RATE_BAD")],
+    [telegraf_1.Markup.button.callback("🔍 Find New Partner", "START_SEARCH")],
+    [telegraf_1.Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
 ]);
 // Main menu keyboard after chat ends
 const mainMenuKeyboard = telegraf_1.Markup.inlineKeyboard([
@@ -46,7 +46,7 @@ exports.default = {
         const id = (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id;
         // Check rate limit
         if (bot.isRateLimited(id)) {
-            return ctx.reply("⏳ Please wait a few seconds before trying again.");
+            return ctx.reply("⏳ Please wait a moment before trying again.");
         }
         // Acquire mutex to prevent race conditions
         yield bot.chatMutex.acquire();
@@ -84,36 +84,22 @@ exports.default = {
                 yield (0, db_1.incUserTotalChats)(id);
                 yield (0, db_1.incUserTotalChats)(partner);
             }
-            // Report keyboard
-            const reportKeyboard = telegraf_1.Markup.inlineKeyboard([
-                [telegraf_1.Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
-            ]);
-            // Partner notification
-            const partnerLeftMessage = `🚫 Partner left the chat
+            // Common exit message for both users
+            const exitMessage = `🚫 Partner left the chat
 
 💬 Chat Duration: ${durationText}
 💭 Messages Exchanged: ${messageCount}
 
-/next - Find new partner
-
-━━━━━━━━━━━━━━━━━
-To report this user:`;
-            // User's enhanced exit message
-            const userExitMessage = `💬 *Chat Ended*
-
-⏱️ *Duration:* ${durationText}
-💭 *Messages:* ${messageCount}
-
 ━━━━━━━━━━━━━━━━━
 How was your chat experience?`;
             // Use sendMessageWithRetry to handle blocked partners
-            const notifySent = yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, partner, partnerLeftMessage, reportKeyboard);
+            const notifySent = yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, partner, exitMessage, ratingKeyboard);
             // If message failed to send, still clean up
             if (!notifySent && partner) {
                 (0, telegramErrorHandler_1.cleanupBlockedUser)(bot, partner);
             }
-            // Send enhanced exit message with rating
-            return ctx.reply(userExitMessage, Object.assign({ parse_mode: "Markdown" }, ratingKeyboard));
+            // Send exit message with rating and buttons to user who ended chat
+            return ctx.reply(exitMessage, Object.assign({ parse_mode: "Markdown" }, ratingKeyboard));
         }
         finally {
             bot.chatMutex.release();

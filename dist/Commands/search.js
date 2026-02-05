@@ -19,7 +19,7 @@ exports.default = {
         const userId = (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id;
         // Check rate limit
         if (bot.isRateLimited(userId)) {
-            return ctx.reply("⏳ Please wait a few seconds before searching again.");
+            return ctx.reply("⏳ Please wait a moment before searching again.");
         }
         // Check queue size limit
         if (bot.isQueueFull()) {

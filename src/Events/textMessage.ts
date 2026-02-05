@@ -7,12 +7,30 @@ import { isBotBlockedError, cleanupBlockedUser, isNotEnoughRightsError, isRateLi
 import { waitingForBroadcast } from "../Commands/adminaccess";
 import { Markup } from "telegraf";
 
+// Setup step constants (must match start.ts)
+const SETUP_STEP_AGE = "age";
+const SETUP_STEP_STATE = "state";
+
+// Setup keyboards
+const setupStateKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
+    [Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
+    [Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
+    [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
+]);
+
 const backKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🔙 Back", "OPEN_SETTINGS")]
 ]);
 
-const ageInputKeyboard = Markup.inlineKeyboard([
+const cancelKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("⬅️ Cancel", "SETUP_CANCEL")]
+]);
+
+const mainMenuKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🔍 Search", "START_SEARCH")],
+    [Markup.button.callback("⚙️ Settings", "OPEN_SETTINGS")],
+    [Markup.button.callback("❓ Help", "START_HELP")]
 ]);
 
 export default {
@@ -93,37 +111,46 @@ export default {
           return ctx.reply("Preference updated ✅");
         }
 
-        // ✅ Age (13-80)
+        // ✅ Age (13-80) - Handle manual age input
         if (/^\d+$/.test(txt)) {
           const user = await getUser(ctx.from.id);
           const age = Number(txt);
           
           if (age < 13 || age > 80) {
-            return ctx.reply("Age must be between 13 and 80 ❌");
+            return ctx.reply("🎂 *Age must be between 13 and 80*\n\nPlease try again:", 
+              { parse_mode: "Markdown", ...cancelKeyboard });
           }
+          
           await updateUser(ctx.from.id, { age: String(age) });
           
-          // After age is set, ask for state (no back button) - only for new users without state
-          if (!user.state && !user.age) {
-            const stateKeyboard = Markup.inlineKeyboard([
-               [Markup.button.callback("Telangana", "SETUP_STATE_TELANGANA")],
-               [Markup.button.callback("Andhra Pradesh", "SETUP_STATE_AP")]
-            ]);
-            
-            await ctx.reply(
-               "📝 *Step 3/3:* Select your state:",
-               { parse_mode: "Markdown", ...stateKeyboard }
-            );
-          } else {
-            await ctx.reply("Age updated ✅", backKeyboard);
-          }
+          // After manual age input, ask for state with back button
+          await ctx.reply(
+            "📝 *Step 3 of 3*\n\n" +
+            "📍 *Select your location:*\n" +
+            "(Helps match you with nearby people)",
+            { parse_mode: "Markdown", ...setupStateKeyboard }
+          );
           return;
         }
 
-        // ✅ State (Telangana / Andhra Pradesh)
-        if (txt === "telangana" || txt === "andhra pradesh") {
-          await updateUser(ctx.from.id, { state: txt });
-          return ctx.reply("State updated ✅");
+        // ✅ State (for setup phase - when user types state name)
+        if (txt === "telangana" || txt === "andhra pradesh" || txt === "karnataka" || 
+            txt === "tamil nadu" || txt === "maharashtra" || txt === "other") {
+          const user = await getUser(ctx.from.id);
+          
+          // Only process as setup if user is in setup phase
+          if (user.setupStep === "state" || !user.state) {
+            await updateUser(ctx.from.id, { state: txt });
+            
+            // Show setup complete message
+            await ctx.reply(
+              `✨ *Profile Complete!* ✨\n\n` +
+              `Your profile has been set up successfully!\n\n` +
+              `🎉 Ready to start chatting? Use /search to find a partner!`,
+              { parse_mode: "Markdown", ...mainMenuKeyboard }
+            );
+            return;
+          }
         }
       }
 

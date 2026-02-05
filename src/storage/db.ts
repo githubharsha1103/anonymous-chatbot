@@ -41,6 +41,7 @@ export interface User {
   messageCount?: number; // Number of messages in current chat
   lastActive?: number; // Timestamp of last activity
   createdAt?: number; // Account creation timestamp
+  setupStep?: string; // Track new user setup progress: 'gender', 'age', 'state', 'done'
 }
 
 // Extended user with isNew flag

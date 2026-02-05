@@ -82,37 +82,7 @@ const premiumMessage =
 "Gender preference is available only for Premium users.\n\n" +
 "To unlock this feature, please contact the admin @demonhunter1511 to purchase Premium access.";
 
-// Setup keyboards for improved onboarding (setup prefix for setup-specific keyboards)
-const setupGenderKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("👨 Male", "SETUP_GENDER_MALE")],
-    [Markup.button.callback("👩 Female", "SETUP_GENDER_FEMALE")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_START")]
-]);
 
-const setupAgeRangeKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("13-17", "SETUP_AGE_13_17")],
-    [Markup.button.callback("18-25", "SETUP_AGE_18_25")],
-    [Markup.button.callback("26-40", "SETUP_AGE_26_40")],
-    [Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_GENDER")]
-]);
-
-const setupCountryKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🇮🇳 India", "SETUP_COUNTRY_INDIA")],
-    [Markup.button.callback("🌍 Other", "SETUP_COUNTRY_OTHER")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
-]);
-
-const setupStateKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("Telangana", "SETUP_STATE_TELANGANA")],
-    [Markup.button.callback("Andhra Pradesh", "SETUP_STATE_AP")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_COUNTRY")]
-]);
-
-const setupSkipStateKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("Skip", "SETUP_SKIP_STATE")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_COUNTRY")]
-]);
 
 const mainMenuKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🔍 Search", "START_SEARCH")],
@@ -192,6 +162,202 @@ bot.action("START_HELP", async (ctx) => {
         { parse_mode: "Markdown" }
     );
 });
+
+// ==============================
+// NEW USER SETUP HANDLERS
+// ==============================
+
+const cancelKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("⬅️ Cancel", "SETUP_CANCEL")]
+]);
+
+// Welcome back handler
+bot.action("WELCOME_BACK", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await ctx.editMessageText(
+        "🌟 *Welcome to Anonymous Chat!* 🌟\n\n" +
+        "✨ Connect with strangers anonymously\n" +
+        "🔒 Your privacy is protected\n" +
+        "💬 Chat freely and safely\n\n" +
+        "Tap *Get Started* to begin!",
+        { parse_mode: "Markdown", ...Markup.inlineKeyboard([
+            [Markup.button.callback("🌟 Get Started", "SETUP_GENDER_MALE")]
+        ]) }
+    );
+});
+
+// Setup gender keyboard with back option
+const setupGenderKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("👨 Male", "SETUP_GENDER_MALE")],
+    [Markup.button.callback("👩 Female", "SETUP_GENDER_FEMALE")],
+    [Markup.button.callback("⬅️ Back", "WELCOME_BACK")]
+]);
+
+// Setup age keyboard with ranges and manual input option
+const setupAgeKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("13-17", "SETUP_AGE_13_17")],
+    [Markup.button.callback("18-25", "SETUP_AGE_18_25")],
+    [Markup.button.callback("26-40", "SETUP_AGE_26_40")],
+    [Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
+    [Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")],
+    [Markup.button.callback("⬅️ Back", "SETUP_BACK_GENDER")]
+]);
+
+// Setup age manual input keyboard
+const setupAgeManualKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
+]);
+
+// Setup state keyboard
+const setupStateKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
+    [Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
+    [Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
+    [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")],
+    [Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
+]);
+
+// Gender selected - move to age input
+bot.action("SETUP_GENDER_MALE", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { gender: "male", setupStep: "age" });
+    await ctx.editMessageText(
+        "📝 *Step 2 of 3*\n\n" +
+        "🎂 *Select your age range:*\n" +
+        "(This helps us match you with people in similar age groups)",
+        { parse_mode: "Markdown", ...setupAgeKeyboard }
+    );
+});
+
+bot.action("SETUP_GENDER_FEMALE", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { gender: "female", setupStep: "age" });
+    await ctx.editMessageText(
+        "📝 *Step 2 of 3*\n\n" +
+        "🎂 *Select your age range:*\n" +
+        "(This helps us match you with people in similar age groups)",
+        { parse_mode: "Markdown", ...setupAgeKeyboard }
+    );
+});
+
+// Age range selected - ask for state
+const ageToGenderMap: Record<string, string> = {
+    "SETUP_AGE_13_17": "13-17",
+    "SETUP_AGE_18_25": "18-25",
+    "SETUP_AGE_26_40": "26-40",
+    "SETUP_AGE_40_PLUS": "40+"
+};
+
+for (const [action, ageLabel] of Object.entries(ageToGenderMap)) {
+    bot.action(action, async (ctx) => {
+        if (!ctx.from) return;
+        await safeAnswerCbQuery(ctx);
+        await updateUser(ctx.from.id, { age: ageLabel, setupStep: "state" });
+        await ctx.editMessageText(
+            "📝 *Step 3 of 3*\n\n" +
+            "📍 *Select your location:*\n" +
+            "(Helps match you with nearby people)",
+            { parse_mode: "Markdown", ...setupStateKeyboard }
+        );
+    });
+}
+
+// Manual age input - ask user to type their age
+bot.action("SETUP_AGE_MANUAL", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await ctx.editMessageText(
+        "📝 *Enter your age:*\n\n" +
+        "Please type a number between 13 and 80\n" +
+        "(e.g., 21)",
+        { parse_mode: "Markdown", ...setupAgeManualKeyboard }
+    );
+});
+
+// State selected - complete setup
+bot.action("SETUP_STATE_TELANGANA", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Telangana", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_AP", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Andhra Pradesh", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_OTHER", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { setupStep: "state_other" });
+    await ctx.editMessageText(
+        "📍 *Enter your state:*\n\n" +
+        "(e.g., Karnataka, Tamil Nadu, Maharashtra, etc.)",
+        { parse_mode: "Markdown", ...Markup.inlineKeyboard([
+            [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE")]
+        ]) }
+    );
+});
+
+bot.action("SETUP_COUNTRY_OTHER", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Other", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+// Back actions
+bot.action("SETUP_BACK_GENDER", async (ctx) => {
+    await safeAnswerCbQuery(ctx);
+    await ctx.editMessageText(
+        "📝 *Step 1 of 3*\n" +
+        "👤 *Select your gender:*",
+        { parse_mode: "Markdown", ...setupGenderKeyboard }
+    );
+});
+
+bot.action("SETUP_BACK_AGE", async (ctx) => {
+    await safeAnswerCbQuery(ctx);
+    await ctx.editMessageText(
+        "📝 *Step 2 of 3*\n\n" +
+        "🎂 *Select your age range:*\n" +
+        "(This helps us match you with people in similar age groups)",
+        { parse_mode: "Markdown", ...setupAgeKeyboard }
+    );
+});
+
+bot.action("SETUP_BACK_STATE", async (ctx) => {
+    await safeAnswerCbQuery(ctx);
+    await ctx.editMessageText(
+        "📝 *Step 3 of 3*\n\n" +
+        "📍 *Select your location:*\n" +
+        "(Helps match you with nearby people)",
+        { parse_mode: "Markdown", ...setupStateKeyboard }
+    );
+});
+
+// Cancel setup - show main menu
+bot.action("SETUP_CANCEL", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { setupStep: undefined });
+    await ctx.editMessageText(
+        "🌟 *Welcome back!* 🌟\n\n" +
+        "This bot helps you chat anonymously with people worldwide.\n\n" +
+        "Use the menu below to navigate:",
+        { parse_mode: "Markdown", ...mainMenuKeyboard }
+    );
+});
+
+// ==============================
+// SETTINGS ACTIONS
+// ==============================
 
 // Gender actions
 bot.action("SET_GENDER", async (ctx) => {
@@ -409,181 +575,7 @@ bot.action("REPORT_CANCEL", async (ctx) => {
     return ctx.editMessageText("Report cancelled.", backKeyboard);
 });
 
-// ========================================
-// IMPROVED PROFILE SETUP FOR NEW USERS
-// Flow: Gender → Age Range → Country → State
-// ========================================
 
-// Step 1: Gender selected - ask for age range
-bot.action("SETUP_GENDER_MALE", async (ctx) => {
-    if (!ctx.from) return;
-    await safeAnswerCbQuery(ctx);
-    await updateUser(ctx.from.id, { gender: "male" });
-    await ctx.editMessageText(
-        "📝 *Step 2 of 3*\n\n" +
-        "🎂 *Select your age range:*\n" +
-        "(This helps us match you with people in similar age groups)",
-        { parse_mode: "Markdown", ...setupAgeRangeKeyboard }
-    );
-});
-
-bot.action("SETUP_GENDER_FEMALE", async (ctx) => {
-    if (!ctx.from) return;
-    await safeAnswerCbQuery(ctx);
-    await updateUser(ctx.from.id, { gender: "female" });
-    await ctx.editMessageText(
-        "📝 *Step 2 of 3*\n\n" +
-        "🎂 *Select your age range:*\n" +
-        "(This helps us match you with people in similar age groups)",
-        { parse_mode: "Markdown", ...setupAgeRangeKeyboard }
-    );
-});
-
-// Step 1b: Non-premium user skips gender selection
-bot.action("SETUP_SKIP_GENDER", async (ctx) => {
-    if (!ctx.from) return;
-    await safeAnswerCbQuery(ctx);
-    // Gender stays null for non-premium users
-    await ctx.editMessageText(
-        "📝 *Step 2 of 3*\n\n" +
-        "🎂 *Select your age range:*\n" +
-        "(This helps us match you with people in similar age groups)",
-        { parse_mode: "Markdown", ...setupAgeRangeKeyboard }
-    );
-});
-
-// Step 1c: Go back to start from gender selection
-bot.action("SETUP_BACK_START", async (ctx) => {
-    if (!ctx.from) return;
-    await safeAnswerCbQuery(ctx);
-    const user = await getUser(ctx.from.id);
-    
-    if (user.premium) {
-        // Premium user - show gender selection
-        await ctx.editMessageText(
-            "🌟 *Welcome to Anonymous Chat!* 🌟\n\n" +
-            "Let's set up your profile to help you find great chat partners!\n\n" +
-            "📝 *Step 1 of 3* - *PREMIUM*\n" +
-            "👤 *Select your gender:*",
-            { parse_mode: "Markdown", ...setupGenderKeyboard }
-        );
-    } else {
-        // Non-premium user - skip gender
-        await ctx.editMessageText(
-            "🌟 *Welcome to Anonymous Chat!* 🌟\n\n" +
-            "Let's set up your profile to help you find great chat partners!\n\n" +
-            "📝 *Step 1 of 3*\n" +
-            "👤 *Select your gender:*",
-            { parse_mode: "Markdown", ...setupGenderKeyboard }
-        );
-    }
-});
-
-// Step 2: Age ranges - ask for country
-const ageToGenderMap: Record<string, string> = {
-    "SETUP_AGE_13_17": "13-17",
-    "SETUP_AGE_18_25": "18-25",
-    "SETUP_AGE_26_40": "26-40",
-    "SETUP_AGE_40_PLUS": "40+"
-};
-
-for (const [action, ageLabel] of Object.entries(ageToGenderMap)) {
-    bot.action(action, async (ctx) => {
-        if (!ctx.from) return;
-        await safeAnswerCbQuery(ctx);
-        await updateUser(ctx.from.id, { age: ageLabel });
-        await ctx.editMessageText(
-            "📝 *Step 3 of 3*\n\n" +
-            "🌍 *Select your country:*\n" +
-            "(We'll match you with people from similar regions)",
-            { parse_mode: "Markdown", ...setupCountryKeyboard }
-        );
-    });
-}
-
-// Step 2b: Go back to gender selection
-bot.action("SETUP_BACK_GENDER", async (ctx) => {
-    await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText(
-        "📝 *Step 1 of 3*\n" +
-        "👤 *Select your gender:*",
-        { parse_mode: "Markdown", ...setupGenderKeyboard }
-    );
-});
-
-// Step 3: Country selection - if India, ask for state; if Other, skip state
-bot.action("SETUP_COUNTRY_INDIA", async (ctx) => {
-    if (!ctx.from) return;
-    await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText(
-        "📝 *Step 3 of 3*\n\n" +
-        "📍 *Select your state:*\n" +
-        "(Optional - helps match you with nearby people)",
-        { parse_mode: "Markdown", ...setupStateKeyboard }
-    );
-});
-
-bot.action("SETUP_COUNTRY_OTHER", async (ctx) => {
-    if (!ctx.from) return;
-    await safeAnswerCbQuery(ctx);
-    await updateUser(ctx.from.id, { state: "Other" });
-    await showSetupComplete(ctx);
-});
-
-// Step 3b: Go back to age selection
-bot.action("SETUP_BACK_AGE", async (ctx) => {
-    await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText(
-        "📝 *Step 2 of 3*\n\n" +
-        "🎂 *Select your age range:*\n" +
-        "(This helps us match you with people in similar age groups)",
-        { parse_mode: "Markdown", ...setupAgeRangeKeyboard }
-    );
-});
-
-// Step 4: State selection - show completion
-bot.action("SETUP_STATE_TELANGANA", async (ctx) => {
-    if (!ctx.from) return;
-    await safeAnswerCbQuery(ctx);
-    await updateUser(ctx.from.id, { state: "Telangana" });
-    await showSetupComplete(ctx);
-});
-
-bot.action("SETUP_STATE_AP", async (ctx) => {
-    if (!ctx.from) return;
-    await safeAnswerCbQuery(ctx);
-    await updateUser(ctx.from.id, { state: "Andhra Pradesh" });
-    await showSetupComplete(ctx);
-});
-
-// Step 4b: Go back to country selection
-bot.action("SETUP_BACK_COUNTRY", async (ctx) => {
-    await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText(
-        "📝 *Step 3 of 3*\n\n" +
-        "🌍 *Select your country:*\n" +
-        "(We'll match you with people from similar regions)",
-        { parse_mode: "Markdown", ...setupCountryKeyboard }
-    );
-});
-
-// Skip state (for non-Indian users)
-bot.action("SETUP_SKIP_STATE", async (ctx) => {
-    if (!ctx.from) return;
-    await safeAnswerCbQuery(ctx);
-    await updateUser(ctx.from.id, { state: "Other" });
-    await showSetupComplete(ctx);
-});
-
-// Setup: Cancel setup
-bot.action("SETUP_CANCEL", async (ctx) => {
-    await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText(
-        "❌ *Setup Cancelled*\n\n" +
-        "Use /start to begin again when you're ready!",
-        { parse_mode: "Markdown", ...mainMenuKeyboard }
-    );
-});
 
 // Show improved setup complete message with summary
 async function showSetupComplete(ctx: ActionContext) {

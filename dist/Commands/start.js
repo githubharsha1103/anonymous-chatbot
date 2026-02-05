@@ -9,41 +9,30 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.mainMenuKeyboard = void 0;
+exports.genderKeyboard = exports.cancelKeyboard = exports.mainMenuKeyboard = exports.SETUP_STEP_DONE = exports.SETUP_STEP_STATE = exports.SETUP_STEP_AGE = exports.SETUP_STEP_GENDER = void 0;
 const telegraf_1 = require("telegraf");
 const db_1 = require("../storage/db");
-// Profile setup keyboards with improved UX
-// Step 1: Gender selection with back button
+// Setup step constants
+exports.SETUP_STEP_GENDER = "gender";
+exports.SETUP_STEP_AGE = "age";
+exports.SETUP_STEP_STATE = "state";
+exports.SETUP_STEP_DONE = "done";
+// Welcome keyboard with animated welcome
+const welcomeKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.callback("🌟 Get Started", "SETUP_GENDER_MALE")]
+]);
+// Gender selection with back button
 const genderKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("👨 Male", "SETUP_GENDER_MALE")],
     [telegraf_1.Markup.button.callback("👩 Female", "SETUP_GENDER_FEMALE")],
-    [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_START")]
+    [telegraf_1.Markup.button.callback("⬅️ Back", "WELCOME_BACK")]
 ]);
-// Step 2: Age range selection (easier than typing exact age)
-const ageRangeKeyboard = telegraf_1.Markup.inlineKeyboard([
-    [telegraf_1.Markup.button.callback("13-17", "SETUP_AGE_13_17")],
-    [telegraf_1.Markup.button.callback("18-25", "SETUP_AGE_18_25")],
-    [telegraf_1.Markup.button.callback("26-40", "SETUP_AGE_26_40")],
-    [telegraf_1.Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
-    [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_GENDER")]
+exports.genderKeyboard = genderKeyboard;
+// Cancel button for input steps
+const cancelKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.callback("⬅️ Cancel", "SETUP_CANCEL")]
 ]);
-// Step 3: Country selection
-const countryKeyboard = telegraf_1.Markup.inlineKeyboard([
-    [telegraf_1.Markup.button.callback("🇮🇳 India", "SETUP_COUNTRY_INDIA")],
-    [telegraf_1.Markup.button.callback("🌍 Other", "SETUP_COUNTRY_OTHER")],
-    [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
-]);
-// Step 3b: Indian states (if India selected)
-const stateKeyboard = telegraf_1.Markup.inlineKeyboard([
-    [telegraf_1.Markup.button.callback("Telangana", "SETUP_STATE_TELANGANA")],
-    [telegraf_1.Markup.button.callback("Andhra Pradesh", "SETUP_STATE_AP")],
-    [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_COUNTRY")]
-]);
-// Skip state button (for non-Indian users)
-const skipStateKeyboard = telegraf_1.Markup.inlineKeyboard([
-    [telegraf_1.Markup.button.callback("Skip", "SETUP_SKIP_STATE")],
-    [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_COUNTRY")]
-]);
+exports.cancelKeyboard = cancelKeyboard;
 // Main menu keyboard
 const mainMenuKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("🔍 Search", "START_SEARCH")],
@@ -63,20 +52,56 @@ exports.default = {
         yield (0, db_1.updateLastActive)(userId);
         // Check if user is new and increment user count
         const user = yield (0, db_1.getUser)(userId);
+        // Initialize new user
         if (user.isNew) {
-            // Set createdAt and lastActive for new users
-            yield (0, db_1.updateUser)(userId, { createdAt: Date.now(), lastActive: Date.now() });
+            yield (0, db_1.updateUser)(userId, {
+                createdAt: Date.now(),
+                lastActive: Date.now(),
+                name: username
+            });
             bot.incrementUserCount();
-            // New user - show improved profile setup
+            // New user - show animated welcome with Get Started button
             yield ctx.reply("🌟 *Welcome to Anonymous Chat!* 🌟\n\n" +
-                "Let's set up your profile to help you find great chat partners!\n\n" +
-                "📝 *Step 1 of 3*\n" +
-                "👤 *Select your gender:*", Object.assign({ parse_mode: "Markdown" }, genderKeyboard));
+                "✨ Connect with strangers anonymously\n" +
+                "🔒 Your privacy is protected\n" +
+                "💬 Chat freely and safely\n\n" +
+                "Tap *Get Started* to begin!", Object.assign({ parse_mode: "Markdown" }, welcomeKeyboard));
             return;
         }
         // Update lastActive for returning users
         yield (0, db_1.updateLastActive)(userId);
-        // Existing user - show main menu
+        // Check if user is in the middle of setup
+        const setupStep = user.setupStep;
+        if (setupStep === exports.SETUP_STEP_AGE) {
+            // User needs to enter age - show age range buttons
+            const ageKeyboard = telegraf_1.Markup.inlineKeyboard([
+                [telegraf_1.Markup.button.callback("13-17", "SETUP_AGE_13_17")],
+                [telegraf_1.Markup.button.callback("18-25", "SETUP_AGE_18_25")],
+                [telegraf_1.Markup.button.callback("26-40", "SETUP_AGE_26_40")],
+                [telegraf_1.Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
+                [telegraf_1.Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")],
+                [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_GENDER")]
+            ]);
+            yield ctx.reply("📝 *Step 2 of 3*\n\n" +
+                "🎂 *Select your age range:*\n" +
+                "(This helps us match you with people in similar age groups)", Object.assign({ parse_mode: "Markdown" }, ageKeyboard));
+            return;
+        }
+        if (setupStep === exports.SETUP_STEP_STATE) {
+            // User needs to select state
+            const stateKeyboard = telegraf_1.Markup.inlineKeyboard([
+                [telegraf_1.Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
+                [telegraf_1.Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
+                [telegraf_1.Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
+                [telegraf_1.Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")],
+                [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
+            ]);
+            yield ctx.reply("📝 *Step 3 of 3*\n\n" +
+                "📍 *Select your location:*\n" +
+                "(Helps match you with nearby people)", Object.assign({ parse_mode: "Markdown" }, stateKeyboard));
+            return;
+        }
+        // Existing user with complete profile - show main menu
         yield ctx.reply("🌟 *Welcome back!* 🌟\n\n" +
             "This bot helps you chat anonymously with people worldwide.\n\n" +
             "Use the menu below to navigate:", Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));

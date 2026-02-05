@@ -13,11 +13,26 @@ const db_1 = require("../storage/db");
 const telegramErrorHandler_1 = require("../Utils/telegramErrorHandler");
 const adminaccess_1 = require("../Commands/adminaccess");
 const telegraf_1 = require("telegraf");
+// Setup step constants (must match start.ts)
+const SETUP_STEP_AGE = "age";
+const SETUP_STEP_STATE = "state";
+// Setup keyboards
+const setupStateKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
+    [telegraf_1.Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
+    [telegraf_1.Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
+    [telegraf_1.Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
+]);
 const backKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("🔙 Back", "OPEN_SETTINGS")]
 ]);
-const ageInputKeyboard = telegraf_1.Markup.inlineKeyboard([
+const cancelKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("⬅️ Cancel", "SETUP_CANCEL")]
+]);
+const mainMenuKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.callback("🔍 Search", "START_SEARCH")],
+    [telegraf_1.Markup.button.callback("⚙️ Settings", "OPEN_SETTINGS")],
+    [telegraf_1.Markup.button.callback("❓ Help", "START_HELP")]
 ]);
 exports.default = {
     type: "message",
@@ -75,31 +90,33 @@ exports.default = {
                     yield (0, db_1.updateUser)(ctx.from.id, { preference: txt });
                     return ctx.reply("Preference updated ✅");
                 }
-                // ✅ Age (13-80)
+                // ✅ Age (13-80) - Handle manual age input
                 if (/^\d+$/.test(txt)) {
                     const user = yield (0, db_1.getUser)(ctx.from.id);
                     const age = Number(txt);
                     if (age < 13 || age > 80) {
-                        return ctx.reply("Age must be between 13 and 80 ❌");
+                        return ctx.reply("🎂 *Age must be between 13 and 80*\n\nPlease try again:", Object.assign({ parse_mode: "Markdown" }, cancelKeyboard));
                     }
                     yield (0, db_1.updateUser)(ctx.from.id, { age: String(age) });
-                    // After age is set, ask for state (no back button) - only for new users without state
-                    if (!user.state && !user.age) {
-                        const stateKeyboard = telegraf_1.Markup.inlineKeyboard([
-                            [telegraf_1.Markup.button.callback("Telangana", "SETUP_STATE_TELANGANA")],
-                            [telegraf_1.Markup.button.callback("Andhra Pradesh", "SETUP_STATE_AP")]
-                        ]);
-                        yield ctx.reply("📝 *Step 3/3:* Select your state:", Object.assign({ parse_mode: "Markdown" }, stateKeyboard));
-                    }
-                    else {
-                        yield ctx.reply("Age updated ✅", backKeyboard);
-                    }
+                    // After manual age input, ask for state with back button
+                    yield ctx.reply("📝 *Step 3 of 3*\n\n" +
+                        "📍 *Select your location:*\n" +
+                        "(Helps match you with nearby people)", Object.assign({ parse_mode: "Markdown" }, setupStateKeyboard));
                     return;
                 }
-                // ✅ State (Telangana / Andhra Pradesh)
-                if (txt === "telangana" || txt === "andhra pradesh") {
-                    yield (0, db_1.updateUser)(ctx.from.id, { state: txt });
-                    return ctx.reply("State updated ✅");
+                // ✅ State (for setup phase - when user types state name)
+                if (txt === "telangana" || txt === "andhra pradesh" || txt === "karnataka" ||
+                    txt === "tamil nadu" || txt === "maharashtra" || txt === "other") {
+                    const user = yield (0, db_1.getUser)(ctx.from.id);
+                    // Only process as setup if user is in setup phase
+                    if (user.setupStep === "state" || !user.state) {
+                        yield (0, db_1.updateUser)(ctx.from.id, { state: txt });
+                        // Show setup complete message
+                        yield ctx.reply(`✨ *Profile Complete!* ✨\n\n` +
+                            `Your profile has been set up successfully!\n\n` +
+                            `🎉 Ready to start chatting? Use /search to find a partner!`, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
+                        return;
+                    }
                 }
             }
             return ctx.reply("You are not in a chat...\n\nUse /next to find a new partner or /end to end searching.");

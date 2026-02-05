@@ -35,7 +35,18 @@ exports.getUserStats = getUserStats;
 exports.closeDatabase = closeDatabase;
 const mongodb_1 = require("mongodb");
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
-const DB_NAME = process.env.DB_NAME || "anonymous_chatbot";
+const DB_NAME = process.env.DB_NAME || "telugu_anomybot";
+// MongoDB connection options for better SSL/TLS compatibility
+const MONGO_OPTIONS = {
+    maxPoolSize: 10,
+    minPoolSize: 2,
+    serverSelectionTimeoutMS: 10000,
+    socketTimeoutMS: 45000,
+    tls: true,
+    tlsAllowInvalidCertificates: false,
+    retryWrites: true,
+    w: "majority"
+};
 let client = null;
 let db = null;
 // Connect to MongoDB
@@ -44,7 +55,7 @@ function connectToDatabase() {
         if (db)
             return db;
         try {
-            client = new mongodb_1.MongoClient(MONGODB_URI);
+            client = new mongodb_1.MongoClient(MONGODB_URI, MONGO_OPTIONS);
             yield client.connect();
             db = client.db(DB_NAME);
             console.log("[INFO] - Connected to MongoDB");
