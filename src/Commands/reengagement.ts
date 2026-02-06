@@ -7,6 +7,30 @@ const backKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
 ]);
 
+// Admin checking functions (same as adminaccess.ts)
+const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
+
+function isAdmin(id: number) {
+    return ADMINS.some(admin => {
+        if (/^\d+$/.test(admin)) {
+            return admin === id.toString();
+        }
+        return false;
+    });
+}
+
+function isAdminByUsername(username: string | undefined) {
+    if (!username) return false;
+    return ADMINS.some(admin => admin.startsWith("@") && admin.toLowerCase() === `@${username.toLowerCase()}`);
+}
+
+function checkAdmin(ctx: Context): boolean {
+    const userId = ctx.from?.id;
+    const username = ctx.from?.username;
+    if (!userId) return false;
+    return isAdmin(userId) || isAdminByUsername(username);
+}
+
 export default {
     name: "reengagement",
     description: "Re-engagement campaign for inactive users",
@@ -15,11 +39,8 @@ export default {
         
         if (!adminId) return ctx.reply("Error: Could not identify user.");
         
-        // Check if admin
-        const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
-        const isAdmin = ADMINS.includes(adminId.toString());
-        
-        if (!isAdmin) {
+        // Check if admin (supports both ID and username)
+        if (!checkAdmin(ctx)) {
             return ctx.reply("🚫 You are not authorized to access this command.");
         }
 
@@ -68,13 +89,9 @@ const reengageMessages = {
 export function initReengagementActions(bot: ExtraTelegraf) {
     // Handle 7-day inactive notification
     bot.action("REENGAGE_7", async (ctx) => {
-        const adminId = ctx.from?.id;
-        if (!adminId) return ctx.answerCbQuery("Error");
+        if (!ctx.from) return ctx.answerCbQuery("Error");
         
-        const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
-        const isAdmin = ADMINS.includes(adminId.toString());
-        
-        if (!isAdmin) return ctx.answerCbQuery("🚫 Not authorized");
+        if (!checkAdmin(ctx)) return ctx.answerCbQuery("🚫 Not authorized");
 
         const inactiveUsers = await getInactiveUsers(7);
         
@@ -104,13 +121,9 @@ Ready to send?`;
 
     // Handle 30-day inactive notification
     bot.action("REENGAGE_30", async (ctx) => {
-        const adminId = ctx.from?.id;
-        if (!adminId) return ctx.answerCbQuery("Error");
+        if (!ctx.from) return ctx.answerCbQuery("Error");
         
-        const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
-        const isAdmin = ADMINS.includes(adminId.toString());
-        
-        if (!isAdmin) return ctx.answerCbQuery("🚫 Not authorized");
+        if (!checkAdmin(ctx)) return ctx.answerCbQuery("🚫 Not authorized");
 
         const inactiveUsers = await getInactiveUsers(30);
         
@@ -140,13 +153,9 @@ Ready to send?`;
 
     // Send 7-day re-engagement
     bot.action("REENGAGE_7_SEND", async (ctx) => {
-        const adminId = ctx.from?.id;
-        if (!adminId) return ctx.answerCbQuery("Error");
+        if (!ctx.from) return ctx.answerCbQuery("Error");
         
-        const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
-        const isAdmin = ADMINS.includes(adminId.toString());
-        
-        if (!isAdmin) return ctx.answerCbQuery("🚫 Not authorized");
+        if (!checkAdmin(ctx)) return ctx.answerCbQuery("🚫 Not authorized");
 
         const inactiveUsers = await getInactiveUsers(7);
         if (inactiveUsers.length === 0) return ctx.answerCbQuery("No users found");
@@ -194,13 +203,9 @@ ${message}
 
     // Send 30-day re-engagement
     bot.action("REENGAGE_30_SEND", async (ctx) => {
-        const adminId = ctx.from?.id;
-        if (!adminId) return ctx.answerCbQuery("Error");
+        if (!ctx.from) return ctx.answerCbQuery("Error");
         
-        const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
-        const isAdmin = ADMINS.includes(adminId.toString());
-        
-        if (!isAdmin) return ctx.answerCbQuery("🚫 Not authorized");
+        if (!checkAdmin(ctx)) return ctx.answerCbQuery("🚫 Not authorized");
 
         const inactiveUsers = await getInactiveUsers(30);
         if (inactiveUsers.length === 0) return ctx.answerCbQuery("No users found");

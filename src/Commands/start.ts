@@ -1,7 +1,7 @@
 import { Context, Telegraf, Markup } from "telegraf";
 import { Command } from "../Utils/commandHandler";
 import { ExtraTelegraf } from "..";
-import { getUser, updateUser, updateLastActive } from "../storage/db";
+import { getUser, updateUser, updateLastActive, processReferral } from "../storage/db";
 
 // Setup step constants
 export const SETUP_STEP_GENDER = "gender";
@@ -48,14 +48,31 @@ export default {
         // Check if user is new and increment user count
         const user = await getUser(userId);
         
+        // Check for referral code in start parameter
+        const startParam = (ctx as any).startPayload || (ctx.update as any)?.message?.text?.split(" ")[1];
+        
         // Initialize new user
         if (user.isNew) {
-            await updateUser(userId, { 
+            // Build update data
+            const updateData: any = { 
                 createdAt: Date.now(), 
                 lastActive: Date.now(),
                 name: username
-            });
+            };
+            
+            // Set referredBy if referral code provided
+            if (startParam && startParam.startsWith("REF")) {
+                updateData.referredBy = startParam;
+            }
+            
+            await updateUser(userId, updateData);
             (bot as ExtraTelegraf).incrementUserCount();
+            
+            // Process referral after user is created
+            if (startParam && startParam.startsWith("REF")) {
+                await processReferral(userId, startParam);
+                console.log(`[START] - User ${userId} started with referral code: ${startParam}`);
+            }
             
             // New user - show animated welcome with Get Started button
             await ctx.reply(

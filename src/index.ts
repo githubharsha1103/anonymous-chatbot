@@ -150,6 +150,11 @@ initAdminActions(bot);
 import { initReengagementActions } from "./Commands/reengagement.js";
 initReengagementActions(bot);
 
+/* ---------------- REFERRAL SYSTEM ---------------- */
+
+import { initReferralActions } from "./Commands/referral.js";
+initReferralActions(bot);
+
 /* ---------------- ADMIN ---------------- */
 
 const ADMINS = process.env.ADMIN_IDS?.split(",") || [];

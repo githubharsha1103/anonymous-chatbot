@@ -2,7 +2,7 @@ import { glob } from "glob";
 import { bot } from "../index";
 import { Context, Telegraf } from "telegraf";
 import { Markup } from "telegraf";
-import { updateUser, getUser } from "../storage/db";
+import { updateUser, getUser, getReferralCount } from "../storage/db";
 import { handleTelegramError } from "./telegramErrorHandler";
 
 // Because it doesn't know that ctx has a match property. by default, Context<Update> doesn't include match, but telegraf adds it dynamically when using regex triggers.
@@ -105,6 +105,7 @@ async function safeAnswerCbQuery(ctx: ActionContext, text?: string) {
 async function showSettings(ctx: ActionContext) {
     if (!ctx.from) return;
     const u = await getUser(ctx.from.id);
+    const referralCount = await getReferralCount(ctx.from.id);
 
     const text =
 `⚙ Settings
@@ -115,6 +116,7 @@ async function showSettings(ctx: ActionContext) {
 💕 Preference: ${u.premium ? (u.preference === "any" ? "Any" : u.preference === "male" ? "Male" : "Female") : "🔒 Premium Only"}
 💎 Premium: ${u.premium ? "Yes ✅" : "No ❌"}
 💬 Daily chats left: ${100 - (u.daily || 0)}/100
+👥 Referrals: ${referralCount}/30
 
 Use buttons below to update:`;
 
@@ -122,7 +124,9 @@ Use buttons below to update:`;
         [Markup.button.callback("👤 Gender", "SET_GENDER")],
         [Markup.button.callback("🎂 Age", "SET_AGE")],
         [Markup.button.callback("📍 State", "SET_STATE")],
-        [Markup.button.callback("💕 Preference", "SET_PREFERENCE"), Markup.button.callback("⭐ Premium", "BUY_PREMIUM")]
+        [Markup.button.callback("💕 Preference", "SET_PREFERENCE")],
+        [Markup.button.callback("🎁 Referrals", "OPEN_REFERRAL")],
+        [Markup.button.callback("⭐ Premium", "BUY_PREMIUM")]
     ]);
 
     // Try to edit, if fails (same content), send new message
@@ -453,6 +457,13 @@ bot.action("BUY_PREMIUM", async (ctx) => {
         "Use /premium to upgrade!",
         { parse_mode: "Markdown" }
     );
+});
+
+// Open referral command
+bot.action("OPEN_REFERRAL", async (ctx) => {
+    await safeAnswerCbQuery(ctx);
+    const referralCommand = require("../Commands/referral").default;
+    await referralCommand.execute(ctx, bot);
 });
 
 // ==============================

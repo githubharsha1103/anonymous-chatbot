@@ -104,6 +104,7 @@ function showSettings(ctx) {
         if (!ctx.from)
             return;
         const u = yield (0, db_1.getUser)(ctx.from.id);
+        const referralCount = yield (0, db_1.getReferralCount)(ctx.from.id);
         const text = `⚙ Settings
 
 👤 Gender: ${(_a = u.gender) !== null && _a !== void 0 ? _a : "Not Set"}
@@ -112,13 +113,16 @@ function showSettings(ctx) {
 💕 Preference: ${u.premium ? (u.preference === "any" ? "Any" : u.preference === "male" ? "Male" : "Female") : "🔒 Premium Only"}
 💎 Premium: ${u.premium ? "Yes ✅" : "No ❌"}
 💬 Daily chats left: ${100 - (u.daily || 0)}/100
+👥 Referrals: ${referralCount}/30
 
 Use buttons below to update:`;
         const keyboard = telegraf_1.Markup.inlineKeyboard([
             [telegraf_1.Markup.button.callback("👤 Gender", "SET_GENDER")],
             [telegraf_1.Markup.button.callback("🎂 Age", "SET_AGE")],
             [telegraf_1.Markup.button.callback("📍 State", "SET_STATE")],
-            [telegraf_1.Markup.button.callback("💕 Preference", "SET_PREFERENCE"), telegraf_1.Markup.button.callback("⭐ Premium", "BUY_PREMIUM")]
+            [telegraf_1.Markup.button.callback("💕 Preference", "SET_PREFERENCE")],
+            [telegraf_1.Markup.button.callback("🎁 Referrals", "OPEN_REFERRAL")],
+            [telegraf_1.Markup.button.callback("⭐ Premium", "BUY_PREMIUM")]
         ]);
         // Try to edit, if fails (same content), send new message
         try {
@@ -391,6 +395,12 @@ index_1.bot.action("BUY_PREMIUM", (ctx) => __awaiter(void 0, void 0, void 0, fun
         "• Unlimited daily chats\n" +
         "• And more!\n\n" +
         "Use /premium to upgrade!", { parse_mode: "Markdown" });
+}));
+// Open referral command
+index_1.bot.action("OPEN_REFERRAL", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
+    yield safeAnswerCbQuery(ctx);
+    const referralCommand = require("../Commands/referral").default;
+    yield referralCommand.execute(ctx, index_1.bot);
 }));
 // ==============================
 // REPORT SYSTEM

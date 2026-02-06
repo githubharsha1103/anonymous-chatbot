@@ -42,6 +42,13 @@ export interface User {
   lastActive?: number; // Timestamp of last activity
   createdAt?: number; // Account creation timestamp
   setupStep?: string; // Track new user setup progress: 'gender', 'age', 'state', 'done'
+  
+  // Referral system fields
+  referralCode?: string; // User's unique referral code
+  referredBy?: string; // The referral code used when signing up
+  referralCount?: number; // Number of users this user has referred
+  premiumFromReferral?: boolean; // Whether premium was earned through referrals
+  premiumExpiry?: number; // Premium expiry timestamp
 }
 
 // Extended user with isNew flag
@@ -503,6 +510,74 @@ export async function getUserStats(): Promise<{
     inactive7Days,
     inactive30Days
   };
+}
+
+// ==================== REFERRAL FUNCTIONS ====================
+
+// Get user's referral count
+export async function getReferralCount(userId: number): Promise<number> {
+  const user = await getUser(userId);
+  return user.referralCount || 0;
+}
+
+// Increment user's referral count and return new count
+export async function incrementReferralCount(userId: number): Promise<number> {
+  const currentCount = await getReferralCount(userId);
+  const newCount = currentCount + 1;
+  await updateUser(userId, { referralCount: newCount });
+  return newCount;
+}
+
+// Find user by their referral code
+export async function getUserByReferralCode(referralCode: string): Promise<number | null> {
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getUsersCollection();
+      const user = await collection.findOne({ referralCode });
+      return user ? user.telegramId : null;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB getUserByReferralCode error:", error);
+    }
+  }
+  
+  // JSON fallback
+  const fs = require("fs");
+  if (!fs.existsSync(JSON_FILE)) return null;
+  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+  
+  for (const [id, userData] of Object.entries(dbObj)) {
+    const user = userData as any;
+    if (user.referralCode === referralCode) {
+      return parseInt(id);
+    }
+  }
+  return null;
+}
+
+// Process a referral - call when a new user joins with a referral code
+export async function processReferral(referredUserId: number, referralCode: string): Promise<boolean> {
+  // Find the referrer
+  const referrerId = await getUserByReferralCode(referralCode);
+  
+  if (!referrerId) {
+    console.log(`[REFERRAL] - Invalid referral code: ${referralCode}`);
+    return false;
+  }
+  
+  // Don't reward if referring yourself
+  if (referrerId === referredUserId) {
+    console.log(`[REFERRAL] - User ${referredUserId} tried to refer themselves`);
+    return false;
+  }
+  
+  // Mark the referred user as having been referred
+  await updateUser(referredUserId, { referredBy: referralCode });
+  
+  // Increment referrer's count
+  await incrementReferralCount(referrerId);
+  
+  console.log(`[REFERRAL] - User ${referredUserId} successfully referred by ${referrerId}`);
+  return true;
 }
 
 // Close MongoDB connection on process exit

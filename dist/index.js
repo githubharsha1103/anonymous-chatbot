@@ -138,6 +138,9 @@ const adminaccess_js_1 = require("./Commands/adminaccess.js");
 /* ---------------- RE-ENGAGEMENT ---------------- */
 const reengagement_js_1 = require("./Commands/reengagement.js");
 (0, reengagement_js_1.initReengagementActions)(exports.bot);
+/* ---------------- REFERRAL SYSTEM ---------------- */
+const referral_js_1 = require("./Commands/referral.js");
+(0, referral_js_1.initReferralActions)(exports.bot);
 /* ---------------- ADMIN ---------------- */
 const ADMINS = ((_a = process.env.ADMIN_IDS) === null || _a === void 0 ? void 0 : _a.split(",")) || [];
 function isAdmin(id) {

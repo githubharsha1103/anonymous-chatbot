@@ -24,6 +24,8 @@ exports.default = {
         const preferenceText = u.premium
             ? (u.preference === "any" ? "Any" : u.preference === "male" ? "Male" : u.preference === "female" ? "Female" : "Any")
             : "🔒 Premium Only";
+        // Get referral count
+        const referralCount = yield (0, db_1.getReferralCount)(ctx.from.id);
         const text = `⚙ Settings
 
 👤 Gender: ${(_a = u.gender) !== null && _a !== void 0 ? _a : "Not Set"}
@@ -32,13 +34,15 @@ exports.default = {
 💕 Preference: ${preferenceText}
 💎 Premium: ${u.premium ? "Yes ✅" : "No ❌"}
 💬 Daily chats left: ${100 - (u.daily || 0)}/100
+👥 Referrals: ${referralCount}/30
 
 Use buttons below to update:`;
         return ctx.reply(text, telegraf_1.Markup.inlineKeyboard([
             [telegraf_1.Markup.button.callback("👤 Gender", "SET_GENDER")],
             [telegraf_1.Markup.button.callback("🎂 Age", "SET_AGE")],
             [telegraf_1.Markup.button.callback("📍 State", "SET_STATE")],
-            [telegraf_1.Markup.button.callback("💕 Preference", "SET_PREFERENCE")]
+            [telegraf_1.Markup.button.callback("💕 Preference", "SET_PREFERENCE")],
+            [telegraf_1.Markup.button.callback("🎁 Referrals", "OPEN_REFERRAL")]
         ]));
     })
 };

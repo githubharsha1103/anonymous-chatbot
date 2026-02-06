@@ -2,7 +2,7 @@ import { Context } from "telegraf";
 import { ExtraTelegraf, bot } from "..";
 import { Command } from "../Utils/commandHandler";
 import { Markup } from "telegraf";
-import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser } from "../storage/db";
+import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount } from "../storage/db";
 
 const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
 
@@ -267,6 +267,15 @@ export function initAdminActions(bot: ExtraTelegraf) {
     bot.action("ADMIN_REENGAGE", async (ctx) => {
         await safeAnswerCbQuery(ctx);
         
+        // Check admin authentication
+        const adminId = ctx.from?.id;
+        if (!adminId) return;
+        
+        const user = await getUser(adminId);
+        if (!user.isAdminAuthenticated) {
+            return ctx.reply("🚫 You are not authorized to access this command.");
+        }
+        
         // Import and execute reengagement command
         const reengagementCommand = require("./reengagement").default;
         await reengagementCommand.execute(ctx, bot);
@@ -457,6 +466,7 @@ async function showUserDetails(ctx: any, userId: number) {
     const reports = await getReportCount(userId);
     const banReason = await getBanReason(userId);
     const isUserBanned = await isBanned(userId);
+    const referralCount = await getReferralCount(userId);
     
     // Format preference safely
     const preference = user.premium 
@@ -476,6 +486,7 @@ async function showUserDetails(ctx: any, userId: number) {
         `📍 State: ${state}\n` +
         `💕 Preference: ${preference}\n` +
         `💬 Total Chats: ${totalChats}\n` +
+        `👥 Referrals: ${referralCount}\n` +
         `⚠️ Reports: ${reports}\n` +
         `💎 Premium: ${user.premium ? "Yes ✅" : "No ❌"}\n` +
         `🕐 Last Active: ${lastActiveText}`;

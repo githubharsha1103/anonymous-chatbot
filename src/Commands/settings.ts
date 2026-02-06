@@ -1,6 +1,6 @@
 import { Command } from "../Utils/commandHandler";
 import { Markup } from "telegraf";
-import { getUser, updateUser } from "../storage/db";
+import { getUser, updateUser, getReferralCount } from "../storage/db";
 
 export default {
   name: "settings",
@@ -15,6 +15,9 @@ export default {
       ? (u.preference === "any" ? "Any" : u.preference === "male" ? "Male" : u.preference === "female" ? "Female" : "Any")
       : "🔒 Premium Only";
 
+    // Get referral count
+    const referralCount = await getReferralCount(ctx.from.id);
+
     const text =
 `⚙ Settings
 
@@ -24,6 +27,7 @@ export default {
 💕 Preference: ${preferenceText}
 💎 Premium: ${u.premium ? "Yes ✅" : "No ❌"}
 💬 Daily chats left: ${100 - (u.daily || 0)}/100
+👥 Referrals: ${referralCount}/30
 
 Use buttons below to update:`;
 
@@ -32,7 +36,8 @@ Use buttons below to update:`;
         [Markup.button.callback("👤 Gender", "SET_GENDER")],
         [Markup.button.callback("🎂 Age", "SET_AGE")],
         [Markup.button.callback("📍 State", "SET_STATE")],
-        [Markup.button.callback("💕 Preference", "SET_PREFERENCE")]
+        [Markup.button.callback("💕 Preference", "SET_PREFERENCE")],
+        [Markup.button.callback("🎁 Referrals", "OPEN_REFERRAL")]
       ])
     );
   }

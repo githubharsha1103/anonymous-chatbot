@@ -32,6 +32,10 @@ exports.incUserTotalChats = incUserTotalChats;
 exports.updateLastActive = updateLastActive;
 exports.getInactiveUsers = getInactiveUsers;
 exports.getUserStats = getUserStats;
+exports.getReferralCount = getReferralCount;
+exports.incrementReferralCount = incrementReferralCount;
+exports.getUserByReferralCode = getUserByReferralCode;
+exports.processReferral = processReferral;
 exports.closeDatabase = closeDatabase;
 const mongodb_1 = require("mongodb");
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
@@ -496,6 +500,72 @@ function getUserStats() {
             inactive7Days,
             inactive30Days
         };
+    });
+}
+// ==================== REFERRAL FUNCTIONS ====================
+// Get user's referral count
+function getReferralCount(userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const user = yield getUser(userId);
+        return user.referralCount || 0;
+    });
+}
+// Increment user's referral count and return new count
+function incrementReferralCount(userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const currentCount = yield getReferralCount(userId);
+        const newCount = currentCount + 1;
+        yield updateUser(userId, { referralCount: newCount });
+        return newCount;
+    });
+}
+// Find user by their referral code
+function getUserByReferralCode(referralCode) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (useMongoDB && !isFallbackMode) {
+            try {
+                const collection = yield getUsersCollection();
+                const user = yield collection.findOne({ referralCode });
+                return user ? user.telegramId : null;
+            }
+            catch (error) {
+                console.error("[ERROR] - MongoDB getUserByReferralCode error:", error);
+            }
+        }
+        // JSON fallback
+        const fs = require("fs");
+        if (!fs.existsSync(JSON_FILE))
+            return null;
+        const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+        for (const [id, userData] of Object.entries(dbObj)) {
+            const user = userData;
+            if (user.referralCode === referralCode) {
+                return parseInt(id);
+            }
+        }
+        return null;
+    });
+}
+// Process a referral - call when a new user joins with a referral code
+function processReferral(referredUserId, referralCode) {
+    return __awaiter(this, void 0, void 0, function* () {
+        // Find the referrer
+        const referrerId = yield getUserByReferralCode(referralCode);
+        if (!referrerId) {
+            console.log(`[REFERRAL] - Invalid referral code: ${referralCode}`);
+            return false;
+        }
+        // Don't reward if referring yourself
+        if (referrerId === referredUserId) {
+            console.log(`[REFERRAL] - User ${referredUserId} tried to refer themselves`);
+            return false;
+        }
+        // Mark the referred user as having been referred
+        yield updateUser(referredUserId, { referredBy: referralCode });
+        // Increment referrer's count
+        yield incrementReferralCount(referrerId);
+        console.log(`[REFERRAL] - User ${referredUserId} successfully referred by ${referrerId}`);
+        return true;
     });
 }
 // Close MongoDB connection on process exit

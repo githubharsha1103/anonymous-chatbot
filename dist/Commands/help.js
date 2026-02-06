@@ -21,6 +21,7 @@ exports.default = {
             "/end - End the current chat\n" +
             "/settings - Open settings menu\n" +
             "/report - Report a user\n" +
+            "/referral - Invite friends & earn premium\n" +
             "/help - Show this help message", Object.assign({ parse_mode: "Markdown" }, (0, markup_1.removeKeyboard)()));
     })
 };
