@@ -76,12 +76,12 @@ export default {
             
             // New user - show animated welcome with Get Started button
             await ctx.reply(
-                "🌟 *Welcome to Anonymous Chat!* 🌟\n\n" +
+                "🌟 <b>Welcome to Anonymous Chat!</b> 🌟\n\n" +
                 "✨ Connect with strangers anonymously\n" +
                 "🔒 Your privacy is protected\n" +
                 "💬 Chat freely and safely\n\n" +
-                "Tap *Get Started* to begin!",
-                { parse_mode: "Markdown", ...welcomeKeyboard }
+                "Tap <b>Get Started</b> to begin!",
+                { parse_mode: "HTML", ...welcomeKeyboard }
             );
             return;
         }
@@ -104,10 +104,10 @@ export default {
             ]);
             
             await ctx.reply(
-                "📝 *Step 2 of 3*\n\n" +
-                "🎂 *Select your age range:*\n" +
+                "📝 <b>Step 2 of 3</b>\n\n" +
+                "🎂 <b>Select your age range:</b>\n" +
                 "(This helps us match you with people in similar age groups)",
-                { parse_mode: "Markdown", ...ageKeyboard }
+                { parse_mode: "HTML", ...ageKeyboard }
             );
             return;
         }
@@ -123,20 +123,20 @@ export default {
             ]);
             
             await ctx.reply(
-                "📝 *Step 3 of 3*\n\n" +
-                "📍 *Select your location:*\n" +
+                "📝 <b>Step 3 of 3</b>\n\n" +
+                "📍 <b>Select your location:</b>\n" +
                 "(Helps match you with nearby people)",
-                { parse_mode: "Markdown", ...stateKeyboard }
+                { parse_mode: "HTML", ...stateKeyboard }
             );
             return;
         }
 
         // Existing user with complete profile - show main menu
         await ctx.reply(
-            "🌟 *Welcome back!* 🌟\n\n" +
+            "🌟 <b>Welcome back!</b> 🌟\n\n" +
             "This bot helps you chat anonymously with people worldwide.\n\n" +
             "Use the menu below to navigate:",
-            { parse_mode: "Markdown", ...mainMenuKeyboard }
+            { parse_mode: "HTML", ...mainMenuKeyboard }
         );
     }
 } as Command;

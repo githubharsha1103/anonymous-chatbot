@@ -48,9 +48,9 @@ export default {
         const stats = await getUserStats();
         
         const text = 
-`📊 *Re-engagement Campaign*
+`<b>📊 Re-engagement Campaign</b>
 
-*User Statistics:*
+<b>User Statistics:</b>
 • Total Users: ${stats.total}
 • Active Today: ${stats.activeToday}
 • Inactive (7+ days): ${stats.inactive7Days}
@@ -64,7 +64,7 @@ Select inactive users to notify:`;
             [Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
         ]);
 
-        await ctx.reply(text, { parse_mode: "Markdown", ...keyboard });
+        await ctx.reply(text, { parse_mode: "HTML", ...keyboard });
     }
 } as Command;
 
@@ -97,15 +97,15 @@ export function initReengagementActions(bot: ExtraTelegraf) {
         
         if (inactiveUsers.length === 0) {
             await ctx.answerCbQuery("No users inactive for 7+ days");
-            return ctx.editMessageText("📊 *Re-engagement Campaign*\n\nNo users inactive for 7+ days! 🎉", { parse_mode: "Markdown", ...backKeyboard });
+            return ctx.editMessageText("<b>📊 Re-engagement Campaign</b>\n\nNo users inactive for 7+ days! 🎉", { parse_mode: "HTML", ...backKeyboard });
         }
 
         const message = 
-`📢 *Confirm Re-engagement Campaign*
+`<b>📢 Confirm Re-engagement Campaign</b>
 
-*Target:* ${inactiveUsers.length} users (inactive 7+ days)
+<b>Target:</b> ${inactiveUsers.length} users (inactive 7+ days)
 
-*Preview Message:*
+<b>Preview Message:</b>
 "${reengageMessages["7"][0]}"
 
 Ready to send?`;
@@ -116,7 +116,7 @@ Ready to send?`;
         ]);
 
         await ctx.answerCbQuery();
-        await ctx.editMessageText(message, { parse_mode: "Markdown", ...confirmKeyboard });
+        await ctx.editMessageText(message, { parse_mode: "HTML", ...confirmKeyboard });
     });
 
     // Handle 30-day inactive notification
@@ -129,15 +129,15 @@ Ready to send?`;
         
         if (inactiveUsers.length === 0) {
             await ctx.answerCbQuery("No users inactive for 30+ days");
-            return ctx.editMessageText("📊 *Re-engagement Campaign*\n\nNo users inactive for 30+ days! 🎉", { parse_mode: "Markdown", ...backKeyboard });
+            return ctx.editMessageText("<b>📊 Re-engagement Campaign</b>\n\nNo users inactive for 30+ days! 🎉", { parse_mode: "HTML", ...backKeyboard });
         }
 
         const message = 
-`📢 *Confirm Re-engagement Campaign*
+`<b>📢 Confirm Re-engagement Campaign</b>
 
-*Target:* ${inactiveUsers.length} users (inactive 30+ days)
+<b>Target:</b> ${inactiveUsers.length} users (inactive 30+ days)
 
-*Preview Message:*
+<b>Preview Message:</b>
 "${reengageMessages["30"][0]}"
 
 Ready to send?`;
@@ -148,7 +148,7 @@ Ready to send?`;
         ]);
 
         await ctx.answerCbQuery();
-        await ctx.editMessageText(message, { parse_mode: "Markdown", ...confirmKeyboard });
+        await ctx.editMessageText(message, { parse_mode: "HTML", ...confirmKeyboard });
     });
 
     // Send 7-day re-engagement
@@ -164,7 +164,7 @@ Ready to send?`;
 
         const message = reengageMessages["7"][Math.floor(Math.random() * reengageMessages["7"].length)];
         const introText = 
-`📢 *We're Back!*
+`<b>📢 We're Back!</b>
 
 ${message}
 
@@ -187,7 +187,7 @@ ${message}
             if (isNaN(userId)) continue;
             
             try {
-                await bot.telegram.sendMessage(userId, introText, { parse_mode: "Markdown", ...keyboard });
+                await bot.telegram.sendMessage(userId, introText, { parse_mode: "HTML", ...keyboard });
                 sent++;
             } catch {
                 failed++;
@@ -196,8 +196,8 @@ ${message}
         }
 
         await ctx.editMessageText(
-            `✅ *7-Day Re-engagement Complete!*\n\n📤 Sent: ${sent}\n❌ Failed: ${failed}`,
-            { parse_mode: "Markdown", ...backKeyboard }
+            `<b>✅ 7-Day Re-engagement Complete!</b>\n\n📤 Sent: ${sent}\n❌ Failed: ${failed}`,
+            { parse_mode: "HTML", ...backKeyboard }
         );
     });
 
@@ -214,7 +214,7 @@ ${message}
 
         const message = reengageMessages["30"][Math.floor(Math.random() * reengageMessages["30"].length)];
         const introText = 
-`🌟 *We Miss You!*
+`<b>🌟 We Miss You!</b>
 
 ${message}
 
@@ -237,7 +237,7 @@ ${message}
             if (isNaN(userId)) continue;
             
             try {
-                await bot.telegram.sendMessage(userId, introText, { parse_mode: "Markdown", ...keyboard });
+                await bot.telegram.sendMessage(userId, introText, { parse_mode: "HTML", ...keyboard });
                 sent++;
             } catch {
                 failed++;
@@ -246,8 +246,8 @@ ${message}
         }
 
         await ctx.editMessageText(
-            `✅ *30-Day Re-engagement Complete!*\n\n📤 Sent: ${sent}\n❌ Failed: ${failed}`,
-            { parse_mode: "Markdown", ...backKeyboard }
+            `<b>✅ 30-Day Re-engagement Complete!</b>\n\n📤 Sent: ${sent}\n❌ Failed: ${failed}`,
+            { parse_mode: "HTML", ...backKeyboard }
         );
     });
 }

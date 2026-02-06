@@ -117,7 +117,7 @@ How was your chat experience?`;
             // Send exit message with rating and buttons to user who ended chat
             return ctx.reply(
                 exitMessage,
-                { parse_mode: "Markdown", ...ratingKeyboard }
+                { parse_mode: "HTML", ...ratingKeyboard }
             );
 
         } finally {

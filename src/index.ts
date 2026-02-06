@@ -142,17 +142,17 @@ loadActions();
 
 /* ---------------- ADMIN PANEL ---------------- */
 
-import { initAdminActions } from "./Commands/adminaccess.js";
+import { initAdminActions } from "./Commands/adminaccess";
 initAdminActions(bot);
 
 /* ---------------- RE-ENGAGEMENT ---------------- */
 
-import { initReengagementActions } from "./Commands/reengagement.js";
+import { initReengagementActions } from "./Commands/reengagement";
 initReengagementActions(bot);
 
 /* ---------------- REFERRAL SYSTEM ---------------- */
 
-import { initReferralActions } from "./Commands/referral.js";
+import { initReferralActions } from "./Commands/referral";
 initReferralActions(bot);
 
 /* ---------------- ADMIN ---------------- */
@@ -233,15 +233,15 @@ bot.command("stats", async (ctx) => {
   const totalChats = await getTotalChats();
   
   const stats = `
-📊 *Bot Statistics*
+📊 <b>Bot Statistics</b>
 
-👥 *Total Users:* ${allUsers.length}
-💬 *Total Chats:* ${totalChats}
-💭 *Active Chats:* ${bot.runningChats.length / 2}
-⏳ *Users Waiting:* ${bot.waitingQueue.length}
+👥 <b>Total Users:</b> ${allUsers.length}
+💬 <b>Total Chats:</b> ${totalChats}
+💭 <b>Active Chats:</b> ${bot.runningChats.length / 2}
+⏳ <b>Users Waiting:</b> ${bot.waitingQueue.length}
 `;
   
-  ctx.reply(stats, { parse_mode: "Markdown" });
+  ctx.reply(stats, { parse_mode: "HTML" });
 });
 
 /* ---------------- ADMIN SET NAME ---------------- */
