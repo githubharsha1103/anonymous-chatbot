@@ -48,7 +48,7 @@ export default {
         
         if (hasPremium && premiumFromReferral) {
             text = `🎁 <b>Referral Rewards</b> ✨\n\n` +
-                `👥 Friends Invited: *${referralCount}*/${REFERRAL_GOAL}\n` +
+                `👥 Friends Invited: <b>${referralCount}</b>/${REFERRAL_GOAL}\n` +
                 `${progressBar}\n\n` +
                 `🎉 Premium Unlocked!\n` +
                 `<b>Referral Link:</b> <code>${referralLink}</code>`;
@@ -74,7 +74,7 @@ export default {
         } else {
             const remaining = REFERRAL_GOAL - referralCount;
             text = `🎁 <b>Referral Rewards</b> 🎁\n\n` +
-                `👥 Friends Invited: *${referralCount}*/${REFERRAL_GOAL}\n` +
+                `👥 Friends Invited: <b>${referralCount}</b>/${REFERRAL_GOAL}\n` +
                 `${progressBar}\n` +
                 `${remaining} more to unlock Premium!\n\n` +
                 `<b>Referral Link:</b> <code>${referralLink}</code>`;
