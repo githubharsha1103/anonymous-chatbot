@@ -20,6 +20,21 @@ function isAdminByUsername(username: string | undefined) {
     return ADMINS.some(admin => admin.startsWith("@") && admin.toLowerCase() === `@${username.toLowerCase()}`);
 }
 
+// Helper function to format duration
+function formatDuration(ms: number): string {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+
+    if (hours > 0) {
+        return `${hours}h ${minutes % 60}m`;
+    } else if (minutes > 0) {
+        return `${minutes} min${minutes > 1 ? 's' : ''}`;
+    } else {
+        return `${seconds}s`;
+    }
+}
+
 // Admin main menu with clear options
 const mainKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("👥 View All Users", "ADMIN_USERS")],
@@ -186,7 +201,25 @@ export function initAdminActions(bot: ExtraTelegraf) {
         // Store spectator session
         bot.spectatingChats.set(adminId, { user1, user2 });
         
+        // Get chat statistics
+        const user1Data = await getUser(user1);
+        const user2Data = await getUser(user2);
+        
+        // Calculate duration
+        const chatStartTime = user1Data.chatStartTime || user2Data.chatStartTime;
+        let durationText = "Unknown";
+        if (chatStartTime) {
+            const durationMs = Date.now() - chatStartTime;
+            durationText = formatDuration(durationMs);
+        }
+        
+        // Get message counts
+        const user1Messages = bot.messageCountMap.get(user1) || 0;
+        const user2Messages = bot.messageCountMap.get(user2) || 0;
+        const totalMessages = user1Messages + user2Messages;
+        
         const keyboard = Markup.inlineKeyboard([
+            [Markup.button.callback("🛑 Terminate Chat", `ADMIN_TERMINATE_${user1}_${user2}`)],
             [Markup.button.callback("🔙 Exit Spectator Mode", `ADMIN_EXIT_SPECTATE`)]
         ]);
         
@@ -194,9 +227,69 @@ export function initAdminActions(bot: ExtraTelegraf) {
             `👁️ *Spectating Chat*\n\n` +
             `👤 User 1: \`${user1}\`\n` +
             `👤 User 2: \`${user2}\`\n\n` +
+            `⏱️ *Duration:* ${durationText}\n` +
+            `💬 *Messages:* ${totalMessages} (U1: ${user1Messages}, U2: ${user2Messages})\n\n` +
             `Messages from this chat will be forwarded here in real-time.\n\n` +
-            `Use the button below to exit spectator mode.`,
+            `Use the buttons below to manage the chat.`,
             { parse_mode: "Markdown", ...keyboard }
+        );
+    });
+
+    // Terminate a chat (admin action)
+    bot.action(/ADMIN_TERMINATE_(\d+)_(\d+)/, async (ctx) => {
+        await safeAnswerCbQuery(ctx);
+        
+        const user1 = parseInt(ctx.match[1]);
+        const user2 = parseInt(ctx.match[2]);
+        const adminId = ctx.from?.id;
+        
+        if (!adminId) return;
+        
+        // Remove from spectating chats
+        bot.spectatingChats.delete(adminId);
+        
+        // Clean up chat state for both users
+        bot.runningChats = bot.runningChats.filter(u => u !== user1 && u !== user2);
+        bot.messageMap.delete(user1);
+        bot.messageMap.delete(user2);
+        bot.messageCountMap.delete(user1);
+        bot.messageCountMap.delete(user2);
+        
+        // Clear chat start time
+        await updateUser(user1, { chatStartTime: null });
+        await updateUser(user2, { chatStartTime: null });
+        
+        // Notify both users that chat was terminated by admin
+        try {
+            await ctx.telegram.sendMessage(
+                user1,
+                `🚫 *Chat Terminated by Admin*\n\n` +
+                `Your chat has been ended by an administrator.\n\n` +
+                `Use /search to find a new partner.`,
+                { parse_mode: "Markdown" }
+            );
+        } catch (e) {
+            // User might have blocked the bot
+        }
+        
+        try {
+            await ctx.telegram.sendMessage(
+                user2,
+                `🚫 *Chat Terminated by Admin*\n\n` +
+                `Your chat has been ended by an administrator.\n\n` +
+                `Use /search to find a new partner.`,
+                { parse_mode: "Markdown" }
+            );
+        } catch (e) {
+            // User might have blocked the bot
+        }
+        
+        await ctx.editMessageText(
+            `✅ *Chat Terminated*\n\n` +
+            `Chat between \`${user1}\` and \`${user2}\` has been ended.\n\n` +
+            `Both users have been notified.\n\n` +
+            `Use the button below to return to menu.`,
+            { parse_mode: "Markdown", ...backKeyboard }
         );
     });
 
