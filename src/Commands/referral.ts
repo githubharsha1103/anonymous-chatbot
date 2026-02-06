@@ -47,11 +47,11 @@ export default {
         let buttonAction = "";
         
         if (hasPremium && premiumFromReferral) {
-            text = `🎁 *Referral Rewards* ✨\n\n` +
+            text = `🎁 <b>Referral Rewards</b> ✨\n\n` +
                 `👥 Friends Invited: *${referralCount}*/${REFERRAL_GOAL}\n` +
                 `${progressBar}\n\n` +
                 `🎉 Premium Unlocked!\n` +
-                `🔗 ${referralLink}`;
+                `<b>Referral Link:</b> <code>${referralLink}</code>`;
             
             buttonText = "📋 Copy Link";
             buttonAction = "COPY_REFERRAL_LINK";
@@ -63,21 +63,21 @@ export default {
                 premiumExpiry: Date.now() + (PREMIUM_DAYS * 24 * 60 * 60 * 1000)
             });
             
-            text = `🎉 *Congratulations!* 🎉\n\n` +
-                `👥 Friends Invited: *${referralCount}*/${REFERRAL_GOAL}\n` +
+            text = `🎉 <b>Congratulations!</b> 🎉\n\n` +
+                `👥 Friends Invited: <b>${referralCount}</b>/${REFERRAL_GOAL}\n` +
                 `${progressBar}\n\n` +
                 `✨ Premium Unlocked! (7 Days)\n` +
-                `🔗 ${referralLink}`;
+                `<b>Referral Link:</b> <code>${referralLink}</code>`;
             
             buttonText = "📋 Copy Link";
             buttonAction = "COPY_REFERRAL_LINK";
         } else {
             const remaining = REFERRAL_GOAL - referralCount;
-            text = `🎁 *Referral Rewards* 🎁\n\n` +
+            text = `🎁 <b>Referral Rewards</b> 🎁\n\n` +
                 `👥 Friends Invited: *${referralCount}*/${REFERRAL_GOAL}\n` +
                 `${progressBar}\n` +
                 `${remaining} more to unlock Premium!\n\n` +
-                `🔗 ${referralLink}`;
+                `<b>Referral Link:</b> <code>${referralLink}</code>`;
             
             buttonText = "📋 Copy Link";
             buttonAction = "COPY_REFERRAL_LINK";
@@ -86,7 +86,7 @@ export default {
         await ctx.reply(
             text,
             { 
-                parse_mode: "Markdown", 
+                parse_mode: "HTML", 
                 ...Markup.inlineKeyboard([
                     [Markup.button.callback(buttonText, buttonAction)]
                 ])
@@ -100,7 +100,7 @@ function createProgressBar(percent: number): string {
     const filled = Math.round(percent / 10);
     const empty = 10 - filled;
     const bar = "▓".repeat(filled) + "░".repeat(empty);
-    return `\`${bar}\` ${percent}%`;
+    return `<code>${bar}</code> ${percent}%`;
 }
 
 // Export action handlers
@@ -125,10 +125,10 @@ export function initReferralActions(bot: Telegraf<Context>) {
         
         // Send link in a way that's easy to copy
         await ctx.reply(
-            `📋 *Your Referral Link*\n\n` +
+            `<b>Your Referral Link</b>\n\n` +
             `Long press and select "Copy":\n\n` +
-            `\`${referralLink}\``,
-            { parse_mode: "Markdown" }
+            `<code>${referralLink}</code>`,
+            { parse_mode: "HTML" }
         );
     });
 }
