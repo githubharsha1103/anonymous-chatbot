@@ -224,14 +224,14 @@ export function initAdminActions(bot: ExtraTelegraf) {
         ]);
         
         await ctx.editMessageText(
-            `👁️ *Spectating Chat*\n\n` +
-            `👤 User 1: \`${user1}\`\n` +
-            `👤 User 2: \`${user2}\`\n\n` +
-            `⏱️ *Duration:* ${durationText}\n` +
-            `💬 *Messages:* ${totalMessages} (U1: ${user1Messages}, U2: ${user2Messages})\n\n` +
+            `<b>👁️ Spectating Chat</b>\n\n` +
+            `👤 User 1: <code>${user1}</code>\n` +
+            `👤 User 2: <code>${user2}</code>\n\n` +
+            `<b>⏱️ Duration:</b> ${durationText}\n` +
+            `<b>💬 Messages:</b> ${totalMessages} (U1: ${user1Messages}, U2: ${user2Messages})\n\n` +
             `Messages from this chat will be forwarded here in real-time.\n\n` +
             `Use the buttons below to manage the chat.`,
-            { parse_mode: "Markdown", ...keyboard }
+            { parse_mode: "HTML", ...keyboard }
         );
     });
 
@@ -285,11 +285,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
         }
         
         await ctx.editMessageText(
-            `✅ *Chat Terminated*\n\n` +
-            `Chat between \`${user1}\` and \`${user2}\` has been ended.\n\n` +
+            `<b>✅ Chat Terminated</b>\n\n` +
+            `Chat between <code>${user1}</code> and <code>${user2}</code> has been ended.\n\n` +
             `Both users have been notified.\n\n` +
             `Use the button below to return to menu.`,
-            { parse_mode: "Markdown", ...backKeyboard }
+            { parse_mode: "HTML", ...backKeyboard }
         );
     });
 
@@ -454,11 +454,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
         ]);
         
         await ctx.editMessageText(
-            `📝 *Edit Name*\n\nUser ID: \`${userId}\`\n\n` +
+            `<b>📝 Edit Name</b>\n\nUser ID: <code>${userId}</code>\n\n` +
             `To change the user's name, use:\n` +
             `/setname ${userId} NewName\n\n` +
             `Use the button below to go back.`,
-            { parse_mode: "Markdown", ...keyboard }
+            { parse_mode: "HTML", ...keyboard }
         );
     });
 
@@ -571,8 +571,8 @@ async function showUserDetails(ctx: any, userId: number) {
       ? new Date(user.lastActive).toLocaleString()
       : "Never";
 
-    let details = `👤 *User Details*\n\n` +
-        `🆔 User ID: \`${userId}\`\n` +
+    let details = `<b>👤 User Details</b>\n\n` +
+        `🆔 User ID: <code>${userId}</code>\n` +
         `📛 Name: ${name}\n` +
         `⚧️ Gender: ${gender}\n` +
         `🎂 Age: ${age}\n` +
@@ -585,10 +585,10 @@ async function showUserDetails(ctx: any, userId: number) {
         `🕐 Last Active: ${lastActiveText}`;
 
     if (isUserBanned) {
-        details += `\n🚫 *Banned*: Yes\n` +
+        details += `\n🚫 <b>Banned</b>: Yes\n` +
             `📝 Ban Reason: ${banReason || "Not specified"}`;
     } else {
-        details += `\n🚫 *Banned*: No`;
+        details += `\n🚫 <b>Banned</b>: No`;
     }
 
     // Add ban/unban button

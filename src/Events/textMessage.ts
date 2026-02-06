@@ -268,8 +268,8 @@ export default {
         try {
           await bot.telegram.sendMessage(
             adminId,
-            `👁️ *Spectator Update*\n\n${senderLabel} (\`${senderId}\`) sent a message:`,
-            { parse_mode: "Markdown" }
+            `<b>👁️ Spectator Update</b>\n\n${senderLabel} (<code>${senderId}</code>) sent a message:`,
+            { parse_mode: "HTML" }
           );
           
           // Forward the actual message
