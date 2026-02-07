@@ -63,12 +63,12 @@ export default {
             const messageCount = bot.messageCountMap.get(id) || 0;
 
             // Clean up chat state
-            bot.runningChats = bot.runningChats.filter(
-                u => u !== id && u !== partner
-            );
+            const usersToRemove = [id];
+            if (partner) usersToRemove.push(partner);
+            bot.runningChats = bot.runningChats.filter(u => !usersToRemove.includes(u));
 
             bot.messageMap.delete(id);
-            bot.messageMap.delete(partner);
+            if (partner) bot.messageMap.delete(partner);
 
             // Clean up message count
             bot.messageCountMap.delete(id);
@@ -102,12 +102,12 @@ const exitMessage =
 How was your chat experience?`;
 
             // Use sendMessageWithRetry to handle blocked partners
-            const notifySent = await sendMessageWithRetry(
+            const notifySent = partner ? await sendMessageWithRetry(
                 bot,
                 partner,
                 exitMessage,
                 ratingKeyboard
-            );
+            ) : false;
 
             // If message failed to send, still clean up
             if (!notifySent && partner) {

@@ -206,8 +206,9 @@ export default {
 
     const partner = bot.getPartner(ctx.from.id);
     
-    // Check if partner exists and is not blocked
+    // Check if partner exists and is valid
     if (!partner) {
+      console.log(`[CHAT] - User ${ctx.from.id} tried to send message but has no valid partner`);
       return; // Partner not found
     }
 

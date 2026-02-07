@@ -74,10 +74,25 @@ export class ExtraTelegraf extends Telegraf<Context> {
   // Rate limit window in milliseconds (1 second - faster for real-time chat)
   RATE_LIMIT_WINDOW = 1000;
 
-  getPartner(id: number) {
+  getPartner(id: number): number | null {
     const index = this.runningChats.indexOf(id);
-    if (index % 2 === 0) return this.runningChats[index + 1];
-    return this.runningChats[index - 1];
+    if (index === -1) return null; // User not in any chat
+    
+    // Even index (0, 2, 4...) - partner is at index + 1
+    if (index % 2 === 0) {
+      // Check if partner exists at index + 1
+      if (index + 1 < this.runningChats.length) {
+        return this.runningChats[index + 1];
+      }
+      return null; // No partner found
+    }
+    
+    // Odd index (1, 3, 5...) - partner is at index - 1
+    if (index - 1 >= 0) {
+      return this.runningChats[index - 1];
+    }
+    
+    return null; // No partner found
   }
 
   incrementChatCount() {

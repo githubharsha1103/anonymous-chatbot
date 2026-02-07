@@ -272,11 +272,17 @@ export async function safeSendMessage(
  */
 export async function sendMessageWithRetry(
   bot: ExtraTelegraf,
-  chatId: number,
+  chatId: number | null,
   text: string,
   extra?: any,
   maxRetries: number = 3
 ): Promise<boolean> {
+  // Validate chatId before attempting to send
+  if (!chatId || chatId === 0) {
+    console.error(`[SEND ERROR] - Invalid chatId: ${chatId}, message not sent`);
+    return false;
+  }
+  
   let lastError: any;
   
   for (let attempt = 0; attempt < maxRetries; attempt++) {
