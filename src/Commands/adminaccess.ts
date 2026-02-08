@@ -2,7 +2,7 @@ import { Context } from "telegraf";
 import { ExtraTelegraf, bot } from "..";
 import { Command } from "../Utils/commandHandler";
 import { Markup } from "telegraf";
-import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount } from "../storage/db";
+import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts } from "../storage/db";
 
 const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
 
@@ -44,6 +44,7 @@ const mainKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("📢 Broadcast Message", "ADMIN_BROADCAST")],
     [Markup.button.callback("📣 Re-engagement", "ADMIN_REENGAGE")],
     [Markup.button.callback("👤 Ban User", "ADMIN_BAN_USER")],
+    [Markup.button.callback("🔗 Referral Stats", "ADMIN_REFERRALS")],
     [Markup.button.callback("🔒 Logout", "ADMIN_LOGOUT")]
 ]);
 
@@ -372,6 +373,63 @@ export function initAdminActions(bot: ExtraTelegraf) {
         // Import and execute reengagement command
         const reengagementCommand = require("./reengagement").default;
         await reengagementCommand.execute(ctx, bot);
+    });
+
+    // Referral management
+    bot.action("ADMIN_REFERRALS", async (ctx) => {
+        await safeAnswerCbQuery(ctx);
+        
+        const allUsers = await getAllUsers();
+        let totalReferrals = 0;
+        let usersWithReferrals = 0;
+        
+        for (const id of allUsers) {
+            const count = await getReferralCount(parseInt(id));
+            totalReferrals += count;
+            if (count > 0) usersWithReferrals++;
+        }
+        
+        const keyboard = Markup.inlineKeyboard([
+            [Markup.button.callback("🔄 Verify & Fix Counts", "ADMIN_VERIFY_REFERRALS")],
+            [Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
+        ]);
+        
+        await ctx.editMessageText(
+            `🔗 *Referral Statistics*\n\n` +
+            `👥 Users with Referrals: ${usersWithReferrals}\n` +
+            `📊 Total Referrals: ${totalReferrals}\n\n` +
+            `Use the button below to verify and fix any referral count discrepancies.`,
+            { parse_mode: "Markdown", ...keyboard }
+        );
+    });
+
+    // Verify and fix referral counts
+    bot.action("ADMIN_VERIFY_REFERRALS", async (ctx) => {
+        await safeAnswerCbQuery(ctx, "Verifying referral counts...");
+        
+        const { accurate, discrepancies } = await verifyReferralCounts();
+        
+        if (accurate) {
+            await ctx.editMessageText(
+                `✅ *Referral Verification Complete*\n\n` +
+                `All referral counts are accurate!\n` +
+                `No discrepancies found.`,
+                { parse_mode: "Markdown", ...backKeyboard }
+            );
+        } else {
+            // Auto-fix the discrepancies
+            const fixed = await fixReferralCounts();
+            
+            await ctx.editMessageText(
+                `⚠️ *Referral Verification Complete*\n\n` +
+                `Found ${discrepancies.length} discrepancies.\n` +
+                `Fixed ${fixed} referral counts.\n\n` +
+                `Details:\n` +
+                discrepancies.slice(0, 5).map(d => `• User ${d.userId}: ${d.stored} → ${d.actual}`).join("\n") +
+                (discrepancies.length > 5 ? `\n...and ${discrepancies.length - 5} more` : ""),
+                { parse_mode: "Markdown", ...backKeyboard }
+            );
+        }
     });
 
     // Logout

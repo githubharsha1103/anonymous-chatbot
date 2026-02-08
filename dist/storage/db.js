@@ -36,6 +36,9 @@ exports.getReferralCount = getReferralCount;
 exports.incrementReferralCount = incrementReferralCount;
 exports.getUserByReferralCode = getUserByReferralCode;
 exports.processReferral = processReferral;
+exports.atomicIncrementReferralCount = atomicIncrementReferralCount;
+exports.verifyReferralCounts = verifyReferralCounts;
+exports.fixReferralCounts = fixReferralCounts;
 exports.closeDatabase = closeDatabase;
 const mongodb_1 = require("mongodb");
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
@@ -65,6 +68,8 @@ function connectToDatabase() {
             console.log("[INFO] - Connected to MongoDB");
             // Create indexes
             yield db.collection("users").createIndex({ telegramId: 1 }, { unique: true });
+            yield db.collection("users").createIndex({ referralCode: 1 });
+            yield db.collection("users").createIndex({ referredBy: 1 });
             return db;
         }
         catch (error) {
@@ -560,12 +565,75 @@ function processReferral(referredUserId, referralCode) {
             console.log(`[REFERRAL] - User ${referredUserId} tried to refer themselves`);
             return false;
         }
+        // Check if user was already referred by someone
+        const referredUser = yield getUser(referredUserId);
+        if (referredUser.referredBy) {
+            console.log(`[REFERRAL] - User ${referredUserId} was already referred by ${referredUser.referredBy}`);
+            return false;
+        }
         // Mark the referred user as having been referred
         yield updateUser(referredUserId, { referredBy: referralCode });
-        // Increment referrer's count
-        yield incrementReferralCount(referrerId);
+        // Increment referrer's count using atomic update to prevent race conditions
+        yield atomicIncrementReferralCount(referrerId);
         console.log(`[REFERRAL] - User ${referredUserId} successfully referred by ${referrerId}`);
         return true;
+    });
+}
+// Atomically increment referral count to prevent race conditions
+function atomicIncrementReferralCount(userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (useMongoDB && !isFallbackMode) {
+            try {
+                const collection = yield getUsersCollection();
+                yield collection.updateOne({ telegramId: userId }, { $inc: { referralCount: 1 } });
+                return;
+            }
+            catch (error) {
+                console.error("[ERROR] - MongoDB atomicIncrementReferralCount error:", error);
+            }
+        }
+        // JSON fallback - use regular increment
+        yield incrementReferralCount(userId);
+    });
+}
+// Debug function to verify referral counts
+function verifyReferralCounts() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const allUsers = yield getAllUsers();
+        const discrepancies = [];
+        for (const id of allUsers) {
+            const userId = parseInt(id);
+            const user = yield getUser(userId);
+            const storedCount = user.referralCount || 0;
+            // Count actual referrals
+            let actualCount = 0;
+            for (const otherId of allUsers) {
+                const otherUser = yield getUser(parseInt(otherId));
+                if (otherUser.referredBy === user.referralCode) {
+                    actualCount++;
+                }
+            }
+            if (storedCount !== actualCount) {
+                discrepancies.push({ userId, stored: storedCount, actual: actualCount });
+            }
+        }
+        return {
+            accurate: discrepancies.length === 0,
+            discrepancies
+        };
+    });
+}
+// Fix any referral count discrepancies
+function fixReferralCounts() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const { discrepancies } = yield verifyReferralCounts();
+        let fixed = 0;
+        for (const disc of discrepancies) {
+            yield updateUser(disc.userId, { referralCount: disc.actual });
+            console.log(`[REFERRAL] - Fixed referral count for user ${disc.userId}: ${disc.stored} -> ${disc.actual}`);
+            fixed++;
+        }
+        return fixed;
     });
 }
 // Close MongoDB connection on process exit

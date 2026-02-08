@@ -14,7 +14,7 @@ exports.default = {
     name: "help",
     description: "See the available commands",
     execute: (ctx, bot) => __awaiter(void 0, void 0, void 0, function* () {
-        yield ctx.reply("📚 *Available Commands:*\n\n" +
+        yield ctx.reply("📚 <b>Available Commands:</b>\n\n" +
             "/start - Start the bot\n" +
             "/search - Find a chat partner\n" +
             "/next - Skip current chat and find new partner\n" +
@@ -22,6 +22,6 @@ exports.default = {
             "/settings - Open settings menu\n" +
             "/report - Report a user\n" +
             "/referral - Invite friends & earn premium\n" +
-            "/help - Show this help message", Object.assign({ parse_mode: "Markdown" }, (0, markup_1.removeKeyboard)()));
+            "/help - Show this help message", Object.assign({ parse_mode: "HTML" }, (0, markup_1.removeKeyboard)()));
     })
 };

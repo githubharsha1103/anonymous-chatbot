@@ -28,6 +28,21 @@ function isAdminByUsername(username) {
         return false;
     return ADMINS.some(admin => admin.startsWith("@") && admin.toLowerCase() === `@${username.toLowerCase()}`);
 }
+// Helper function to format duration
+function formatDuration(ms) {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    if (hours > 0) {
+        return `${hours}h ${minutes % 60}m`;
+    }
+    else if (minutes > 0) {
+        return `${minutes} min${minutes > 1 ? 's' : ''}`;
+    }
+    else {
+        return `${seconds}s`;
+    }
+}
 // Admin main menu with clear options
 const mainKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("👥 View All Users", "ADMIN_USERS")],
@@ -37,6 +52,7 @@ const mainKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("📢 Broadcast Message", "ADMIN_BROADCAST")],
     [telegraf_1.Markup.button.callback("📣 Re-engagement", "ADMIN_REENGAGE")],
     [telegraf_1.Markup.button.callback("👤 Ban User", "ADMIN_BAN_USER")],
+    [telegraf_1.Markup.button.callback("🔗 Referral Stats", "ADMIN_REFERRALS")],
     [telegraf_1.Markup.button.callback("🔒 Logout", "ADMIN_LOGOUT")]
 ]);
 const backKeyboard = telegraf_1.Markup.inlineKeyboard([
@@ -162,14 +178,73 @@ function initAdminActions(bot) {
             return;
         // Store spectator session
         bot.spectatingChats.set(adminId, { user1, user2 });
+        // Get chat statistics
+        const user1Data = yield (0, db_1.getUser)(user1);
+        const user2Data = yield (0, db_1.getUser)(user2);
+        // Calculate duration
+        const chatStartTime = user1Data.chatStartTime || user2Data.chatStartTime;
+        let durationText = "Unknown";
+        if (chatStartTime) {
+            const durationMs = Date.now() - chatStartTime;
+            durationText = formatDuration(durationMs);
+        }
+        // Get message counts
+        const user1Messages = bot.messageCountMap.get(user1) || 0;
+        const user2Messages = bot.messageCountMap.get(user2) || 0;
+        const totalMessages = user1Messages + user2Messages;
         const keyboard = telegraf_1.Markup.inlineKeyboard([
+            [telegraf_1.Markup.button.callback("🛑 Terminate Chat", `ADMIN_TERMINATE_${user1}_${user2}`)],
             [telegraf_1.Markup.button.callback("🔙 Exit Spectator Mode", `ADMIN_EXIT_SPECTATE`)]
         ]);
-        yield ctx.editMessageText(`👁️ *Spectating Chat*\n\n` +
-            `👤 User 1: \`${user1}\`\n` +
-            `👤 User 2: \`${user2}\`\n\n` +
+        yield ctx.editMessageText(`<b>👁️ Spectating Chat</b>\n\n` +
+            `👤 User 1: <code>${user1}</code>\n` +
+            `👤 User 2: <code>${user2}</code>\n\n` +
+            `<b>⏱️ Duration:</b> ${durationText}\n` +
+            `<b>💬 Messages:</b> ${totalMessages} (U1: ${user1Messages}, U2: ${user2Messages})\n\n` +
             `Messages from this chat will be forwarded here in real-time.\n\n` +
-            `Use the button below to exit spectator mode.`, Object.assign({ parse_mode: "Markdown" }, keyboard));
+            `Use the buttons below to manage the chat.`, Object.assign({ parse_mode: "HTML" }, keyboard));
+    }));
+    // Terminate a chat (admin action)
+    bot.action(/ADMIN_TERMINATE_(\d+)_(\d+)/, (ctx) => __awaiter(this, void 0, void 0, function* () {
+        var _a;
+        yield safeAnswerCbQuery(ctx);
+        const user1 = parseInt(ctx.match[1]);
+        const user2 = parseInt(ctx.match[2]);
+        const adminId = (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id;
+        if (!adminId)
+            return;
+        // Remove from spectating chats
+        bot.spectatingChats.delete(adminId);
+        // Clean up chat state for both users
+        bot.runningChats = bot.runningChats.filter(u => u !== user1 && u !== user2);
+        bot.messageMap.delete(user1);
+        bot.messageMap.delete(user2);
+        bot.messageCountMap.delete(user1);
+        bot.messageCountMap.delete(user2);
+        // Clear chat start time
+        yield (0, db_1.updateUser)(user1, { chatStartTime: null });
+        yield (0, db_1.updateUser)(user2, { chatStartTime: null });
+        // Notify both users that chat was terminated by admin
+        try {
+            yield ctx.telegram.sendMessage(user1, `🚫 *Chat Terminated by Admin*\n\n` +
+                `Your chat has been ended by an administrator.\n\n` +
+                `Use /search to find a new partner.`, { parse_mode: "Markdown" });
+        }
+        catch (e) {
+            // User might have blocked the bot
+        }
+        try {
+            yield ctx.telegram.sendMessage(user2, `🚫 *Chat Terminated by Admin*\n\n` +
+                `Your chat has been ended by an administrator.\n\n` +
+                `Use /search to find a new partner.`, { parse_mode: "Markdown" });
+        }
+        catch (e) {
+            // User might have blocked the bot
+        }
+        yield ctx.editMessageText(`<b>✅ Chat Terminated</b>\n\n` +
+            `Chat between <code>${user1}</code> and <code>${user2}</code> has been ended.\n\n` +
+            `Both users have been notified.\n\n` +
+            `Use the button below to return to menu.`, Object.assign({ parse_mode: "HTML" }, backKeyboard));
     }));
     // Exit spectator mode
     bot.action("ADMIN_EXIT_SPECTATE", (ctx) => __awaiter(this, void 0, void 0, function* () {
@@ -217,10 +292,60 @@ function initAdminActions(bot) {
     }));
     // Re-engagement campaign
     bot.action("ADMIN_REENGAGE", (ctx) => __awaiter(this, void 0, void 0, function* () {
+        var _a;
         yield safeAnswerCbQuery(ctx);
+        // Check admin authentication
+        const adminId = (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id;
+        if (!adminId)
+            return;
+        const user = yield (0, db_1.getUser)(adminId);
+        if (!user.isAdminAuthenticated) {
+            return ctx.reply("🚫 You are not authorized to access this command.");
+        }
         // Import and execute reengagement command
         const reengagementCommand = require("./reengagement").default;
         yield reengagementCommand.execute(ctx, bot);
+    }));
+    // Referral management
+    bot.action("ADMIN_REFERRALS", (ctx) => __awaiter(this, void 0, void 0, function* () {
+        yield safeAnswerCbQuery(ctx);
+        const allUsers = yield (0, db_1.getAllUsers)();
+        let totalReferrals = 0;
+        let usersWithReferrals = 0;
+        for (const id of allUsers) {
+            const count = yield (0, db_1.getReferralCount)(parseInt(id));
+            totalReferrals += count;
+            if (count > 0)
+                usersWithReferrals++;
+        }
+        const keyboard = telegraf_1.Markup.inlineKeyboard([
+            [telegraf_1.Markup.button.callback("🔄 Verify & Fix Counts", "ADMIN_VERIFY_REFERRALS")],
+            [telegraf_1.Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
+        ]);
+        yield ctx.editMessageText(`🔗 *Referral Statistics*\n\n` +
+            `👥 Users with Referrals: ${usersWithReferrals}\n` +
+            `📊 Total Referrals: ${totalReferrals}\n\n` +
+            `Use the button below to verify and fix any referral count discrepancies.`, Object.assign({ parse_mode: "Markdown" }, keyboard));
+    }));
+    // Verify and fix referral counts
+    bot.action("ADMIN_VERIFY_REFERRALS", (ctx) => __awaiter(this, void 0, void 0, function* () {
+        yield safeAnswerCbQuery(ctx, "Verifying referral counts...");
+        const { accurate, discrepancies } = yield (0, db_1.verifyReferralCounts)();
+        if (accurate) {
+            yield ctx.editMessageText(`✅ *Referral Verification Complete*\n\n` +
+                `All referral counts are accurate!\n` +
+                `No discrepancies found.`, Object.assign({ parse_mode: "Markdown" }, backKeyboard));
+        }
+        else {
+            // Auto-fix the discrepancies
+            const fixed = yield (0, db_1.fixReferralCounts)();
+            yield ctx.editMessageText(`⚠️ *Referral Verification Complete*\n\n` +
+                `Found ${discrepancies.length} discrepancies.\n` +
+                `Fixed ${fixed} referral counts.\n\n` +
+                `Details:\n` +
+                discrepancies.slice(0, 5).map(d => `• User ${d.userId}: ${d.stored} → ${d.actual}`).join("\n") +
+                (discrepancies.length > 5 ? `\n...and ${discrepancies.length - 5} more` : ""), Object.assign({ parse_mode: "Markdown" }, backKeyboard));
+        }
     }));
     // Logout
     bot.action("ADMIN_LOGOUT", (ctx) => __awaiter(this, void 0, void 0, function* () {
@@ -289,10 +414,10 @@ function initAdminActions(bot) {
         const keyboard = telegraf_1.Markup.inlineKeyboard([
             [telegraf_1.Markup.button.callback("🔙 Back", `ADMIN_USER_${userId}`)]
         ]);
-        yield ctx.editMessageText(`📝 *Edit Name*\n\nUser ID: \`${userId}\`\n\n` +
+        yield ctx.editMessageText(`<b>📝 Edit Name</b>\n\nUser ID: <code>${userId}</code>\n\n` +
             `To change the user's name, use:\n` +
             `/setname ${userId} NewName\n\n` +
-            `Use the button below to go back.`, Object.assign({ parse_mode: "Markdown" }, keyboard));
+            `Use the button below to go back.`, Object.assign({ parse_mode: "HTML" }, keyboard));
     }));
     // Reset user chats
     bot.action(/ADMIN_RESET_CHATS_(\d+)/, (ctx) => __awaiter(this, void 0, void 0, function* () {
@@ -393,8 +518,8 @@ function showUserDetails(ctx, userId) {
         const lastActiveText = user.lastActive
             ? new Date(user.lastActive).toLocaleString()
             : "Never";
-        let details = `👤 *User Details*\n\n` +
-            `🆔 User ID: \`${userId}\`\n` +
+        let details = `<b>👤 User Details</b>\n\n` +
+            `🆔 User ID: <code>${userId}</code>\n` +
             `📛 Name: ${name}\n` +
             `⚧️ Gender: ${gender}\n` +
             `🎂 Age: ${age}\n` +
@@ -406,11 +531,11 @@ function showUserDetails(ctx, userId) {
             `💎 Premium: ${user.premium ? "Yes ✅" : "No ❌"}\n` +
             `🕐 Last Active: ${lastActiveText}`;
         if (isUserBanned) {
-            details += `\n🚫 *Banned*: Yes\n` +
+            details += `\n🚫 <b>Banned</b>: Yes\n` +
                 `📝 Ban Reason: ${banReason || "Not specified"}`;
         }
         else {
-            details += `\n🚫 *Banned*: No`;
+            details += `\n🚫 <b>Banned</b>: No`;
         }
         // Add ban/unban button
         const actionButtons = [];

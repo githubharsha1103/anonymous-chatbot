@@ -29,12 +29,19 @@ exports.default = {
             // End current chat if in one
             if (bot.runningChats.includes(userId)) {
                 const partner = bot.getPartner(userId);
-                bot.runningChats = bot.runningChats.filter(u => u !== userId && u !== partner);
+                // Remove users from running chats (handle null partner)
+                const usersToRemove = [userId];
+                if (partner)
+                    usersToRemove.push(partner);
+                bot.runningChats = bot.runningChats.filter(u => !usersToRemove.includes(u));
+                // Clean up message maps
                 bot.messageMap.delete(userId);
-                bot.messageMap.delete(partner);
+                if (partner)
+                    bot.messageMap.delete(partner);
                 // Clean up message count
                 bot.messageCountMap.delete(userId);
-                bot.messageCountMap.delete(partner);
+                if (partner)
+                    bot.messageCountMap.delete(partner);
                 // Store partner ID for potential report (both ways)
                 if (partner) {
                     yield (0, db_1.updateUser)(userId, { reportingPartner: partner, chatStartTime: null });
@@ -45,9 +52,9 @@ exports.default = {
                     [telegraf_1.Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
                 ]);
                 // Use sendMessageWithRetry to handle blocked partners
-                const notifySent = yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, partner, "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard);
+                const notifySent = partner ? yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, partner, "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:", reportKeyboard) : false;
                 // If message failed to send, end the chat properly
-                if (!notifySent) {
+                if (!notifySent && partner) {
                     (0, telegramErrorHandler_1.cleanupBlockedUser)(bot, partner);
                     (0, telegramErrorHandler_1.endChatDueToError)(bot, userId, partner);
                     return ctx.reply("🚫 Partner left the chat");

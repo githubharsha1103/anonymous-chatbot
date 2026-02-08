@@ -74,11 +74,11 @@ exports.default = {
                 console.log(`[START] - User ${userId} started with referral code: ${startParam}`);
             }
             // New user - show animated welcome with Get Started button
-            yield ctx.reply("🌟 *Welcome to Anonymous Chat!* 🌟\n\n" +
+            yield ctx.reply("🌟 <b>Welcome to Anonymous Chat!</b> 🌟\n\n" +
                 "✨ Connect with strangers anonymously\n" +
                 "🔒 Your privacy is protected\n" +
                 "💬 Chat freely and safely\n\n" +
-                "Tap *Get Started* to begin!", Object.assign({ parse_mode: "Markdown" }, welcomeKeyboard));
+                "Tap <b>Get Started</b> to begin!", Object.assign({ parse_mode: "HTML" }, welcomeKeyboard));
             return;
         }
         // Update lastActive for returning users
@@ -95,9 +95,9 @@ exports.default = {
                 [telegraf_1.Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")],
                 [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_GENDER")]
             ]);
-            yield ctx.reply("📝 *Step 2 of 3*\n\n" +
-                "🎂 *Select your age range:*\n" +
-                "(This helps us match you with people in similar age groups)", Object.assign({ parse_mode: "Markdown" }, ageKeyboard));
+            yield ctx.reply("📝 <b>Step 2 of 3</b>\n\n" +
+                "🎂 <b>Select your age range:</b>\n" +
+                "(This helps us match you with people in similar age groups)", Object.assign({ parse_mode: "HTML" }, ageKeyboard));
             return;
         }
         if (setupStep === exports.SETUP_STEP_STATE) {
@@ -109,14 +109,14 @@ exports.default = {
                 [telegraf_1.Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")],
                 [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
             ]);
-            yield ctx.reply("📝 *Step 3 of 3*\n\n" +
-                "📍 *Select your location:*\n" +
-                "(Helps match you with nearby people)", Object.assign({ parse_mode: "Markdown" }, stateKeyboard));
+            yield ctx.reply("📝 <b>Step 3 of 3</b>\n\n" +
+                "📍 <b>Select your location:</b>\n" +
+                "(Helps match you with nearby people)", Object.assign({ parse_mode: "HTML" }, stateKeyboard));
             return;
         }
         // Existing user with complete profile - show main menu
-        yield ctx.reply("🌟 *Welcome back!* 🌟\n\n" +
+        yield ctx.reply("🌟 <b>Welcome back!</b> 🌟\n\n" +
             "This bot helps you chat anonymously with people worldwide.\n\n" +
-            "Use the menu below to navigate:", Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
+            "Use the menu below to navigate:", Object.assign({ parse_mode: "HTML" }, mainMenuKeyboard));
     })
 };

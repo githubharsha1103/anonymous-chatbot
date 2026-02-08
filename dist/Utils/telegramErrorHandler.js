@@ -238,6 +238,11 @@ function safeSendMessage(bot, chatId, text, extra) {
  */
 function sendMessageWithRetry(bot_1, chatId_1, text_1, extra_1) {
     return __awaiter(this, arguments, void 0, function* (bot, chatId, text, extra, maxRetries = 3) {
+        // Validate chatId before attempting to send
+        if (!chatId || chatId === 0) {
+            console.error(`[SEND ERROR] - Invalid chatId: ${chatId}, message not sent`);
+            return false;
+        }
         let lastError;
         for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {

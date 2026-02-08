@@ -77,9 +77,21 @@ class ExtraTelegraf extends telegraf_1.Telegraf {
     }
     getPartner(id) {
         const index = this.runningChats.indexOf(id);
-        if (index % 2 === 0)
-            return this.runningChats[index + 1];
-        return this.runningChats[index - 1];
+        if (index === -1)
+            return null; // User not in any chat
+        // Even index (0, 2, 4...) - partner is at index + 1
+        if (index % 2 === 0) {
+            // Check if partner exists at index + 1
+            if (index + 1 < this.runningChats.length) {
+                return this.runningChats[index + 1];
+            }
+            return null; // No partner found
+        }
+        // Odd index (1, 3, 5...) - partner is at index - 1
+        if (index - 1 >= 0) {
+            return this.runningChats[index - 1];
+        }
+        return null; // No partner found
     }
     incrementChatCount() {
         this.totalChats++;
@@ -133,14 +145,14 @@ const actionHandler_1 = require("./Utils/actionHandler");
 (0, eventHandler_1.loadEvents)();
 (0, actionHandler_1.loadActions)();
 /* ---------------- ADMIN PANEL ---------------- */
-const adminaccess_js_1 = require("./Commands/adminaccess.js");
-(0, adminaccess_js_1.initAdminActions)(exports.bot);
+const adminaccess_1 = require("./Commands/adminaccess");
+(0, adminaccess_1.initAdminActions)(exports.bot);
 /* ---------------- RE-ENGAGEMENT ---------------- */
-const reengagement_js_1 = require("./Commands/reengagement.js");
-(0, reengagement_js_1.initReengagementActions)(exports.bot);
+const reengagement_1 = require("./Commands/reengagement");
+(0, reengagement_1.initReengagementActions)(exports.bot);
 /* ---------------- REFERRAL SYSTEM ---------------- */
-const referral_js_1 = require("./Commands/referral.js");
-(0, referral_js_1.initReferralActions)(exports.bot);
+const referral_1 = require("./Commands/referral");
+(0, referral_1.initReferralActions)(exports.bot);
 /* ---------------- ADMIN ---------------- */
 const ADMINS = ((_a = process.env.ADMIN_IDS) === null || _a === void 0 ? void 0 : _a.split(",")) || [];
 function isAdmin(id) {
@@ -203,14 +215,14 @@ exports.bot.command("stats", (ctx) => __awaiter(void 0, void 0, void 0, function
     const allUsers = yield (0, db_1.getAllUsers)();
     const totalChats = yield (0, db_1.getTotalChats)();
     const stats = `
-📊 *Bot Statistics*
+📊 <b>Bot Statistics</b>
 
-👥 *Total Users:* ${allUsers.length}
-💬 *Total Chats:* ${totalChats}
-💭 *Active Chats:* ${exports.bot.runningChats.length / 2}
-⏳ *Users Waiting:* ${exports.bot.waitingQueue.length}
+👥 <b>Total Users:</b> ${allUsers.length}
+💬 <b>Total Chats:</b> ${totalChats}
+💭 <b>Active Chats:</b> ${exports.bot.runningChats.length / 2}
+⏳ <b>Users Waiting:</b> ${exports.bot.waitingQueue.length}
 `;
-    ctx.reply(stats, { parse_mode: "Markdown" });
+    ctx.reply(stats, { parse_mode: "HTML" });
 }));
 /* ---------------- ADMIN SET NAME ---------------- */
 exports.bot.command("setname", (ctx) => __awaiter(void 0, void 0, void 0, function* () {

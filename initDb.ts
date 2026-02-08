@@ -27,6 +27,14 @@ async function initializeDatabase() {
     await usersCollection.createIndex({ telegramId: 1 }, { unique: true });
     console.log("✓ Created unique index on telegramId");
     
+    // Create index on referralCode for faster lookups
+    await usersCollection.createIndex({ referralCode: 1 });
+    console.log("✓ Created index on referralCode");
+    
+    // Create index on referredBy for tracking referrals
+    await usersCollection.createIndex({ referredBy: 1 });
+    console.log("✓ Created index on referredBy");
+    
     // Create bans collection with index
     const bansCollection = db.collection("bans");
     console.log("✓ Bans collection accessed/created");

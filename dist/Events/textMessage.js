@@ -155,8 +155,9 @@ exports.default = {
             return ctx.reply("🚫 Links are not allowed in chat for your safety.\n\nPlease share information verbally instead.");
         }
         const partner = bot.getPartner(ctx.from.id);
-        // Check if partner exists and is not blocked
+        // Check if partner exists and is valid
         if (!partner) {
+            console.log(`[CHAT] - User ${ctx.from.id} tried to send message but has no valid partner`);
             return; // Partner not found
         }
         try {
@@ -207,7 +208,7 @@ exports.default = {
                 const senderLabel = senderId === chat.user1 ? "User 1" : "User 2";
                 // Forward the message to the admin
                 try {
-                    yield bot.telegram.sendMessage(adminId, `👁️ *Spectator Update*\n\n${senderLabel} (\`${senderId}\`) sent a message:`, { parse_mode: "Markdown" });
+                    yield bot.telegram.sendMessage(adminId, `<b>👁️ Spectator Update</b>\n\n${senderLabel} (<code>${senderId}</code>) sent a message:`, { parse_mode: "HTML" });
                     // Forward the actual message
                     yield ctx.forwardMessage(adminId);
                 }

@@ -63,9 +63,13 @@ exports.default = {
             // Get message count
             const messageCount = bot.messageCountMap.get(id) || 0;
             // Clean up chat state
-            bot.runningChats = bot.runningChats.filter(u => u !== id && u !== partner);
+            const usersToRemove = [id];
+            if (partner)
+                usersToRemove.push(partner);
+            bot.runningChats = bot.runningChats.filter(u => !usersToRemove.includes(u));
             bot.messageMap.delete(id);
-            bot.messageMap.delete(partner);
+            if (partner)
+                bot.messageMap.delete(partner);
             // Clean up message count
             bot.messageCountMap.delete(id);
             if (partner) {
@@ -93,13 +97,13 @@ exports.default = {
 ━━━━━━━━━━━━━━━━━
 How was your chat experience?`;
             // Use sendMessageWithRetry to handle blocked partners
-            const notifySent = yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, partner, exitMessage, ratingKeyboard);
+            const notifySent = partner ? yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, partner, exitMessage, ratingKeyboard) : false;
             // If message failed to send, still clean up
             if (!notifySent && partner) {
                 (0, telegramErrorHandler_1.cleanupBlockedUser)(bot, partner);
             }
             // Send exit message with rating and buttons to user who ended chat
-            return ctx.reply(exitMessage, Object.assign({ parse_mode: "Markdown" }, ratingKeyboard));
+            return ctx.reply(exitMessage, Object.assign({ parse_mode: "HTML" }, ratingKeyboard));
         }
         finally {
             bot.chatMutex.release();

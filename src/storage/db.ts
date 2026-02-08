@@ -68,6 +68,8 @@ async function connectToDatabase(): Promise<Db> {
     
     // Create indexes
     await db.collection<User>("users").createIndex({ telegramId: 1 }, { unique: true });
+    await db.collection<User>("users").createIndex({ referralCode: 1 });
+    await db.collection<User>("users").createIndex({ referredBy: 1 });
     
     return db;
   } catch (error) {
@@ -570,14 +572,84 @@ export async function processReferral(referredUserId: number, referralCode: stri
     return false;
   }
   
+  // Check if user was already referred by someone
+  const referredUser = await getUser(referredUserId);
+  if (referredUser.referredBy) {
+    console.log(`[REFERRAL] - User ${referredUserId} was already referred by ${referredUser.referredBy}`);
+    return false;
+  }
+  
   // Mark the referred user as having been referred
   await updateUser(referredUserId, { referredBy: referralCode });
   
-  // Increment referrer's count
-  await incrementReferralCount(referrerId);
+  // Increment referrer's count using atomic update to prevent race conditions
+  await atomicIncrementReferralCount(referrerId);
   
   console.log(`[REFERRAL] - User ${referredUserId} successfully referred by ${referrerId}`);
   return true;
+}
+
+// Atomically increment referral count to prevent race conditions
+export async function atomicIncrementReferralCount(userId: number): Promise<void> {
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getUsersCollection();
+      await collection.updateOne(
+        { telegramId: userId },
+        { $inc: { referralCount: 1 } }
+      );
+      return;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB atomicIncrementReferralCount error:", error);
+    }
+  }
+  
+  // JSON fallback - use regular increment
+  await incrementReferralCount(userId);
+}
+
+// Debug function to verify referral counts
+export async function verifyReferralCounts(): Promise<{ accurate: boolean; discrepancies: { userId: number; stored: number; actual: number }[] }> {
+  const allUsers = await getAllUsers();
+  const discrepancies: { userId: number; stored: number; actual: number }[] = [];
+  
+  for (const id of allUsers) {
+    const userId = parseInt(id);
+    const user = await getUser(userId);
+    const storedCount = user.referralCount || 0;
+    
+    // Count actual referrals
+    let actualCount = 0;
+    for (const otherId of allUsers) {
+      const otherUser = await getUser(parseInt(otherId));
+      if (otherUser.referredBy === user.referralCode) {
+        actualCount++;
+      }
+    }
+    
+    if (storedCount !== actualCount) {
+      discrepancies.push({ userId, stored: storedCount, actual: actualCount });
+    }
+  }
+  
+  return {
+    accurate: discrepancies.length === 0,
+    discrepancies
+  };
+}
+
+// Fix any referral count discrepancies
+export async function fixReferralCounts(): Promise<number> {
+  const { discrepancies } = await verifyReferralCounts();
+  let fixed = 0;
+  
+  for (const disc of discrepancies) {
+    await updateUser(disc.userId, { referralCount: disc.actual });
+    console.log(`[REFERRAL] - Fixed referral count for user ${disc.userId}: ${disc.stored} -> ${disc.actual}`);
+    fixed++;
+  }
+  
+  return fixed;
 }
 
 // Close MongoDB connection on process exit
