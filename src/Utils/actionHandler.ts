@@ -83,7 +83,6 @@ const premiumMessage =
 "To unlock this feature, please contact the admin @demonhunter1511 to purchase Premium access.";
 
 
-
 const mainMenuKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🔍 Search", "START_SEARCH")],
     [Markup.button.callback("⚙️ Settings", "OPEN_SETTINGS")],
@@ -98,6 +97,20 @@ async function safeAnswerCbQuery(ctx: ActionContext, text?: string) {
         }
     } catch {
         // Query too old or invalid, ignore
+    }
+}
+
+// Safe editMessageText helper - handles "message not modified" errors
+async function safeEditMessageText(ctx: ActionContext, text: string, extra?: any) {
+    try {
+        await ctx.editMessageText(text, extra);
+    } catch (error: any) {
+        // Ignore "message not modified" errors (400 Bad Request)
+        if (error.description && error.description.includes("message is not modified")) {
+            // Message already edited, ignore
+        } else {
+            throw error; // Re-throw other errors
+        }
     }
 }
 
@@ -132,9 +145,11 @@ Use buttons below to update:`;
     // Try to edit, if fails (same content), send new message
     try {
         await ctx.editMessageText(text, keyboard);
-    } catch {
-        await safeAnswerCbQuery(ctx);
-        await ctx.reply(text, keyboard);
+    } catch (error: any) {
+        if (!error.description?.includes("message is not modified")) {
+            await safeAnswerCbQuery(ctx);
+            await ctx.reply(text, keyboard);
+        }
     }
 }
 
@@ -180,7 +195,7 @@ const setupAgeManualKeyboard = Markup.inlineKeyboard([
 bot.action("WELCOME_BACK", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText(
+    await safeEditMessageText(ctx,
         "🌟 *Welcome to Anonymous Chat!* 🌟\n\n" +
         "✨ Connect with strangers anonymously\n" +
         "🔒 Your privacy is protected\n" +
@@ -220,7 +235,7 @@ bot.action("SETUP_GENDER_MALE", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
     await updateUser(ctx.from.id, { gender: "male", setupStep: "age" });
-    await ctx.editMessageText(
+    await safeEditMessageText(ctx,
         "📝 *Step 2 of 3*\n\n" +
         "🎂 *Select your age range:*\n" +
         "(This helps us match you with people in similar age groups)",
@@ -232,7 +247,7 @@ bot.action("SETUP_GENDER_FEMALE", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
     await updateUser(ctx.from.id, { gender: "female", setupStep: "age" });
-    await ctx.editMessageText(
+    await safeEditMessageText(ctx,
         "📝 *Step 2 of 3*\n\n" +
         "🎂 *Select your age range:*\n" +
         "(This helps us match you with people in similar age groups)",
@@ -253,7 +268,7 @@ for (const [action, ageLabel] of Object.entries(ageToGenderMap)) {
         if (!ctx.from) return;
         await safeAnswerCbQuery(ctx);
         await updateUser(ctx.from.id, { age: ageLabel, setupStep: "state" });
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             "📝 *Step 3 of 3*\n\n" +
             "📍 *Select your location:*\n" +
             "(Helps match you with nearby people)",
@@ -266,7 +281,7 @@ for (const [action, ageLabel] of Object.entries(ageToGenderMap)) {
 bot.action("SETUP_AGE_MANUAL", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText(
+    await safeEditMessageText(ctx,
         "📝 *Enter your age:*\n\n" +
         "Please type a number between 13 and 80\n" +
         "(e.g., 21)",
@@ -293,7 +308,7 @@ bot.action("SETUP_STATE_OTHER", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
     await updateUser(ctx.from.id, { setupStep: "state_other" });
-    await ctx.editMessageText(
+    await safeEditMessageText(ctx,
         "📍 *Enter your state:*\n\n" +
         "(e.g., Karnataka, Tamil Nadu, Maharashtra, etc.)",
         { parse_mode: "Markdown", ...Markup.inlineKeyboard([
@@ -312,7 +327,7 @@ bot.action("SETUP_COUNTRY_OTHER", async (ctx) => {
 // Back actions
 bot.action("SETUP_BACK_GENDER", async (ctx) => {
     await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText(
+    await safeEditMessageText(ctx,
         "📝 *Step 1 of 3*\n" +
         "👤 *Select your gender:*",
         { parse_mode: "Markdown", ...setupGenderKeyboard }
@@ -321,7 +336,7 @@ bot.action("SETUP_BACK_GENDER", async (ctx) => {
 
 bot.action("SETUP_BACK_AGE", async (ctx) => {
     await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText(
+    await safeEditMessageText(ctx,
         "📝 *Step 2 of 3*\n\n" +
         "🎂 *Select your age range:*\n" +
         "(This helps us match you with people in similar age groups)",
@@ -331,7 +346,7 @@ bot.action("SETUP_BACK_AGE", async (ctx) => {
 
 bot.action("SETUP_BACK_STATE", async (ctx) => {
     await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText(
+    await safeEditMessageText(ctx,
         "📝 *Step 3 of 3*\n\n" +
         "📍 *Select your location:*\n" +
         "(Helps match you with nearby people)",
@@ -347,7 +362,7 @@ bot.action("SETUP_CANCEL", async (ctx) => {
     
     // Check which step they're missing and redirect
     if (!user.gender) {
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             "📝 *Setup Required*\n\n" +
             "⚠️ You must complete your profile before using the bot.\n\n" +
             "👤 *Step 1 of 3*\n" +
@@ -355,7 +370,7 @@ bot.action("SETUP_CANCEL", async (ctx) => {
             { parse_mode: "Markdown", ...setupGenderKeyboard }
         );
     } else if (!user.age) {
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             "📝 *Setup Required*\n\n" +
             "⚠️ You must complete your profile before using the bot.\n\n" +
             "👤 *Step 2 of 3*\n" +
@@ -364,7 +379,7 @@ bot.action("SETUP_CANCEL", async (ctx) => {
             { parse_mode: "Markdown", ...setupAgeKeyboard }
         );
     } else if (!user.state) {
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             "📝 *Setup Required*\n\n" +
             "⚠️ You must complete your profile before using the bot.\n\n" +
             "👤 *Step 3 of 3*\n" +
@@ -374,7 +389,7 @@ bot.action("SETUP_CANCEL", async (ctx) => {
         );
     } else {
         // Setup complete - show main menu
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             "🌟 *Welcome back!* 🌟\n\n" +
             "This bot helps you chat anonymously with people worldwide.\n\n" +
             "Use the menu below to navigate:",
@@ -390,7 +405,7 @@ bot.action("SETUP_CANCEL", async (ctx) => {
 // Gender actions
 bot.action("SET_GENDER", async (ctx) => {
     await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText("Select your gender:", genderKeyboard);
+    await safeEditMessageText(ctx, "Select your gender:", genderKeyboard);
 });
 
 bot.action("GENDER_MALE", async (ctx) => {
@@ -410,13 +425,13 @@ bot.action("GENDER_FEMALE", async (ctx) => {
 // Age actions
 bot.action("SET_AGE", async (ctx) => {
     await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText("Please enter your age (13-80):", backKeyboard);
+    await safeEditMessageText(ctx, "Please enter your age (13-80):", backKeyboard);
 });
 
 // State actions
 bot.action("SET_STATE", async (ctx) => {
     await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText("Select your state:", stateKeyboard);
+    await safeEditMessageText(ctx, "Select your state:", stateKeyboard);
 });
 
 bot.action("STATE_TELANGANA", async (ctx) => {
@@ -436,7 +451,7 @@ bot.action("STATE_AP", async (ctx) => {
 // Preference action - available for all users, but only works for premium
 bot.action("SET_PREFERENCE", async (ctx) => {
     await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText("Select your gender preference:", preferenceKeyboard);
+    await safeEditMessageText(ctx, "Select your gender preference:", preferenceKeyboard);
 });
 
 // Premium check for preference selection
@@ -639,9 +654,11 @@ async function showSetupComplete(ctx: ActionContext) {
 
     try {
         await ctx.editMessageText(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
-    } catch {
-        await safeAnswerCbQuery(ctx);
-        await ctx.reply(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
+    } catch (error: any) {
+        if (!error.description?.includes("message is not modified")) {
+            await safeAnswerCbQuery(ctx);
+            await ctx.reply(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
+        }
     }
 }
 
@@ -667,14 +684,19 @@ bot.action("RATE_GOOD", async (ctx) => {
     
     const user = await getUser(ctx.from.id);
     
-    await ctx.editMessageText(
-        `😊 *Thanks for your feedback!*
-
-Great to hear you had a positive chat experience!
-
-Your feedback helps us make the community better.`,
-        { parse_mode: "Markdown", ...ratingThankYouKeyboard }
-    );
+    const text =
+        `😊 *Thanks for your feedback!*\n\n` +
+        `Great to hear you had a positive chat experience!\n\n` +
+        `Your feedback helps us make the community better.`;
+    
+    try {
+        await ctx.editMessageText(text, { parse_mode: "Markdown", ...ratingThankYouKeyboard });
+    } catch (error: any) {
+        // Ignore "message not modified" errors
+        if (!error.description?.includes("message is not modified")) {
+            await safeAnswerCbQuery(ctx, "We're glad you had a good experience! 😊");
+        }
+    }
     
     // Log positive feedback for admins
     console.log(`[RATING] User ${ctx.from.id} rated chat as GOOD`);
@@ -685,14 +707,19 @@ bot.action("RATE_OKAY", async (ctx) => {
     await safeAnswerCbQuery(ctx, "Thanks for your feedback!");
     if (!ctx.from) return;
     
-    await ctx.editMessageText(
-        `😐 *Thanks for your feedback!*
-
-We appreciate your honest rating.
-
-If you have suggestions to improve, feel free to share them with the admin!`,
-        { parse_mode: "Markdown", ...ratingThankYouKeyboard }
-    );
+    const text =
+        `😐 *Thanks for your feedback!*\n\n` +
+        `We appreciate your honest rating.\n\n` +
+        `If you have suggestions to improve, feel free to share them with the admin!`;
+    
+    try {
+        await ctx.editMessageText(text, { parse_mode: "Markdown", ...ratingThankYouKeyboard });
+    } catch (error: any) {
+        // Ignore "message not modified" errors
+        if (!error.description?.includes("message is not modified")) {
+            await safeAnswerCbQuery(ctx, "Thanks for your feedback!");
+        }
+    }
     
     console.log(`[RATING] User ${ctx.from.id} rated chat as OKAY`);
 });
@@ -707,14 +734,19 @@ bot.action("RATE_BAD", async (ctx) => {
     await safeAnswerCbQuery(ctx, "We're sorry to hear that 😞");
     if (!ctx.from) return;
     
-    await ctx.editMessageText(
-        `😟 *We're sorry to hear that!*
-
-We want to make this community safe for everyone.
-
-Would you like to report the user for violating our guidelines? Your report is anonymous and helps us take action.`,
-        { parse_mode: "Markdown", ...badRatingKeyboard }
-    );
+    const text =
+        `😟 *We're sorry to hear that!*\n\n` +
+        `We want to make this community safe for everyone.\n\n` +
+        `Would you like to report the user for violating our guidelines? Your report is anonymous and helps us take action.`;
+    
+    try {
+        await ctx.editMessageText(text, { parse_mode: "Markdown", ...badRatingKeyboard });
+    } catch (error: any) {
+        // Ignore "message not modified" errors
+        if (!error.description?.includes("message is not modified")) {
+            await safeAnswerCbQuery(ctx, "We're sorry to hear that 😞");
+        }
+    }
     
     console.log(`[RATING] User ${ctx.from.id} rated chat as BAD - potential report`);
 });
@@ -724,14 +756,18 @@ bot.action("RATE_SKIP", async (ctx) => {
     await safeAnswerCbQuery(ctx);
     if (!ctx.from) return;
     
-    await ctx.editMessageText(
-        `💡 *No problem!*
-
-Thanks for using our chat service.
-
-Use /search to find a new partner anytime!`,
-        { parse_mode: "Markdown", ...mainMenuKeyboard }
-    );
+    const text =
+        `💡 *No problem!*\n\n` +
+        `Thanks for using our chat service.\n\n` +
+        `Use /search to find a new partner anytime!`;
+    
+    try {
+        await ctx.editMessageText(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
+    } catch (error: any) {
+        if (!error.description?.includes("message is not modified")) {
+            await ctx.reply(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
+        }
+    }
 });
 
 // End menu action (for END_MENU callback)
@@ -746,7 +782,9 @@ Use the menu below to navigate:`;
 
     try {
         await ctx.editMessageText(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
-    } catch {
-        await ctx.reply(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
+    } catch (error: any) {
+        if (!error.description?.includes("message is not modified")) {
+            await ctx.reply(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
+        }
     }
 });

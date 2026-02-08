@@ -97,10 +97,27 @@ function safeAnswerCbQuery(ctx, text) {
         }
     });
 }
+// Safe editMessageText helper - handles "message not modified" errors
+function safeEditMessageText(ctx, text, extra) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            yield ctx.editMessageText(text, extra);
+        }
+        catch (error) {
+            // Ignore "message not modified" errors (400 Bad Request)
+            if (error.description && error.description.includes("message is not modified")) {
+                // Message already edited, ignore
+            }
+            else {
+                throw error; // Re-throw other errors
+            }
+        }
+    });
+}
 // Function to show settings menu
 function showSettings(ctx) {
     return __awaiter(this, void 0, void 0, function* () {
-        var _a, _b, _c;
+        var _a, _b, _c, _d;
         if (!ctx.from)
             return;
         const u = yield (0, db_1.getUser)(ctx.from.id);
@@ -128,9 +145,11 @@ Use buttons below to update:`;
         try {
             yield ctx.editMessageText(text, keyboard);
         }
-        catch (_d) {
-            yield safeAnswerCbQuery(ctx);
-            yield ctx.reply(text, keyboard);
+        catch (error) {
+            if (!((_d = error.description) === null || _d === void 0 ? void 0 : _d.includes("message is not modified"))) {
+                yield safeAnswerCbQuery(ctx);
+                yield ctx.reply(text, keyboard);
+            }
         }
     });
 }
@@ -169,7 +188,7 @@ index_1.bot.action("WELCOME_BACK", (ctx) => __awaiter(void 0, void 0, void 0, fu
     if (!ctx.from)
         return;
     yield safeAnswerCbQuery(ctx);
-    yield ctx.editMessageText("🌟 *Welcome to Anonymous Chat!* 🌟\n\n" +
+    yield safeEditMessageText(ctx, "🌟 *Welcome to Anonymous Chat!* 🌟\n\n" +
         "✨ Connect with strangers anonymously\n" +
         "🔒 Your privacy is protected\n" +
         "💬 Chat freely and safely\n\n" +
@@ -203,7 +222,7 @@ index_1.bot.action("SETUP_GENDER_MALE", (ctx) => __awaiter(void 0, void 0, void 
         return;
     yield safeAnswerCbQuery(ctx);
     yield (0, db_1.updateUser)(ctx.from.id, { gender: "male", setupStep: "age" });
-    yield ctx.editMessageText("📝 *Step 2 of 3*\n\n" +
+    yield safeEditMessageText(ctx, "📝 *Step 2 of 3*\n\n" +
         "🎂 *Select your age range:*\n" +
         "(This helps us match you with people in similar age groups)", Object.assign({ parse_mode: "Markdown" }, setupAgeKeyboard));
 }));
@@ -212,7 +231,7 @@ index_1.bot.action("SETUP_GENDER_FEMALE", (ctx) => __awaiter(void 0, void 0, voi
         return;
     yield safeAnswerCbQuery(ctx);
     yield (0, db_1.updateUser)(ctx.from.id, { gender: "female", setupStep: "age" });
-    yield ctx.editMessageText("📝 *Step 2 of 3*\n\n" +
+    yield safeEditMessageText(ctx, "📝 *Step 2 of 3*\n\n" +
         "🎂 *Select your age range:*\n" +
         "(This helps us match you with people in similar age groups)", Object.assign({ parse_mode: "Markdown" }, setupAgeKeyboard));
 }));
@@ -229,7 +248,7 @@ for (const [action, ageLabel] of Object.entries(ageToGenderMap)) {
             return;
         yield safeAnswerCbQuery(ctx);
         yield (0, db_1.updateUser)(ctx.from.id, { age: ageLabel, setupStep: "state" });
-        yield ctx.editMessageText("📝 *Step 3 of 3*\n\n" +
+        yield safeEditMessageText(ctx, "📝 *Step 3 of 3*\n\n" +
             "📍 *Select your location:*\n" +
             "(Helps match you with nearby people)", Object.assign({ parse_mode: "Markdown" }, setupStateKeyboard));
     }));
@@ -239,7 +258,7 @@ index_1.bot.action("SETUP_AGE_MANUAL", (ctx) => __awaiter(void 0, void 0, void 0
     if (!ctx.from)
         return;
     yield safeAnswerCbQuery(ctx);
-    yield ctx.editMessageText("📝 *Enter your age:*\n\n" +
+    yield safeEditMessageText(ctx, "📝 *Enter your age:*\n\n" +
         "Please type a number between 13 and 80\n" +
         "(e.g., 21)", Object.assign({ parse_mode: "Markdown" }, setupAgeManualKeyboard));
 }));
@@ -263,7 +282,7 @@ index_1.bot.action("SETUP_STATE_OTHER", (ctx) => __awaiter(void 0, void 0, void 
         return;
     yield safeAnswerCbQuery(ctx);
     yield (0, db_1.updateUser)(ctx.from.id, { setupStep: "state_other" });
-    yield ctx.editMessageText("📍 *Enter your state:*\n\n" +
+    yield safeEditMessageText(ctx, "📍 *Enter your state:*\n\n" +
         "(e.g., Karnataka, Tamil Nadu, Maharashtra, etc.)", Object.assign({ parse_mode: "Markdown" }, telegraf_1.Markup.inlineKeyboard([
         [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE")]
     ])));
@@ -278,18 +297,18 @@ index_1.bot.action("SETUP_COUNTRY_OTHER", (ctx) => __awaiter(void 0, void 0, voi
 // Back actions
 index_1.bot.action("SETUP_BACK_GENDER", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     yield safeAnswerCbQuery(ctx);
-    yield ctx.editMessageText("📝 *Step 1 of 3*\n" +
+    yield safeEditMessageText(ctx, "📝 *Step 1 of 3*\n" +
         "👤 *Select your gender:*", Object.assign({ parse_mode: "Markdown" }, setupGenderKeyboard));
 }));
 index_1.bot.action("SETUP_BACK_AGE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     yield safeAnswerCbQuery(ctx);
-    yield ctx.editMessageText("📝 *Step 2 of 3*\n\n" +
+    yield safeEditMessageText(ctx, "📝 *Step 2 of 3*\n\n" +
         "🎂 *Select your age range:*\n" +
         "(This helps us match you with people in similar age groups)", Object.assign({ parse_mode: "Markdown" }, setupAgeKeyboard));
 }));
 index_1.bot.action("SETUP_BACK_STATE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     yield safeAnswerCbQuery(ctx);
-    yield ctx.editMessageText("📝 *Step 3 of 3*\n\n" +
+    yield safeEditMessageText(ctx, "📝 *Step 3 of 3*\n\n" +
         "📍 *Select your location:*\n" +
         "(Helps match you with nearby people)", Object.assign({ parse_mode: "Markdown" }, setupStateKeyboard));
 }));
@@ -301,20 +320,20 @@ index_1.bot.action("SETUP_CANCEL", (ctx) => __awaiter(void 0, void 0, void 0, fu
     const user = yield (0, db_1.getUser)(ctx.from.id);
     // Check which step they're missing and redirect
     if (!user.gender) {
-        yield ctx.editMessageText("📝 *Setup Required*\n\n" +
+        yield safeEditMessageText(ctx, "📝 *Setup Required*\n\n" +
             "⚠️ You must complete your profile before using the bot.\n\n" +
             "👤 *Step 1 of 3*\n" +
             "Select your gender:", Object.assign({ parse_mode: "Markdown" }, setupGenderKeyboard));
     }
     else if (!user.age) {
-        yield ctx.editMessageText("📝 *Setup Required*\n\n" +
+        yield safeEditMessageText(ctx, "📝 *Setup Required*\n\n" +
             "⚠️ You must complete your profile before using the bot.\n\n" +
             "👤 *Step 2 of 3*\n" +
             "🎂 *Select your age range:*\n" +
             "(This helps us match you with people in similar age groups)", Object.assign({ parse_mode: "Markdown" }, setupAgeKeyboard));
     }
     else if (!user.state) {
-        yield ctx.editMessageText("📝 *Setup Required*\n\n" +
+        yield safeEditMessageText(ctx, "📝 *Setup Required*\n\n" +
             "⚠️ You must complete your profile before using the bot.\n\n" +
             "👤 *Step 3 of 3*\n" +
             "📍 *Select your location:*\n" +
@@ -322,7 +341,7 @@ index_1.bot.action("SETUP_CANCEL", (ctx) => __awaiter(void 0, void 0, void 0, fu
     }
     else {
         // Setup complete - show main menu
-        yield ctx.editMessageText("🌟 *Welcome back!* 🌟\n\n" +
+        yield safeEditMessageText(ctx, "🌟 *Welcome back!* 🌟\n\n" +
             "This bot helps you chat anonymously with people worldwide.\n\n" +
             "Use the menu below to navigate:", Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
     }
@@ -333,7 +352,7 @@ index_1.bot.action("SETUP_CANCEL", (ctx) => __awaiter(void 0, void 0, void 0, fu
 // Gender actions
 index_1.bot.action("SET_GENDER", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     yield safeAnswerCbQuery(ctx);
-    yield ctx.editMessageText("Select your gender:", genderKeyboard);
+    yield safeEditMessageText(ctx, "Select your gender:", genderKeyboard);
 }));
 index_1.bot.action("GENDER_MALE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!ctx.from)
@@ -352,12 +371,12 @@ index_1.bot.action("GENDER_FEMALE", (ctx) => __awaiter(void 0, void 0, void 0, f
 // Age actions
 index_1.bot.action("SET_AGE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     yield safeAnswerCbQuery(ctx);
-    yield ctx.editMessageText("Please enter your age (13-80):", backKeyboard);
+    yield safeEditMessageText(ctx, "Please enter your age (13-80):", backKeyboard);
 }));
 // State actions
 index_1.bot.action("SET_STATE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     yield safeAnswerCbQuery(ctx);
-    yield ctx.editMessageText("Select your state:", stateKeyboard);
+    yield safeEditMessageText(ctx, "Select your state:", stateKeyboard);
 }));
 index_1.bot.action("STATE_TELANGANA", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!ctx.from)
@@ -376,7 +395,7 @@ index_1.bot.action("STATE_AP", (ctx) => __awaiter(void 0, void 0, void 0, functi
 // Preference action - available for all users, but only works for premium
 index_1.bot.action("SET_PREFERENCE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     yield safeAnswerCbQuery(ctx);
-    yield ctx.editMessageText("Select your gender preference:", preferenceKeyboard);
+    yield safeEditMessageText(ctx, "Select your gender preference:", preferenceKeyboard);
 }));
 // Premium check for preference selection
 index_1.bot.action("PREF_MALE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
@@ -517,6 +536,7 @@ index_1.bot.action("REPORT_CANCEL", (ctx) => __awaiter(void 0, void 0, void 0, f
 // Show improved setup complete message with summary
 function showSetupComplete(ctx) {
     return __awaiter(this, void 0, void 0, function* () {
+        var _a;
         if (!ctx.from)
             return;
         const user = yield (0, db_1.getUser)(ctx.from.id);
@@ -540,9 +560,11 @@ function showSetupComplete(ctx) {
         try {
             yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
         }
-        catch (_a) {
-            yield safeAnswerCbQuery(ctx);
-            yield ctx.reply(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
+        catch (error) {
+            if (!((_a = error.description) === null || _a === void 0 ? void 0 : _a.includes("message is not modified"))) {
+                yield safeAnswerCbQuery(ctx);
+                yield ctx.reply(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
+            }
         }
     });
 }
@@ -560,28 +582,44 @@ const ratingThankYouKeyboard = telegraf_1.Markup.inlineKeyboard([
 ]);
 // Rate chat as Good
 index_1.bot.action("RATE_GOOD", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     yield safeAnswerCbQuery(ctx, "We're glad you had a good experience! 😊");
     if (!ctx.from)
         return;
     const user = yield (0, db_1.getUser)(ctx.from.id);
-    yield ctx.editMessageText(`😊 *Thanks for your feedback!*
-
-Great to hear you had a positive chat experience!
-
-Your feedback helps us make the community better.`, Object.assign({ parse_mode: "Markdown" }, ratingThankYouKeyboard));
+    const text = `😊 *Thanks for your feedback!*\n\n` +
+        `Great to hear you had a positive chat experience!\n\n` +
+        `Your feedback helps us make the community better.`;
+    try {
+        yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, ratingThankYouKeyboard));
+    }
+    catch (error) {
+        // Ignore "message not modified" errors
+        if (!((_a = error.description) === null || _a === void 0 ? void 0 : _a.includes("message is not modified"))) {
+            yield safeAnswerCbQuery(ctx, "We're glad you had a good experience! 😊");
+        }
+    }
     // Log positive feedback for admins
     console.log(`[RATING] User ${ctx.from.id} rated chat as GOOD`);
 }));
 // Rate chat as Okay
 index_1.bot.action("RATE_OKAY", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     yield safeAnswerCbQuery(ctx, "Thanks for your feedback!");
     if (!ctx.from)
         return;
-    yield ctx.editMessageText(`😐 *Thanks for your feedback!*
-
-We appreciate your honest rating.
-
-If you have suggestions to improve, feel free to share them with the admin!`, Object.assign({ parse_mode: "Markdown" }, ratingThankYouKeyboard));
+    const text = `😐 *Thanks for your feedback!*\n\n` +
+        `We appreciate your honest rating.\n\n` +
+        `If you have suggestions to improve, feel free to share them with the admin!`;
+    try {
+        yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, ratingThankYouKeyboard));
+    }
+    catch (error) {
+        // Ignore "message not modified" errors
+        if (!((_a = error.description) === null || _a === void 0 ? void 0 : _a.includes("message is not modified"))) {
+            yield safeAnswerCbQuery(ctx, "Thanks for your feedback!");
+        }
+    }
     console.log(`[RATING] User ${ctx.from.id} rated chat as OKAY`);
 }));
 // Rate chat as Bad - prompt for report
@@ -590,29 +628,45 @@ const badRatingKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("Skip", "RATE_SKIP")]
 ]);
 index_1.bot.action("RATE_BAD", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     yield safeAnswerCbQuery(ctx, "We're sorry to hear that 😞");
     if (!ctx.from)
         return;
-    yield ctx.editMessageText(`😟 *We're sorry to hear that!*
-
-We want to make this community safe for everyone.
-
-Would you like to report the user for violating our guidelines? Your report is anonymous and helps us take action.`, Object.assign({ parse_mode: "Markdown" }, badRatingKeyboard));
+    const text = `😟 *We're sorry to hear that!*\n\n` +
+        `We want to make this community safe for everyone.\n\n` +
+        `Would you like to report the user for violating our guidelines? Your report is anonymous and helps us take action.`;
+    try {
+        yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, badRatingKeyboard));
+    }
+    catch (error) {
+        // Ignore "message not modified" errors
+        if (!((_a = error.description) === null || _a === void 0 ? void 0 : _a.includes("message is not modified"))) {
+            yield safeAnswerCbQuery(ctx, "We're sorry to hear that 😞");
+        }
+    }
     console.log(`[RATING] User ${ctx.from.id} rated chat as BAD - potential report`);
 }));
 // Skip rating after bad experience
 index_1.bot.action("RATE_SKIP", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     yield safeAnswerCbQuery(ctx);
     if (!ctx.from)
         return;
-    yield ctx.editMessageText(`💡 *No problem!*
-
-Thanks for using our chat service.
-
-Use /search to find a new partner anytime!`, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
+    const text = `💡 *No problem!*\n\n` +
+        `Thanks for using our chat service.\n\n` +
+        `Use /search to find a new partner anytime!`;
+    try {
+        yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
+    }
+    catch (error) {
+        if (!((_a = error.description) === null || _a === void 0 ? void 0 : _a.includes("message is not modified"))) {
+            yield ctx.reply(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
+        }
+    }
 }));
 // End menu action (for END_MENU callback)
 index_1.bot.action("END_MENU", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     yield safeAnswerCbQuery(ctx);
     if (!ctx.from)
         return;
@@ -622,7 +676,9 @@ Use the menu below to navigate:`;
     try {
         yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
     }
-    catch (_a) {
-        yield ctx.reply(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
+    catch (error) {
+        if (!((_a = error.description) === null || _a === void 0 ? void 0 : _a.includes("message is not modified"))) {
+            yield ctx.reply(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
+        }
     }
 }));
