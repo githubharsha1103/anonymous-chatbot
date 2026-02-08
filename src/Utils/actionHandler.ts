@@ -171,8 +171,9 @@ bot.action("START_HELP", async (ctx) => {
 // NEW USER SETUP HANDLERS
 // ==============================
 
-const cancelKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("⬅️ Cancel", "SETUP_CANCEL")]
+// Setup age manual input keyboard (NO BACK/CANCEL - must complete)
+const setupAgeManualKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
 ]);
 
 // Welcome back handler
@@ -191,35 +192,27 @@ bot.action("WELCOME_BACK", async (ctx) => {
     );
 });
 
-// Setup gender keyboard with back option
+// Setup gender keyboard with NO BACK/CANCEL - must complete setup
 const setupGenderKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("👨 Male", "SETUP_GENDER_MALE")],
-    [Markup.button.callback("👩 Female", "SETUP_GENDER_FEMALE")],
-    [Markup.button.callback("⬅️ Back", "WELCOME_BACK")]
+    [Markup.button.callback("👩 Female", "SETUP_GENDER_FEMALE")]
 ]);
 
-// Setup age keyboard with ranges and manual input option
+// Setup age keyboard with ranges and manual input option (NO BACK/CANCEL)
 const setupAgeKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("13-17", "SETUP_AGE_13_17")],
     [Markup.button.callback("18-25", "SETUP_AGE_18_25")],
     [Markup.button.callback("26-40", "SETUP_AGE_26_40")],
     [Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
-    [Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_GENDER")]
+    [Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")]
 ]);
 
-// Setup age manual input keyboard
-const setupAgeManualKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
-]);
-
-// Setup state keyboard
+// Setup state keyboard (NO BACK/CANCEL - must complete)
 const setupStateKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
     [Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
     [Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
-    [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
+    [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
 ]);
 
 // Gender selected - move to age input
@@ -346,17 +339,48 @@ bot.action("SETUP_BACK_STATE", async (ctx) => {
     );
 });
 
-// Cancel setup - show main menu
+// Cancel setup - redirect to complete setup instead of allowing cancel
 bot.action("SETUP_CANCEL", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
-    await updateUser(ctx.from.id, { setupStep: undefined });
-    await ctx.editMessageText(
-        "🌟 *Welcome back!* 🌟\n\n" +
-        "This bot helps you chat anonymously with people worldwide.\n\n" +
-        "Use the menu below to navigate:",
-        { parse_mode: "Markdown", ...mainMenuKeyboard }
-    );
+    const user = await getUser(ctx.from.id);
+    
+    // Check which step they're missing and redirect
+    if (!user.gender) {
+        await ctx.editMessageText(
+            "📝 *Setup Required*\n\n" +
+            "⚠️ You must complete your profile before using the bot.\n\n" +
+            "👤 *Step 1 of 3*\n" +
+            "Select your gender:",
+            { parse_mode: "Markdown", ...setupGenderKeyboard }
+        );
+    } else if (!user.age) {
+        await ctx.editMessageText(
+            "📝 *Setup Required*\n\n" +
+            "⚠️ You must complete your profile before using the bot.\n\n" +
+            "👤 *Step 2 of 3*\n" +
+            "🎂 *Select your age range:*\n" +
+            "(This helps us match you with people in similar age groups)",
+            { parse_mode: "Markdown", ...setupAgeKeyboard }
+        );
+    } else if (!user.state) {
+        await ctx.editMessageText(
+            "📝 *Setup Required*\n\n" +
+            "⚠️ You must complete your profile before using the bot.\n\n" +
+            "👤 *Step 3 of 3*\n" +
+            "📍 *Select your location:*\n" +
+            "(Helps match you with nearby people)",
+            { parse_mode: "Markdown", ...setupStateKeyboard }
+        );
+    } else {
+        // Setup complete - show main menu
+        await ctx.editMessageText(
+            "🌟 *Welcome back!* 🌟\n\n" +
+            "This bot helps you chat anonymously with people worldwide.\n\n" +
+            "Use the menu below to navigate:",
+            { parse_mode: "Markdown", ...mainMenuKeyboard }
+        );
+    }
 });
 
 // ==============================

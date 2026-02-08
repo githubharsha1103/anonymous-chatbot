@@ -9,21 +9,37 @@ export const SETUP_STEP_AGE = "age";
 export const SETUP_STEP_STATE = "state";
 export const SETUP_STEP_DONE = "done";
 
-// Welcome keyboard with animated welcome
+// Welcome keyboard with Get Started button
 const welcomeKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🌟 Get Started", "SETUP_GENDER_MALE")]
 ]);
 
-// Gender selection with back button
+// Gender selection - NO BACK/CANCEL option (must complete setup)
 const genderKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("👨 Male", "SETUP_GENDER_MALE")],
-    [Markup.button.callback("👩 Female", "SETUP_GENDER_FEMALE")],
-    [Markup.button.callback("⬅️ Back", "WELCOME_BACK")]
+    [Markup.button.callback("👩 Female", "SETUP_GENDER_FEMALE")]
 ]);
 
-// Cancel button for input steps
-const cancelKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("⬅️ Cancel", "SETUP_CANCEL")]
+// Age selection - NO BACK/CANCEL option (must complete setup)
+const ageKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("13-17", "SETUP_AGE_13_17")],
+    [Markup.button.callback("18-25", "SETUP_AGE_18_25")],
+    [Markup.button.callback("26-40", "SETUP_AGE_26_40")],
+    [Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
+    [Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")]
+]);
+
+// State selection - NO BACK/CANCEL option (must complete setup)
+const stateKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
+    [Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
+    [Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
+    [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
+]);
+
+// Age manual input keyboard
+const ageManualKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
 ]);
 
 // Main menu keyboard
@@ -74,7 +90,7 @@ export default {
                 console.log(`[START] - User ${userId} started with referral code: ${startParam}`);
             }
             
-            // New user - show animated welcome with Get Started button
+            // New user - show welcome with Get Started button
             await ctx.reply(
                 "🌟 <b>Welcome to Anonymous Chat!</b> 🌟\n\n" +
                 "✨ Connect with strangers anonymously\n" +
@@ -93,16 +109,7 @@ export default {
         const setupStep = (user as any).setupStep;
         
         if (setupStep === SETUP_STEP_AGE) {
-            // User needs to enter age - show age range buttons
-            const ageKeyboard = Markup.inlineKeyboard([
-                [Markup.button.callback("13-17", "SETUP_AGE_13_17")],
-                [Markup.button.callback("18-25", "SETUP_AGE_18_25")],
-                [Markup.button.callback("26-40", "SETUP_AGE_26_40")],
-                [Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
-                [Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")],
-                [Markup.button.callback("⬅️ Back", "SETUP_BACK_GENDER")]
-            ]);
-            
+            // User needs to enter age - show age range buttons (NO BACK - must complete setup)
             await ctx.reply(
                 "📝 <b>Step 2 of 3</b>\n\n" +
                 "🎂 <b>Select your age range:</b>\n" +
@@ -113,15 +120,7 @@ export default {
         }
         
         if (setupStep === SETUP_STEP_STATE) {
-            // User needs to select state
-            const stateKeyboard = Markup.inlineKeyboard([
-                [Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
-                [Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
-                [Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
-                [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")],
-                [Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
-            ]);
-            
+            // User needs to select state (NO BACK - must complete setup)
             await ctx.reply(
                 "📝 <b>Step 3 of 3</b>\n\n" +
                 "📍 <b>Select your location:</b>\n" +
@@ -142,4 +141,4 @@ export default {
 } as Command;
 
 // Export keyboards for action handlers
-export { mainMenuKeyboard, cancelKeyboard, genderKeyboard };
+export { mainMenuKeyboard, genderKeyboard, ageKeyboard, stateKeyboard, ageManualKeyboard };

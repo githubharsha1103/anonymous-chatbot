@@ -160,8 +160,9 @@ index_1.bot.action("START_HELP", (ctx) => __awaiter(void 0, void 0, void 0, func
 // ==============================
 // NEW USER SETUP HANDLERS
 // ==============================
-const cancelKeyboard = telegraf_1.Markup.inlineKeyboard([
-    [telegraf_1.Markup.button.callback("⬅️ Cancel", "SETUP_CANCEL")]
+// Setup age manual input keyboard (NO BACK/CANCEL - must complete)
+const setupAgeManualKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
 ]);
 // Welcome back handler
 index_1.bot.action("WELCOME_BACK", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
@@ -176,32 +177,25 @@ index_1.bot.action("WELCOME_BACK", (ctx) => __awaiter(void 0, void 0, void 0, fu
         [telegraf_1.Markup.button.callback("🌟 Get Started", "SETUP_GENDER_MALE")]
     ])));
 }));
-// Setup gender keyboard with back option
+// Setup gender keyboard with NO BACK/CANCEL - must complete setup
 const setupGenderKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("👨 Male", "SETUP_GENDER_MALE")],
-    [telegraf_1.Markup.button.callback("👩 Female", "SETUP_GENDER_FEMALE")],
-    [telegraf_1.Markup.button.callback("⬅️ Back", "WELCOME_BACK")]
+    [telegraf_1.Markup.button.callback("👩 Female", "SETUP_GENDER_FEMALE")]
 ]);
-// Setup age keyboard with ranges and manual input option
+// Setup age keyboard with ranges and manual input option (NO BACK/CANCEL)
 const setupAgeKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("13-17", "SETUP_AGE_13_17")],
     [telegraf_1.Markup.button.callback("18-25", "SETUP_AGE_18_25")],
     [telegraf_1.Markup.button.callback("26-40", "SETUP_AGE_26_40")],
     [telegraf_1.Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
-    [telegraf_1.Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")],
-    [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_GENDER")]
+    [telegraf_1.Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")]
 ]);
-// Setup age manual input keyboard
-const setupAgeManualKeyboard = telegraf_1.Markup.inlineKeyboard([
-    [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
-]);
-// Setup state keyboard
+// Setup state keyboard (NO BACK/CANCEL - must complete)
 const setupStateKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
     [telegraf_1.Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
     [telegraf_1.Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
-    [telegraf_1.Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")],
-    [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
+    [telegraf_1.Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
 ]);
 // Gender selected - move to age input
 index_1.bot.action("SETUP_GENDER_MALE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
@@ -299,15 +293,39 @@ index_1.bot.action("SETUP_BACK_STATE", (ctx) => __awaiter(void 0, void 0, void 0
         "📍 *Select your location:*\n" +
         "(Helps match you with nearby people)", Object.assign({ parse_mode: "Markdown" }, setupStateKeyboard));
 }));
-// Cancel setup - show main menu
+// Cancel setup - redirect to complete setup instead of allowing cancel
 index_1.bot.action("SETUP_CANCEL", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     if (!ctx.from)
         return;
     yield safeAnswerCbQuery(ctx);
-    yield (0, db_1.updateUser)(ctx.from.id, { setupStep: undefined });
-    yield ctx.editMessageText("🌟 *Welcome back!* 🌟\n\n" +
-        "This bot helps you chat anonymously with people worldwide.\n\n" +
-        "Use the menu below to navigate:", Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
+    const user = yield (0, db_1.getUser)(ctx.from.id);
+    // Check which step they're missing and redirect
+    if (!user.gender) {
+        yield ctx.editMessageText("📝 *Setup Required*\n\n" +
+            "⚠️ You must complete your profile before using the bot.\n\n" +
+            "👤 *Step 1 of 3*\n" +
+            "Select your gender:", Object.assign({ parse_mode: "Markdown" }, setupGenderKeyboard));
+    }
+    else if (!user.age) {
+        yield ctx.editMessageText("📝 *Setup Required*\n\n" +
+            "⚠️ You must complete your profile before using the bot.\n\n" +
+            "👤 *Step 2 of 3*\n" +
+            "🎂 *Select your age range:*\n" +
+            "(This helps us match you with people in similar age groups)", Object.assign({ parse_mode: "Markdown" }, setupAgeKeyboard));
+    }
+    else if (!user.state) {
+        yield ctx.editMessageText("📝 *Setup Required*\n\n" +
+            "⚠️ You must complete your profile before using the bot.\n\n" +
+            "👤 *Step 3 of 3*\n" +
+            "📍 *Select your location:*\n" +
+            "(Helps match you with nearby people)", Object.assign({ parse_mode: "Markdown" }, setupStateKeyboard));
+    }
+    else {
+        // Setup complete - show main menu
+        yield ctx.editMessageText("🌟 *Welcome back!* 🌟\n\n" +
+            "This bot helps you chat anonymously with people worldwide.\n\n" +
+            "Use the menu below to navigate:", Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
+    }
 }));
 // ==============================
 // SETTINGS ACTIONS

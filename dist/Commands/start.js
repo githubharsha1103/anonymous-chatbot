@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.genderKeyboard = exports.cancelKeyboard = exports.mainMenuKeyboard = exports.SETUP_STEP_DONE = exports.SETUP_STEP_STATE = exports.SETUP_STEP_AGE = exports.SETUP_STEP_GENDER = void 0;
+exports.ageManualKeyboard = exports.stateKeyboard = exports.ageKeyboard = exports.genderKeyboard = exports.mainMenuKeyboard = exports.SETUP_STEP_DONE = exports.SETUP_STEP_STATE = exports.SETUP_STEP_AGE = exports.SETUP_STEP_GENDER = void 0;
 const telegraf_1 = require("telegraf");
 const db_1 = require("../storage/db");
 // Setup step constants
@@ -17,22 +17,38 @@ exports.SETUP_STEP_GENDER = "gender";
 exports.SETUP_STEP_AGE = "age";
 exports.SETUP_STEP_STATE = "state";
 exports.SETUP_STEP_DONE = "done";
-// Welcome keyboard with animated welcome
+// Welcome keyboard with Get Started button
 const welcomeKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("🌟 Get Started", "SETUP_GENDER_MALE")]
 ]);
-// Gender selection with back button
+// Gender selection - NO BACK/CANCEL option (must complete setup)
 const genderKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("👨 Male", "SETUP_GENDER_MALE")],
-    [telegraf_1.Markup.button.callback("👩 Female", "SETUP_GENDER_FEMALE")],
-    [telegraf_1.Markup.button.callback("⬅️ Back", "WELCOME_BACK")]
+    [telegraf_1.Markup.button.callback("👩 Female", "SETUP_GENDER_FEMALE")]
 ]);
 exports.genderKeyboard = genderKeyboard;
-// Cancel button for input steps
-const cancelKeyboard = telegraf_1.Markup.inlineKeyboard([
-    [telegraf_1.Markup.button.callback("⬅️ Cancel", "SETUP_CANCEL")]
+// Age selection - NO BACK/CANCEL option (must complete setup)
+const ageKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.callback("13-17", "SETUP_AGE_13_17")],
+    [telegraf_1.Markup.button.callback("18-25", "SETUP_AGE_18_25")],
+    [telegraf_1.Markup.button.callback("26-40", "SETUP_AGE_26_40")],
+    [telegraf_1.Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
+    [telegraf_1.Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")]
 ]);
-exports.cancelKeyboard = cancelKeyboard;
+exports.ageKeyboard = ageKeyboard;
+// State selection - NO BACK/CANCEL option (must complete setup)
+const stateKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
+    [telegraf_1.Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
+    [telegraf_1.Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
+    [telegraf_1.Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
+]);
+exports.stateKeyboard = stateKeyboard;
+// Age manual input keyboard
+const ageManualKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
+]);
+exports.ageManualKeyboard = ageManualKeyboard;
 // Main menu keyboard
 const mainMenuKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("🔍 Search", "START_SEARCH")],
@@ -73,7 +89,7 @@ exports.default = {
                 yield (0, db_1.processReferral)(userId, startParam);
                 console.log(`[START] - User ${userId} started with referral code: ${startParam}`);
             }
-            // New user - show animated welcome with Get Started button
+            // New user - show welcome with Get Started button
             yield ctx.reply("🌟 <b>Welcome to Anonymous Chat!</b> 🌟\n\n" +
                 "✨ Connect with strangers anonymously\n" +
                 "🔒 Your privacy is protected\n" +
@@ -86,29 +102,14 @@ exports.default = {
         // Check if user is in the middle of setup
         const setupStep = user.setupStep;
         if (setupStep === exports.SETUP_STEP_AGE) {
-            // User needs to enter age - show age range buttons
-            const ageKeyboard = telegraf_1.Markup.inlineKeyboard([
-                [telegraf_1.Markup.button.callback("13-17", "SETUP_AGE_13_17")],
-                [telegraf_1.Markup.button.callback("18-25", "SETUP_AGE_18_25")],
-                [telegraf_1.Markup.button.callback("26-40", "SETUP_AGE_26_40")],
-                [telegraf_1.Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
-                [telegraf_1.Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")],
-                [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_GENDER")]
-            ]);
+            // User needs to enter age - show age range buttons (NO BACK - must complete setup)
             yield ctx.reply("📝 <b>Step 2 of 3</b>\n\n" +
                 "🎂 <b>Select your age range:</b>\n" +
                 "(This helps us match you with people in similar age groups)", Object.assign({ parse_mode: "HTML" }, ageKeyboard));
             return;
         }
         if (setupStep === exports.SETUP_STEP_STATE) {
-            // User needs to select state
-            const stateKeyboard = telegraf_1.Markup.inlineKeyboard([
-                [telegraf_1.Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
-                [telegraf_1.Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
-                [telegraf_1.Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
-                [telegraf_1.Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")],
-                [telegraf_1.Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
-            ]);
+            // User needs to select state (NO BACK - must complete setup)
             yield ctx.reply("📝 <b>Step 3 of 3</b>\n\n" +
                 "📍 <b>Select your location:</b>\n" +
                 "(Helps match you with nearby people)", Object.assign({ parse_mode: "HTML" }, stateKeyboard));

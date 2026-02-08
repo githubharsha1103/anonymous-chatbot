@@ -3,12 +3,70 @@ import { ExtraTelegraf } from "..";
 import { getGender, getUser, updateUser } from "../storage/db";
 import { sendMessageWithRetry, endChatDueToError } from "../Utils/telegramErrorHandler";
 
+// Setup keyboards for forced setup
+const setupGenderKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("👨 Male", "SETUP_GENDER_MALE")],
+    [Markup.button.callback("👩 Female", "SETUP_GENDER_FEMALE")]
+]);
+
+const setupAgeKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("13-17", "SETUP_AGE_13_17")],
+    [Markup.button.callback("18-25", "SETUP_AGE_18_25")],
+    [Markup.button.callback("26-40", "SETUP_AGE_26_40")],
+    [Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
+    [Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")]
+]);
+
+const setupStateKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
+    [Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
+    [Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
+    [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
+]);
+
 // Type for users in waiting queue
 interface WaitingUser {
   id: number;
   preference: string;
   gender: string;
   isPremium: boolean;
+}
+
+// Function to redirect user to complete setup
+async function redirectToSetup(ctx: Context) {
+    if (!ctx.from) return;
+    
+    const user = await getUser(ctx.from.id);
+    
+    if (!user.gender) {
+        return ctx.reply(
+            "📝 *Setup Required*\n\n" +
+            "⚠️ You must complete your profile before searching for a partner.\n\n" +
+            "👤 *Step 1 of 3*\n" +
+            "Select your gender:",
+            { parse_mode: "Markdown", ...setupGenderKeyboard }
+        );
+    } else if (!user.age) {
+        return ctx.reply(
+            "📝 *Setup Required*\n\n" +
+            "⚠️ You must complete your profile before searching for a partner.\n\n" +
+            "👤 *Step 2 of 3*\n" +
+            "🎂 *Select your age range:*\n" +
+            "(This helps us match you with people in similar age groups)",
+            { parse_mode: "Markdown", ...setupAgeKeyboard }
+        );
+    } else if (!user.state) {
+        return ctx.reply(
+            "📝 *Setup Required*\n\n" +
+            "⚠️ You must complete your profile before searching for a partner.\n\n" +
+            "👤 *Step 3 of 3*\n" +
+            "📍 *Select your location:*\n" +
+            "(Helps match you with nearby people)",
+            { parse_mode: "Markdown", ...setupStateKeyboard }
+        );
+    }
+    
+    return null; // Setup is complete
 }
 
 export default {
@@ -27,17 +85,22 @@ export default {
     if (bot.isQueueFull()) {
       return ctx.reply("🚫 Queue is full. Please try again later.");
     }
+    
+    // Check if user has completed setup (gender, age, state)
+    const user = await getUser(userId);
+    if (!user.gender || !user.age || !user.state) {
+        return redirectToSetup(ctx);
+    }
 
     // Acquire mutex to prevent race conditions
     await bot.queueMutex.acquire();
 
     try {
-      const gender = await getGender(userId);
+      // User already fetched above, use that data
+      const gender = user.gender;
+      const preference = user.preference || "any";
+      const isPremium = user.premium || false;
       
-      if (!gender) {
-        return ctx.reply("Set gender first using /setgender");
-      }
-
       if (bot.runningChats.includes(userId)) {
         return ctx.reply(
           "You are already in a chat!\n\nUse /end to leave the chat or use /next to skip the current chat."
@@ -48,11 +111,6 @@ export default {
       if (bot.waitingQueue.some(w => w.id === userId)) {
         return ctx.reply("You are already in the queue!");
       }
-
-      // Get user info and preference
-      const user = await getUser(userId);
-      const preference = user.preference || "any";
-      const isPremium = user.premium || false;
 
       // SIMPLIFIED MATCHING LOGIC:
       // - Normal users (non-premium): preference is locked to "any" → match with BOTH genders randomly

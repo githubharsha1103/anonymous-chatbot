@@ -9,8 +9,56 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const telegraf_1 = require("telegraf");
 const db_1 = require("../storage/db");
 const telegramErrorHandler_1 = require("../Utils/telegramErrorHandler");
+// Setup keyboards for forced setup
+const setupGenderKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.callback("👨 Male", "SETUP_GENDER_MALE")],
+    [telegraf_1.Markup.button.callback("👩 Female", "SETUP_GENDER_FEMALE")]
+]);
+const setupAgeKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.callback("13-17", "SETUP_AGE_13_17")],
+    [telegraf_1.Markup.button.callback("18-25", "SETUP_AGE_18_25")],
+    [telegraf_1.Markup.button.callback("26-40", "SETUP_AGE_26_40")],
+    [telegraf_1.Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
+    [telegraf_1.Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")]
+]);
+const setupStateKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
+    [telegraf_1.Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
+    [telegraf_1.Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
+    [telegraf_1.Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
+]);
+// Function to redirect user to complete setup
+function redirectToSetup(ctx) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (!ctx.from)
+            return;
+        const user = yield (0, db_1.getUser)(ctx.from.id);
+        if (!user.gender) {
+            return ctx.reply("📝 *Setup Required*\n\n" +
+                "⚠️ You must complete your profile before searching for a partner.\n\n" +
+                "👤 *Step 1 of 3*\n" +
+                "Select your gender:", Object.assign({ parse_mode: "Markdown" }, setupGenderKeyboard));
+        }
+        else if (!user.age) {
+            return ctx.reply("📝 *Setup Required*\n\n" +
+                "⚠️ You must complete your profile before searching for a partner.\n\n" +
+                "👤 *Step 2 of 3*\n" +
+                "🎂 *Select your age range:*\n" +
+                "(This helps us match you with people in similar age groups)", Object.assign({ parse_mode: "Markdown" }, setupAgeKeyboard));
+        }
+        else if (!user.state) {
+            return ctx.reply("📝 *Setup Required*\n\n" +
+                "⚠️ You must complete your profile before searching for a partner.\n\n" +
+                "👤 *Step 3 of 3*\n" +
+                "📍 *Select your location:*\n" +
+                "(Helps match you with nearby people)", Object.assign({ parse_mode: "Markdown" }, setupStateKeyboard));
+        }
+        return null; // Setup is complete
+    });
+}
 exports.default = {
     name: "search",
     description: "Search for a chat",
@@ -25,13 +73,18 @@ exports.default = {
         if (bot.isQueueFull()) {
             return ctx.reply("🚫 Queue is full. Please try again later.");
         }
+        // Check if user has completed setup (gender, age, state)
+        const user = yield (0, db_1.getUser)(userId);
+        if (!user.gender || !user.age || !user.state) {
+            return redirectToSetup(ctx);
+        }
         // Acquire mutex to prevent race conditions
         yield bot.queueMutex.acquire();
         try {
-            const gender = yield (0, db_1.getGender)(userId);
-            if (!gender) {
-                return ctx.reply("Set gender first using /setgender");
-            }
+            // User already fetched above, use that data
+            const gender = user.gender;
+            const preference = user.preference || "any";
+            const isPremium = user.premium || false;
             if (bot.runningChats.includes(userId)) {
                 return ctx.reply("You are already in a chat!\n\nUse /end to leave the chat or use /next to skip the current chat.");
             }
@@ -39,10 +92,6 @@ exports.default = {
             if (bot.waitingQueue.some(w => w.id === userId)) {
                 return ctx.reply("You are already in the queue!");
             }
-            // Get user info and preference
-            const user = yield (0, db_1.getUser)(userId);
-            const preference = user.preference || "any";
-            const isPremium = user.premium || false;
             // SIMPLIFIED MATCHING LOGIC:
             // - Normal users (non-premium): preference is locked to "any" → match with BOTH genders randomly
             // - Premium users: can set preference → match ONLY with preferred gender
