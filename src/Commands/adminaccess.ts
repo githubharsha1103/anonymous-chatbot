@@ -123,13 +123,13 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await safeAnswerCbQuery(ctx);
         const bans = await readBans();
         if (bans.length === 0) {
-            await ctx.editMessageText(
+            await safeEditMessageText(ctx,
                 "🚫 *Banned Users*\n\nNo users are currently banned.\n\nUse the button below to return to menu.",
                 { parse_mode: "Markdown", ...backKeyboard }
             );
         } else {
             const banList = bans.map((id: number) => `• ${id}`).join("\n");
-            await ctx.editMessageText(
+            await safeEditMessageText(ctx,
                 `🚫 *Banned Users*\n\nTotal: ${bans.length}\n\n${banList}\n\nUse the button below to return to menu.`,
                 { parse_mode: "Markdown", ...backKeyboard }
             );
@@ -150,7 +150,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
             `🚫 Banned Users: ${bans.length}\n` +
             `💬 Total Chats: ${totalChats}\n\n` +
             `Use the button below to return to menu.`;
-        await ctx.editMessageText(stats, { parse_mode: "Markdown", ...backKeyboard });
+        await safeEditMessageText(ctx, stats, { parse_mode: "Markdown", ...backKeyboard });
     });
 
     // View active chats
@@ -161,7 +161,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         const activeChatsCount = runningChats.length / 2;
         
         if (activeChatsCount === 0) {
-            await ctx.editMessageText(
+            await safeEditMessageText(ctx,
                 "💬 *Active Chats*\n\nNo active chats at the moment.\n\nUse the button below to return to menu.",
                 { parse_mode: "Markdown", ...backKeyboard }
             );
@@ -183,7 +183,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
             [Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
         ]);
         
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             `💬 *Active Chats*\n\nTotal: ${activeChatsCount}\n\nSelect a chat to spectate:`,
             { parse_mode: "Markdown", ...keyboard }
         );
@@ -224,7 +224,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
             [Markup.button.callback("🔙 Exit Spectator Mode", `ADMIN_EXIT_SPECTATE`)]
         ]);
         
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             `<b>👁️ Spectating Chat</b>\n\n` +
             `👤 User 1: <code>${user1}</code>\n` +
             `👤 User 2: <code>${user2}</code>\n\n` +
@@ -285,7 +285,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
             // User might have blocked the bot
         }
         
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             `<b>✅ Chat Terminated</b>\n\n` +
             `Chat between <code>${user1}</code> and <code>${user2}</code> has been ended.\n\n` +
             `Both users have been notified.\n\n` +
@@ -304,7 +304,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         }
         
         // Redirect to active chats view
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             "👁️ Spectator Mode Exited.\n\nUse the button below to return to menu.",
             { parse_mode: "Markdown", ...backKeyboard }
         );
@@ -319,8 +319,9 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         // Set waiting flag
         waitingForBroadcast.add(adminId);
+        console.log(`[ADMIN] - Admin ${adminId} started broadcast, waitingForBroadcast.size = ${waitingForBroadcast.size}`);
         
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             "📢 *Broadcast Message*\n\n" +
             "✍️ Type and send the message you want to broadcast to all users.\n\n" +
             "Use the button below to cancel.",
@@ -337,7 +338,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
             waitingForBroadcast.delete(adminId);
         }
         
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             "📢 *Broadcast Message*\n\n" +
             "Broadcast cancelled.\n\n" +
             "Use the button below to return to menu.",
@@ -348,7 +349,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
     // Ban user
     bot.action("ADMIN_BAN_USER", async (ctx) => {
         await safeAnswerCbQuery(ctx);
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             "👤 *Ban User*\n\n" +
             "To ban a user, use the /ban command with their User ID.\n\n" +
             "Example: /ban 1130645873\n\n" +
@@ -394,7 +395,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
             [Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
         ]);
         
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             `🔗 *Referral Statistics*\n\n` +
             `👥 Users with Referrals: ${usersWithReferrals}\n` +
             `📊 Total Referrals: ${totalReferrals}\n\n` +
@@ -410,7 +411,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         const { accurate, discrepancies } = await verifyReferralCounts();
         
         if (accurate) {
-            await ctx.editMessageText(
+            await safeEditMessageText(ctx,
                 `✅ *Referral Verification Complete*\n\n` +
                 `All referral counts are accurate!\n` +
                 `No discrepancies found.`,
@@ -420,7 +421,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
             // Auto-fix the discrepancies
             const fixed = await fixReferralCounts();
             
-            await ctx.editMessageText(
+            await safeEditMessageText(ctx,
                 `⚠️ *Referral Verification Complete*\n\n` +
                 `Found ${discrepancies.length} discrepancies.\n` +
                 `Fixed ${fixed} referral counts.\n\n` +
@@ -437,7 +438,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await safeAnswerCbQuery(ctx);
         if (!ctx.from) return;
         await updateUser(ctx.from.id, { isAdminAuthenticated: false });
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             "🔐 *Admin Panel*\n\nYou have been logged out.",
             { parse_mode: "Markdown" }
         );

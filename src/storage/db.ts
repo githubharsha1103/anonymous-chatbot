@@ -583,7 +583,12 @@ export async function processReferral(referredUserId: number, referralCode: stri
   await updateUser(referredUserId, { referredBy: referralCode });
   
   // Increment referrer's count using atomic update to prevent race conditions
+  console.log(`[REFERRAL] - About to increment referral count for referrer ${referrerId}`);
   await atomicIncrementReferralCount(referrerId);
+  
+  // Verify the increment
+  const newCount = await getReferralCount(referrerId);
+  console.log(`[REFERRAL] - Referral count for user ${referrerId} is now: ${newCount}`);
   
   console.log(`[REFERRAL] - User ${referredUserId} successfully referred by ${referrerId}`);
   return true;
@@ -591,13 +596,16 @@ export async function processReferral(referredUserId: number, referralCode: stri
 
 // Atomically increment referral count to prevent race conditions
 export async function atomicIncrementReferralCount(userId: number): Promise<void> {
+  console.log(`[REFERRAL] - atomicIncrementReferralCount called for user ${userId}, useMongoDB=${useMongoDB}, isFallbackMode=${isFallbackMode}`);
+  
   if (useMongoDB && !isFallbackMode) {
     try {
       const collection = await getUsersCollection();
-      await collection.updateOne(
+      const result = await collection.updateOne(
         { telegramId: userId },
         { $inc: { referralCount: 1 } }
       );
+      console.log(`[REFERRAL] - MongoDB update result: ${result.modifiedCount} documents modified`);
       return;
     } catch (error) {
       console.error("[ERROR] - MongoDB atomicIncrementReferralCount error:", error);
@@ -605,6 +613,7 @@ export async function atomicIncrementReferralCount(userId: number): Promise<void
   }
   
   // JSON fallback - use regular increment
+  console.log(`[REFERRAL] - Using JSON fallback for incrementReferralCount`);
   await incrementReferralCount(userId);
 }
 

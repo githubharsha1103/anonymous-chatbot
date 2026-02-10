@@ -122,11 +122,11 @@ function initAdminActions(bot) {
         yield safeAnswerCbQuery(ctx);
         const bans = yield (0, db_1.readBans)();
         if (bans.length === 0) {
-            yield ctx.editMessageText("🚫 *Banned Users*\n\nNo users are currently banned.\n\nUse the button below to return to menu.", Object.assign({ parse_mode: "Markdown" }, backKeyboard));
+            yield safeEditMessageText(ctx, "🚫 *Banned Users*\n\nNo users are currently banned.\n\nUse the button below to return to menu.", Object.assign({ parse_mode: "Markdown" }, backKeyboard));
         }
         else {
             const banList = bans.map((id) => `• ${id}`).join("\n");
-            yield ctx.editMessageText(`🚫 *Banned Users*\n\nTotal: ${bans.length}\n\n${banList}\n\nUse the button below to return to menu.`, Object.assign({ parse_mode: "Markdown" }, backKeyboard));
+            yield safeEditMessageText(ctx, `🚫 *Banned Users*\n\nTotal: ${bans.length}\n\n${banList}\n\nUse the button below to return to menu.`, Object.assign({ parse_mode: "Markdown" }, backKeyboard));
         }
     }));
     // View stats
@@ -141,7 +141,7 @@ function initAdminActions(bot) {
             `🚫 Banned Users: ${bans.length}\n` +
             `💬 Total Chats: ${totalChats}\n\n` +
             `Use the button below to return to menu.`;
-        yield ctx.editMessageText(stats, Object.assign({ parse_mode: "Markdown" }, backKeyboard));
+        yield safeEditMessageText(ctx, stats, Object.assign({ parse_mode: "Markdown" }, backKeyboard));
     }));
     // View active chats
     bot.action("ADMIN_ACTIVE_CHATS", (ctx) => __awaiter(this, void 0, void 0, function* () {
@@ -149,7 +149,7 @@ function initAdminActions(bot) {
         const runningChats = bot.runningChats;
         const activeChatsCount = runningChats.length / 2;
         if (activeChatsCount === 0) {
-            yield ctx.editMessageText("💬 *Active Chats*\n\nNo active chats at the moment.\n\nUse the button below to return to menu.", Object.assign({ parse_mode: "Markdown" }, backKeyboard));
+            yield safeEditMessageText(ctx, "💬 *Active Chats*\n\nNo active chats at the moment.\n\nUse the button below to return to menu.", Object.assign({ parse_mode: "Markdown" }, backKeyboard));
             return;
         }
         // Build list of active chats
@@ -165,7 +165,7 @@ function initAdminActions(bot) {
             ...chatButtons,
             [telegraf_1.Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
         ]);
-        yield ctx.editMessageText(`💬 *Active Chats*\n\nTotal: ${activeChatsCount}\n\nSelect a chat to spectate:`, Object.assign({ parse_mode: "Markdown" }, keyboard));
+        yield safeEditMessageText(ctx, `💬 *Active Chats*\n\nTotal: ${activeChatsCount}\n\nSelect a chat to spectate:`, Object.assign({ parse_mode: "Markdown" }, keyboard));
     }));
     // Spectate a specific chat
     bot.action(/ADMIN_SPECTATE_(\d+)_(\d+)/, (ctx) => __awaiter(this, void 0, void 0, function* () {
@@ -196,7 +196,7 @@ function initAdminActions(bot) {
             [telegraf_1.Markup.button.callback("🛑 Terminate Chat", `ADMIN_TERMINATE_${user1}_${user2}`)],
             [telegraf_1.Markup.button.callback("🔙 Exit Spectator Mode", `ADMIN_EXIT_SPECTATE`)]
         ]);
-        yield ctx.editMessageText(`<b>👁️ Spectating Chat</b>\n\n` +
+        yield safeEditMessageText(ctx, `<b>👁️ Spectating Chat</b>\n\n` +
             `👤 User 1: <code>${user1}</code>\n` +
             `👤 User 2: <code>${user2}</code>\n\n` +
             `<b>⏱️ Duration:</b> ${durationText}\n` +
@@ -241,7 +241,7 @@ function initAdminActions(bot) {
         catch (e) {
             // User might have blocked the bot
         }
-        yield ctx.editMessageText(`<b>✅ Chat Terminated</b>\n\n` +
+        yield safeEditMessageText(ctx, `<b>✅ Chat Terminated</b>\n\n` +
             `Chat between <code>${user1}</code> and <code>${user2}</code> has been ended.\n\n` +
             `Both users have been notified.\n\n` +
             `Use the button below to return to menu.`, Object.assign({ parse_mode: "HTML" }, backKeyboard));
@@ -255,7 +255,7 @@ function initAdminActions(bot) {
             bot.spectatingChats.delete(adminId);
         }
         // Redirect to active chats view
-        yield ctx.editMessageText("👁️ Spectator Mode Exited.\n\nUse the button below to return to menu.", Object.assign({ parse_mode: "Markdown" }, backKeyboard));
+        yield safeEditMessageText(ctx, "👁️ Spectator Mode Exited.\n\nUse the button below to return to menu.", Object.assign({ parse_mode: "Markdown" }, backKeyboard));
     }));
     // Broadcast message - ask for input
     bot.action("ADMIN_BROADCAST", (ctx) => __awaiter(this, void 0, void 0, function* () {
@@ -266,7 +266,8 @@ function initAdminActions(bot) {
             return;
         // Set waiting flag
         exports.waitingForBroadcast.add(adminId);
-        yield ctx.editMessageText("📢 *Broadcast Message*\n\n" +
+        console.log(`[ADMIN] - Admin ${adminId} started broadcast, waitingForBroadcast.size = ${exports.waitingForBroadcast.size}`);
+        yield safeEditMessageText(ctx, "📢 *Broadcast Message*\n\n" +
             "✍️ Type and send the message you want to broadcast to all users.\n\n" +
             "Use the button below to cancel.", Object.assign({ parse_mode: "Markdown" }, backKeyboard));
     }));
@@ -278,14 +279,14 @@ function initAdminActions(bot) {
         if (adminId) {
             exports.waitingForBroadcast.delete(adminId);
         }
-        yield ctx.editMessageText("📢 *Broadcast Message*\n\n" +
+        yield safeEditMessageText(ctx, "📢 *Broadcast Message*\n\n" +
             "Broadcast cancelled.\n\n" +
             "Use the button below to return to menu.", Object.assign({ parse_mode: "Markdown" }, backKeyboard));
     }));
     // Ban user
     bot.action("ADMIN_BAN_USER", (ctx) => __awaiter(this, void 0, void 0, function* () {
         yield safeAnswerCbQuery(ctx);
-        yield ctx.editMessageText("👤 *Ban User*\n\n" +
+        yield safeEditMessageText(ctx, "👤 *Ban User*\n\n" +
             "To ban a user, use the /ban command with their User ID.\n\n" +
             "Example: /ban 1130645873\n\n" +
             "Use the button below to return to menu.", Object.assign({ parse_mode: "Markdown" }, backKeyboard));
@@ -322,7 +323,7 @@ function initAdminActions(bot) {
             [telegraf_1.Markup.button.callback("🔄 Verify & Fix Counts", "ADMIN_VERIFY_REFERRALS")],
             [telegraf_1.Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
         ]);
-        yield ctx.editMessageText(`🔗 *Referral Statistics*\n\n` +
+        yield safeEditMessageText(ctx, `🔗 *Referral Statistics*\n\n` +
             `👥 Users with Referrals: ${usersWithReferrals}\n` +
             `📊 Total Referrals: ${totalReferrals}\n\n` +
             `Use the button below to verify and fix any referral count discrepancies.`, Object.assign({ parse_mode: "Markdown" }, keyboard));
@@ -332,14 +333,14 @@ function initAdminActions(bot) {
         yield safeAnswerCbQuery(ctx, "Verifying referral counts...");
         const { accurate, discrepancies } = yield (0, db_1.verifyReferralCounts)();
         if (accurate) {
-            yield ctx.editMessageText(`✅ *Referral Verification Complete*\n\n` +
+            yield safeEditMessageText(ctx, `✅ *Referral Verification Complete*\n\n` +
                 `All referral counts are accurate!\n` +
                 `No discrepancies found.`, Object.assign({ parse_mode: "Markdown" }, backKeyboard));
         }
         else {
             // Auto-fix the discrepancies
             const fixed = yield (0, db_1.fixReferralCounts)();
-            yield ctx.editMessageText(`⚠️ *Referral Verification Complete*\n\n` +
+            yield safeEditMessageText(ctx, `⚠️ *Referral Verification Complete*\n\n` +
                 `Found ${discrepancies.length} discrepancies.\n` +
                 `Fixed ${fixed} referral counts.\n\n` +
                 `Details:\n` +
@@ -353,7 +354,7 @@ function initAdminActions(bot) {
         if (!ctx.from)
             return;
         yield (0, db_1.updateUser)(ctx.from.id, { isAdminAuthenticated: false });
-        yield ctx.editMessageText("🔐 *Admin Panel*\n\nYou have been logged out.", { parse_mode: "Markdown" });
+        yield safeEditMessageText(ctx, "🔐 *Admin Panel*\n\nYou have been logged out.", { parse_mode: "Markdown" });
     }));
     // Pagination actions
     bot.action(/ADMIN_USERS_PAGE_(\d+)/, (ctx) => __awaiter(this, void 0, void 0, function* () {

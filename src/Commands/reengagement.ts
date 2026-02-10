@@ -86,18 +86,40 @@ const reengageMessages = {
     ]
 };
 
+// Helper function for safe answer callback query
+async function safeAnswerCbQuery(ctx: any, text?: string) {
+    try {
+        if (ctx.callbackQuery?.id) {
+            await ctx.answerCbQuery(text);
+        }
+    } catch {
+        // Ignore errors
+    }
+}
+
+// Helper function for safe editMessageText
+async function safeEditMessageText(ctx: any, text: string, extra?: any) {
+    try {
+        await ctx.editMessageText(text, extra);
+    } catch (error: any) {
+        if (!error.description?.includes("message is not modified")) {
+            throw error;
+        }
+    }
+}
+
 export function initReengagementActions(bot: ExtraTelegraf) {
     // Handle 7-day inactive notification
     bot.action("REENGAGE_7", async (ctx) => {
-        if (!ctx.from) return ctx.answerCbQuery("Error");
+        if (!ctx.from) return safeAnswerCbQuery(ctx, "Error");
         
-        if (!checkAdmin(ctx)) return ctx.answerCbQuery("🚫 Not authorized");
+        if (!checkAdmin(ctx)) return safeAnswerCbQuery(ctx, "🚫 Not authorized");
 
         const inactiveUsers = await getInactiveUsers(7);
         
         if (inactiveUsers.length === 0) {
-            await ctx.answerCbQuery("No users inactive for 7+ days");
-            return ctx.editMessageText("<b>📊 Re-engagement Campaign</b>\n\nNo users inactive for 7+ days! 🎉", { parse_mode: "HTML", ...backKeyboard });
+            await safeAnswerCbQuery(ctx, "No users inactive for 7+ days");
+            return safeEditMessageText(ctx, "<b>📊 Re-engagement Campaign</b>\n\nNo users inactive for 7+ days! 🎉", { parse_mode: "HTML", ...backKeyboard });
         }
 
         const message = 
@@ -115,21 +137,21 @@ Ready to send?`;
             [Markup.button.callback("❌ Cancel", "ADMIN_BACK")]
         ]);
 
-        await ctx.answerCbQuery();
-        await ctx.editMessageText(message, { parse_mode: "HTML", ...confirmKeyboard });
+        await safeAnswerCbQuery(ctx);
+        await safeEditMessageText(ctx, message, { parse_mode: "HTML", ...confirmKeyboard });
     });
 
     // Handle 30-day inactive notification
     bot.action("REENGAGE_30", async (ctx) => {
-        if (!ctx.from) return ctx.answerCbQuery("Error");
+        if (!ctx.from) return safeAnswerCbQuery(ctx, "Error");
         
-        if (!checkAdmin(ctx)) return ctx.answerCbQuery("🚫 Not authorized");
+        if (!checkAdmin(ctx)) return safeAnswerCbQuery(ctx, "🚫 Not authorized");
 
         const inactiveUsers = await getInactiveUsers(30);
         
         if (inactiveUsers.length === 0) {
-            await ctx.answerCbQuery("No users inactive for 30+ days");
-            return ctx.editMessageText("<b>📊 Re-engagement Campaign</b>\n\nNo users inactive for 30+ days! 🎉", { parse_mode: "HTML", ...backKeyboard });
+            await safeAnswerCbQuery(ctx, "No users inactive for 30+ days");
+            return safeEditMessageText(ctx, "<b>📊 Re-engagement Campaign</b>\n\nNo users inactive for 30+ days! 🎉", { parse_mode: "HTML", ...backKeyboard });
         }
 
         const message = 
@@ -147,20 +169,20 @@ Ready to send?`;
             [Markup.button.callback("❌ Cancel", "ADMIN_BACK")]
         ]);
 
-        await ctx.answerCbQuery();
-        await ctx.editMessageText(message, { parse_mode: "HTML", ...confirmKeyboard });
+        await safeAnswerCbQuery(ctx);
+        await safeEditMessageText(ctx, message, { parse_mode: "HTML", ...confirmKeyboard });
     });
 
     // Send 7-day re-engagement
     bot.action("REENGAGE_7_SEND", async (ctx) => {
-        if (!ctx.from) return ctx.answerCbQuery("Error");
+        if (!ctx.from) return safeAnswerCbQuery(ctx, "Error");
         
-        if (!checkAdmin(ctx)) return ctx.answerCbQuery("🚫 Not authorized");
+        if (!checkAdmin(ctx)) return safeAnswerCbQuery(ctx, "🚫 Not authorized");
 
         const inactiveUsers = await getInactiveUsers(7);
-        if (inactiveUsers.length === 0) return ctx.answerCbQuery("No users found");
+        if (inactiveUsers.length === 0) return safeAnswerCbQuery(ctx, "No users found");
 
-        await ctx.answerCbQuery("Sending...");
+        await safeAnswerCbQuery(ctx, "Sending...");
 
         const message = reengageMessages["7"][Math.floor(Math.random() * reengageMessages["7"].length)];
         const introText = 
@@ -195,7 +217,7 @@ ${message}
             await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             `<b>✅ 7-Day Re-engagement Complete!</b>\n\n📤 Sent: ${sent}\n❌ Failed: ${failed}`,
             { parse_mode: "HTML", ...backKeyboard }
         );
@@ -203,14 +225,14 @@ ${message}
 
     // Send 30-day re-engagement
     bot.action("REENGAGE_30_SEND", async (ctx) => {
-        if (!ctx.from) return ctx.answerCbQuery("Error");
+        if (!ctx.from) return safeAnswerCbQuery(ctx, "Error");
         
-        if (!checkAdmin(ctx)) return ctx.answerCbQuery("🚫 Not authorized");
+        if (!checkAdmin(ctx)) return safeAnswerCbQuery(ctx, "🚫 Not authorized");
 
         const inactiveUsers = await getInactiveUsers(30);
-        if (inactiveUsers.length === 0) return ctx.answerCbQuery("No users found");
+        if (inactiveUsers.length === 0) return safeAnswerCbQuery(ctx, "No users found");
 
-        await ctx.answerCbQuery("Sending...");
+        await safeAnswerCbQuery(ctx, "Sending...");
 
         const message = reengageMessages["30"][Math.floor(Math.random() * reengageMessages["30"].length)];
         const introText = 
@@ -245,7 +267,7 @@ ${message}
             await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        await ctx.editMessageText(
+        await safeEditMessageText(ctx,
             `<b>✅ 30-Day Re-engagement Complete!</b>\n\n📤 Sent: ${sent}\n❌ Failed: ${failed}`,
             { parse_mode: "HTML", ...backKeyboard }
         );

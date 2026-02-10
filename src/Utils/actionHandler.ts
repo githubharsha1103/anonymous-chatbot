@@ -538,7 +538,7 @@ bot.action("OPEN_REPORT", async (ctx) => {
     let message = "Select a reason to report:";
 
     if (!partnerId) {
-        return ctx.editMessageText("No user to report. Start a chat first.", backKeyboard);
+        return safeEditMessageText(ctx, "No user to report. Start a chat first.", backKeyboard);
     }
 
     // Store the partner ID for reporting
@@ -564,7 +564,7 @@ for (const [action, reason] of Object.entries(reportReasonsMap)) {
         const partnerId = user.reportingPartner;
         
         if (!partnerId) {
-            return ctx.editMessageText("No user to report.", backKeyboard);
+            return safeEditMessageText(ctx, "No user to report.", backKeyboard);
         }
         
         // Store the report reason temporarily
@@ -587,11 +587,11 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
     const reportReason = user.reportReason;
     
     if (!partnerId || !reportReason) {
-        return ctx.editMessageText("Report cancelled.", backKeyboard);
+        return safeEditMessageText(ctx, "Report cancelled.", backKeyboard);
     }
     
     // Notify the reporter
-    await ctx.editMessageText("Thank you for reporting! 🙏", backKeyboard);
+    await safeEditMessageText(ctx, "Thank you for reporting! 🙏", backKeyboard);
     
     // Send report to all admins
     const adminIds = ADMINS.map(id => parseInt(id));
@@ -622,7 +622,7 @@ bot.action("REPORT_CANCEL", async (ctx) => {
     // Clear report data
     await updateUser(ctx.from.id, { reportingPartner: null, reportReason: null });
     
-    return ctx.editMessageText("Report cancelled.", backKeyboard);
+    return safeEditMessageText(ctx, "Report cancelled.", backKeyboard);
 });
 
 

@@ -59,7 +59,9 @@ export default {
 
     // Check if admin is waiting to broadcast
     if (waitingForBroadcast.has(ctx.from.id)) {
-        // Remove from waiting list
+        console.log(`[BROADCAST] - Admin ${ctx.from.id} is broadcasting...`);
+        
+        // Remove from waiting list immediately
         waitingForBroadcast.delete(ctx.from.id);
 
         const broadcastText = text || "(No message content)";
@@ -73,9 +75,12 @@ export default {
         const userIds = users.map(id => Number(id)).filter(id => !isNaN(id));
         const { success, failed } = await broadcastWithRateLimit(bot, userIds, broadcastText);
 
+        console.log(`[BROADCAST] - Completed: Sent ${success}, Failed ${failed}`);
+        
+        // Clear any inline keyboards by using removeKeyboard
         return ctx.reply(
             `📢 *Broadcast Result*\n\n✅ Sent: ${success}\n❌ Failed: ${failed}\n\nTotal Users: ${users.length}`,
-            { parse_mode: "Markdown" }
+            { parse_mode: "Markdown", ...Markup.removeKeyboard() }
         );
     }
 

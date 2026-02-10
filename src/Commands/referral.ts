@@ -118,16 +118,39 @@ function createProgressBar(percent: number): string {
 
 // Export action handlers
 export function initReferralActions(bot: Telegraf<Context>) {
+    // Safe answer callback query helper
+    async function safeAnswerCbQuery(ctx: any, text?: string) {
+        try {
+            if (ctx.callbackQuery?.id) {
+                await ctx.answerCbQuery(text);
+            }
+        } catch {
+            // Ignore errors
+        }
+    }
+    
+    // Safe editMessageText helper - handles "message not modified" errors
+    async function safeEditMessageText(ctx: any, text: string, extra?: any) {
+        try {
+            await ctx.editMessageText(text, extra);
+        } catch (error: any) {
+            if (!error.description?.includes("message is not modified")) {
+                throw error;
+            }
+        }
+    }
+
     // Back to main menu
     bot.action("BACK_MAIN_MENU", async (ctx) => {
-        await ctx.answerCbQuery();
+        await safeAnswerCbQuery(ctx);
         const mainMenuKeyboard = Markup.inlineKeyboard([
             [Markup.button.callback("🔍 Search", "START_SEARCH")],
             [Markup.button.callback("⚙️ Settings", "OPEN_SETTINGS")],
             [Markup.button.callback("❓ Help", "START_HELP")]
         ]);
         
-        await ctx.editMessageText(
+        await safeEditMessageText(
+            ctx,
             "🌟 <b>Welcome back!</b> 🌟\n\nThis bot helps you chat anonymously with people worldwide.\n\nUse the menu below to navigate:", 
             { parse_mode: "HTML", ...mainMenuKeyboard }
         );

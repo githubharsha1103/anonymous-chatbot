@@ -466,7 +466,7 @@ index_1.bot.action("OPEN_REPORT", (ctx) => __awaiter(void 0, void 0, void 0, fun
     let partnerId = user.reportingPartner || user.lastPartner;
     let message = "Select a reason to report:";
     if (!partnerId) {
-        return ctx.editMessageText("No user to report. Start a chat first.", backKeyboard);
+        return safeEditMessageText(ctx, "No user to report. Start a chat first.", backKeyboard);
     }
     // Store the partner ID for reporting
     yield (0, db_1.updateUser)(ctx.from.id, { reportingPartner: partnerId });
@@ -487,7 +487,7 @@ for (const [action, reason] of Object.entries(reportReasonsMap)) {
         const user = yield (0, db_1.getUser)(ctx.from.id);
         const partnerId = user.reportingPartner;
         if (!partnerId) {
-            return ctx.editMessageText("No user to report.", backKeyboard);
+            return safeEditMessageText(ctx, "No user to report.", backKeyboard);
         }
         // Store the report reason temporarily
         yield (0, db_1.updateUser)(ctx.from.id, { reportReason: reason });
@@ -503,10 +503,10 @@ index_1.bot.action("REPORT_CONFIRM", (ctx) => __awaiter(void 0, void 0, void 0, 
     const partnerId = user.reportingPartner;
     const reportReason = user.reportReason;
     if (!partnerId || !reportReason) {
-        return ctx.editMessageText("Report cancelled.", backKeyboard);
+        return safeEditMessageText(ctx, "Report cancelled.", backKeyboard);
     }
     // Notify the reporter
-    yield ctx.editMessageText("Thank you for reporting! 🙏", backKeyboard);
+    yield safeEditMessageText(ctx, "Thank you for reporting! 🙏", backKeyboard);
     // Send report to all admins
     const adminIds = ADMINS.map(id => parseInt(id));
     for (const adminId of adminIds) {
@@ -531,7 +531,7 @@ index_1.bot.action("REPORT_CANCEL", (ctx) => __awaiter(void 0, void 0, void 0, f
         return;
     // Clear report data
     yield (0, db_1.updateUser)(ctx.from.id, { reportingPartner: null, reportReason: null });
-    return ctx.editMessageText("Report cancelled.", backKeyboard);
+    return safeEditMessageText(ctx, "Report cancelled.", backKeyboard);
 }));
 // Show improved setup complete message with summary
 function showSetupComplete(ctx) {

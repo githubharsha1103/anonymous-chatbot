@@ -574,7 +574,11 @@ function processReferral(referredUserId, referralCode) {
         // Mark the referred user as having been referred
         yield updateUser(referredUserId, { referredBy: referralCode });
         // Increment referrer's count using atomic update to prevent race conditions
+        console.log(`[REFERRAL] - About to increment referral count for referrer ${referrerId}`);
         yield atomicIncrementReferralCount(referrerId);
+        // Verify the increment
+        const newCount = yield getReferralCount(referrerId);
+        console.log(`[REFERRAL] - Referral count for user ${referrerId} is now: ${newCount}`);
         console.log(`[REFERRAL] - User ${referredUserId} successfully referred by ${referrerId}`);
         return true;
     });
@@ -582,10 +586,12 @@ function processReferral(referredUserId, referralCode) {
 // Atomically increment referral count to prevent race conditions
 function atomicIncrementReferralCount(userId) {
     return __awaiter(this, void 0, void 0, function* () {
+        console.log(`[REFERRAL] - atomicIncrementReferralCount called for user ${userId}, useMongoDB=${useMongoDB}, isFallbackMode=${isFallbackMode}`);
         if (useMongoDB && !isFallbackMode) {
             try {
                 const collection = yield getUsersCollection();
-                yield collection.updateOne({ telegramId: userId }, { $inc: { referralCount: 1 } });
+                const result = yield collection.updateOne({ telegramId: userId }, { $inc: { referralCount: 1 } });
+                console.log(`[REFERRAL] - MongoDB update result: ${result.modifiedCount} documents modified`);
                 return;
             }
             catch (error) {
@@ -593,6 +599,7 @@ function atomicIncrementReferralCount(userId) {
             }
         }
         // JSON fallback - use regular increment
+        console.log(`[REFERRAL] - Using JSON fallback for incrementReferralCount`);
         yield incrementReferralCount(userId);
     });
 }

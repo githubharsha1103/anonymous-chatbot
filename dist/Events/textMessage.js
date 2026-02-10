@@ -54,7 +54,8 @@ exports.default = {
          ================================= */
         // Check if admin is waiting to broadcast
         if (adminaccess_1.waitingForBroadcast.has(ctx.from.id)) {
-            // Remove from waiting list
+            console.log(`[BROADCAST] - Admin ${ctx.from.id} is broadcasting...`);
+            // Remove from waiting list immediately
             adminaccess_1.waitingForBroadcast.delete(ctx.from.id);
             const broadcastText = text || "(No message content)";
             const users = yield (0, db_1.getAllUsers)();
@@ -64,7 +65,9 @@ exports.default = {
             // Send broadcast with rate limiting
             const userIds = users.map(id => Number(id)).filter(id => !isNaN(id));
             const { success, failed } = yield (0, telegramErrorHandler_1.broadcastWithRateLimit)(bot, userIds, broadcastText);
-            return ctx.reply(`📢 *Broadcast Result*\n\n✅ Sent: ${success}\n❌ Failed: ${failed}\n\nTotal Users: ${users.length}`, { parse_mode: "Markdown" });
+            console.log(`[BROADCAST] - Completed: Sent ${success}, Failed ${failed}`);
+            // Clear any inline keyboards by using removeKeyboard
+            return ctx.reply(`📢 *Broadcast Result*\n\n✅ Sent: ${success}\n❌ Failed: ${failed}\n\nTotal Users: ${users.length}`, Object.assign({ parse_mode: "Markdown" }, telegraf_1.Markup.removeKeyboard()));
         }
         /* ================================
           CHAT FORWARDING CHECK
