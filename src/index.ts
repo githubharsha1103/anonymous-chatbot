@@ -316,8 +316,14 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
     bot.handleUpdate(req.body).then(() => {
       res.sendStatus(200);
     }).catch((err: Error) => {
-      console.error("[ERROR] - Failed to handle update:", err.message);
-      res.sendStatus(500);
+      // Log but don't crash on network errors to Telegram API
+      const errMsg = err?.message || 'Unknown error';
+      if (errMsg.includes('failed') || errMsg.includes('ECONNRESET') || errMsg.includes('ETIMEDOUT')) {
+        console.log(`[WEBHOOK] - Network error during update handling: ${errMsg}`);
+      } else {
+        console.error("[ERROR] - Failed to handle update:", errMsg);
+      }
+      res.sendStatus(200); // Always return 200 to Telegram to prevent retries
     });
   });
   
@@ -336,10 +342,23 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   bot.launch();
 }
 
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[UNHANDLED REJECTION] -", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("[UNCAUGHT EXCEPTION] -", error.message);
+  // Don't exit - let the process continue handling requests
+});
+
 process.once("SIGINT", async () => {
   console.log("[INFO] - Stopping bot (SIGINT)...");
   try {
-    if (bot.botInfo) {
+    // In webhook mode, delete the webhook; in polling mode, stop the bot
+    if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
+      await bot.telegram.deleteWebhook();
+      console.log("[INFO] - Webhook deleted");
+    } else if (bot.botInfo) {
       await bot.stop("SIGINT");
     }
   } catch (error) {
@@ -357,7 +376,11 @@ process.once("SIGINT", async () => {
 process.once("SIGTERM", async () => {
   console.log("[INFO] - Stopping bot (SIGTERM)...");
   try {
-    if (bot.botInfo) {
+    // In webhook mode, delete the webhook; in polling mode, stop the bot
+    if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
+      await bot.telegram.deleteWebhook();
+      console.log("[INFO] - Webhook deleted");
+    } else if (bot.botInfo) {
       await bot.stop("SIGTERM");
     }
   } catch (error) {

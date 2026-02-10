@@ -184,7 +184,8 @@ export async function handleTelegramError(
   }
   
   // Log other errors but don't crash
-  console.error(`[TELEGRAM ERROR] -`, error.message || error);
+  const errorDetails = error.message || error.response?.description || JSON.stringify(error) || 'Unknown error';
+  console.error(`[TELEGRAM ERROR] -`, errorDetails);
   return false;
 }
 
@@ -275,7 +276,7 @@ export async function sendMessageWithRetry(
   chatId: number | null,
   text: string,
   extra?: any,
-  maxRetries: number = 3
+  maxRetries: number = 5
 ): Promise<boolean> {
   // Validate chatId before attempting to send
   if (!chatId || chatId === 0) {
@@ -291,6 +292,32 @@ export async function sendMessageWithRetry(
       return true;
     } catch (error: any) {
       lastError = error;
+      
+      // Handle network errors (ECONNRESET, ETIMEDOUT, fetch failures, empty reason, etc.)
+      const isNetworkError = 
+        error.message?.includes('ECONNRESET') || 
+        error.message?.includes('ETIMEDOUT') ||
+        error.message?.includes('ECONNREFUSED') ||
+        error.message?.includes('ENOTFOUND') ||
+        error.message?.includes('EAI_AGAIN') ||
+        error.message?.includes('network') ||
+        error.message?.includes('fetch') ||
+        error.message?.includes('socket hang up') ||
+        error.message?.includes('reason:') ||
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'ECONNRESET' ||
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'ENOTFOUND' ||
+        error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+        // Catch fetch failures with empty reason (the specific error from logs)
+        (error.message && error.message.includes('failed') && !error.response?.error_code);
+      
+      if (isNetworkError) {
+        const backoff = Math.min(2000 * Math.pow(2, attempt), 10000); // Exponential backoff, max 10s
+        console.log(`[NETWORK ERROR] - Network issue on attempt ${attempt + 1}/${maxRetries} (${error.message || 'unknown'}), retrying in ${backoff}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoff));
+        continue;
+      }
       
       if (isBotBlockedError(error)) {
         await cleanupBlockedUserAsync(bot, chatId);

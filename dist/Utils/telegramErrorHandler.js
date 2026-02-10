@@ -238,6 +238,7 @@ function safeSendMessage(bot, chatId, text, extra) {
  */
 function sendMessageWithRetry(bot_1, chatId_1, text_1, extra_1) {
     return __awaiter(this, arguments, void 0, function* (bot, chatId, text, extra, maxRetries = 3) {
+        var _a, _b, _c, _d;
         // Validate chatId before attempting to send
         if (!chatId || chatId === 0) {
             console.error(`[SEND ERROR] - Invalid chatId: ${chatId}, message not sent`);
@@ -251,6 +252,16 @@ function sendMessageWithRetry(bot_1, chatId_1, text_1, extra_1) {
             }
             catch (error) {
                 lastError = error;
+                // Handle network errors (ECONNRESET, ETIMEDOUT, etc.)
+                if (((_a = error.message) === null || _a === void 0 ? void 0 : _a.includes('ECONNRESET')) ||
+                    ((_b = error.message) === null || _b === void 0 ? void 0 : _b.includes('ETIMEDOUT')) ||
+                    ((_c = error.message) === null || _c === void 0 ? void 0 : _c.includes('network')) ||
+                    ((_d = error.message) === null || _d === void 0 ? void 0 : _d.includes('fetch')) ||
+                    error.code === 'ECONNREFUSED') {
+                    console.log(`[NETWORK ERROR] - Network issue on attempt ${attempt + 1}/${maxRetries}, retrying...`);
+                    yield new Promise(resolve => setTimeout(resolve, 2000));
+                    continue;
+                }
                 if (isBotBlockedError(error)) {
                     yield cleanupBlockedUserAsync(bot, chatId);
                     return false;
