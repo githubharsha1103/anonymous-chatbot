@@ -142,7 +142,7 @@ function endChatDueToError(bot, userId, partnerId) {
  */
 function handleTelegramError(bot, error, userId, partnerId) {
     return __awaiter(this, void 0, void 0, function* () {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e;
         if (isBotBlockedError(error)) {
             const blockedUserId = userId || ((_b = (_a = error.on) === null || _a === void 0 ? void 0 : _a.payload) === null || _b === void 0 ? void 0 : _b.chat_id);
             if (blockedUserId) {
@@ -160,7 +160,8 @@ function handleTelegramError(bot, error, userId, partnerId) {
             return true;
         }
         // Log other errors but don't crash
-        console.error(`[TELEGRAM ERROR] -`, error.message || error);
+        const errorDetails = error.message || ((_e = error.response) === null || _e === void 0 ? void 0 : _e.description) || JSON.stringify(error) || 'Unknown error';
+        console.error(`[TELEGRAM ERROR] -`, errorDetails);
         return false;
     });
 }
@@ -237,8 +238,8 @@ function safeSendMessage(bot, chatId, text, extra) {
  * Send message immediately (for critical messages) with retry logic
  */
 function sendMessageWithRetry(bot_1, chatId_1, text_1, extra_1) {
-    return __awaiter(this, arguments, void 0, function* (bot, chatId, text, extra, maxRetries = 3) {
-        var _a, _b, _c, _d;
+    return __awaiter(this, arguments, void 0, function* (bot, chatId, text, extra, maxRetries = 5) {
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
         // Validate chatId before attempting to send
         if (!chatId || chatId === 0) {
             console.error(`[SEND ERROR] - Invalid chatId: ${chatId}, message not sent`);
@@ -252,14 +253,27 @@ function sendMessageWithRetry(bot_1, chatId_1, text_1, extra_1) {
             }
             catch (error) {
                 lastError = error;
-                // Handle network errors (ECONNRESET, ETIMEDOUT, etc.)
-                if (((_a = error.message) === null || _a === void 0 ? void 0 : _a.includes('ECONNRESET')) ||
+                // Handle network errors (ECONNRESET, ETIMEDOUT, fetch failures, empty reason, etc.)
+                const isNetworkError = ((_a = error.message) === null || _a === void 0 ? void 0 : _a.includes('ECONNRESET')) ||
                     ((_b = error.message) === null || _b === void 0 ? void 0 : _b.includes('ETIMEDOUT')) ||
-                    ((_c = error.message) === null || _c === void 0 ? void 0 : _c.includes('network')) ||
-                    ((_d = error.message) === null || _d === void 0 ? void 0 : _d.includes('fetch')) ||
-                    error.code === 'ECONNREFUSED') {
-                    console.log(`[NETWORK ERROR] - Network issue on attempt ${attempt + 1}/${maxRetries}, retrying...`);
-                    yield new Promise(resolve => setTimeout(resolve, 2000));
+                    ((_c = error.message) === null || _c === void 0 ? void 0 : _c.includes('ECONNREFUSED')) ||
+                    ((_d = error.message) === null || _d === void 0 ? void 0 : _d.includes('ENOTFOUND')) ||
+                    ((_e = error.message) === null || _e === void 0 ? void 0 : _e.includes('EAI_AGAIN')) ||
+                    ((_f = error.message) === null || _f === void 0 ? void 0 : _f.includes('network')) ||
+                    ((_g = error.message) === null || _g === void 0 ? void 0 : _g.includes('fetch')) ||
+                    ((_h = error.message) === null || _h === void 0 ? void 0 : _h.includes('socket hang up')) ||
+                    ((_j = error.message) === null || _j === void 0 ? void 0 : _j.includes('reason:')) ||
+                    error.code === 'ECONNREFUSED' ||
+                    error.code === 'ECONNRESET' ||
+                    error.code === 'ETIMEDOUT' ||
+                    error.code === 'ENOTFOUND' ||
+                    error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+                    // Catch fetch failures with empty reason (the specific error from logs)
+                    (error.message && error.message.includes('failed') && !((_k = error.response) === null || _k === void 0 ? void 0 : _k.error_code));
+                if (isNetworkError) {
+                    const backoff = Math.min(2000 * Math.pow(2, attempt), 10000); // Exponential backoff, max 10s
+                    console.log(`[NETWORK ERROR] - Network issue on attempt ${attempt + 1}/${maxRetries} (${error.message || 'unknown'}), retrying in ${backoff}ms...`);
+                    yield new Promise(resolve => setTimeout(resolve, backoff));
                     continue;
                 }
                 if (isBotBlockedError(error)) {

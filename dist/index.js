@@ -269,12 +269,23 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
         exports.bot.handleUpdate(req.body).then(() => {
             res.sendStatus(200);
         }).catch((err) => {
-            console.error("[ERROR] - Failed to handle update:", err.message);
-            res.sendStatus(500);
+            // Log but don't crash on network errors to Telegram API
+            const errMsg = (err === null || err === void 0 ? void 0 : err.message) || 'Unknown error';
+            if (errMsg.includes('failed') || errMsg.includes('ECONNRESET') || errMsg.includes('ETIMEDOUT')) {
+                console.log(`[WEBHOOK] - Network error during update handling: ${errMsg}`);
+            }
+            else {
+                console.error("[ERROR] - Failed to handle update:", errMsg);
+            }
+            res.sendStatus(200); // Always return 200 to Telegram to prevent retries
         });
     });
     // Health check endpoint
     app.get("/health", (req, res) => {
+        res.send("OK");
+    });
+    // Root endpoint for Render health checks
+    app.get("/", (req, res) => {
         res.send("OK");
     });
     // Start the server
@@ -287,10 +298,22 @@ else {
     console.log("[INFO] - Using long polling (local development)");
     exports.bot.launch();
 }
+process.on("unhandledRejection", (reason, promise) => {
+    console.error("[UNHANDLED REJECTION] -", reason);
+});
+process.on("uncaughtException", (error) => {
+    console.error("[UNCAUGHT EXCEPTION] -", error.message);
+    // Don't exit - let the process continue handling requests
+});
 process.once("SIGINT", () => __awaiter(void 0, void 0, void 0, function* () {
     console.log("[INFO] - Stopping bot (SIGINT)...");
     try {
-        if (exports.bot.botInfo) {
+        // In webhook mode, delete the webhook; in polling mode, stop the bot
+        if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
+            yield exports.bot.telegram.deleteWebhook();
+            console.log("[INFO] - Webhook deleted");
+        }
+        else if (exports.bot.botInfo) {
             yield exports.bot.stop("SIGINT");
         }
     }
@@ -309,7 +332,12 @@ process.once("SIGINT", () => __awaiter(void 0, void 0, void 0, function* () {
 process.once("SIGTERM", () => __awaiter(void 0, void 0, void 0, function* () {
     console.log("[INFO] - Stopping bot (SIGTERM)...");
     try {
-        if (exports.bot.botInfo) {
+        // In webhook mode, delete the webhook; in polling mode, stop the bot
+        if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
+            yield exports.bot.telegram.deleteWebhook();
+            console.log("[INFO] - Webhook deleted");
+        }
+        else if (exports.bot.botInfo) {
             yield exports.bot.stop("SIGTERM");
         }
     }

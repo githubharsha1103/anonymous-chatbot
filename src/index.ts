@@ -332,6 +332,11 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
     res.send("OK");
   });
   
+  // Root endpoint for Render health checks
+  app.get("/", (req: Request, res: Response) => {
+    res.send("OK");
+  });
+  
   // Start the server
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[INFO] - Server listening on port ${PORT}`);

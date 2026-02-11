@@ -67,6 +67,11 @@ export default {
         // Check for referral code in start parameter
         const startParam = (ctx as any).startPayload || (ctx.update as any)?.message?.text?.split(" ")[1];
         
+        console.log(`[START] - User ${userId} (${username}) starting`);
+        console.log(`[START] - startPayload: ${(ctx as any).startPayload}`);
+        console.log(`[START] - message text: ${(ctx.update as any)?.message?.text}`);
+        console.log(`[START] - parsed startParam: ${startParam}`);
+        
         // Initialize new user
         if (user.isNew) {
             // Build update data

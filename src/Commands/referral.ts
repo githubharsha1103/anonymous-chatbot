@@ -1,9 +1,22 @@
 import { Context, Telegraf, Markup } from "telegraf";
 import { Command } from "../Utils/commandHandler";
-import { getUser, updateUser, updateLastActive, getReferralCount } from "../storage/db";
+import { getUser, updateUser, updateLastActive, getReferralStats } from "../storage/db";
 
-const REFERRAL_GOAL = 30;
-const PREMIUM_DAYS = 7;
+interface ReferralTier {
+    count: number;
+    reward: string;
+    premiumDays: number;
+    badge?: string;
+    description: string;
+}
+
+const REFERRAL_TIERS: ReferralTier[] = [
+    { count: 3, reward: "Starter", premiumDays: 1, badge: "🌱", description: "Get 1 day Premium" },
+    { count: 7, reward: "Growing", premiumDays: 3, badge: "🌿", description: "Get 3 days Premium" },
+    { count: 15, reward: "Popular", premiumDays: 7, badge: "🔥", description: "Get 7 days Premium" },
+    { count: 30, reward: "Influencer", premiumDays: 14, badge: "⭐", description: "Get 14 days Premium + VIP Badge" },
+    { count: 50, reward: "Super Star", premiumDays: 30, badge: "👑", description: "Get 30 days Premium + Gold Badge" },
+];
 
 export default {
     name: "referral",
@@ -17,89 +30,76 @@ export default {
         // Get user data
         const user = await getUser(userId);
         
-        // Get or create referral code for user
+        // Get or create referral code
         let referralCode = (user as any).referralCode;
         if (!referralCode) {
             referralCode = `REF${userId}${Date.now().toString().slice(-6)}`;
             await updateUser(userId, { referralCode });
         }
         
-        // Get referral count
-        const referralCount = await getReferralCount(userId);
-        const remaining = Math.max(0, REFERRAL_GOAL - referralCount);
-        const hasPremium = user.premium;
+        // Get detailed referral stats
+        const referralStats = await getReferralStats(userId);
+        const referralCount = referralStats.total;
+        const activeReferrals = referralStats.active;
+        const premiumDaysEarned = referralStats.premiumDaysEarned;
         
-        // Check if premium was already granted from referral
-        const premiumFromReferral = (user as any).premiumFromReferral || false;
-        
-        // Calculate progress percentage
-        const progressPercent = Math.min(100, Math.round((referralCount / REFERRAL_GOAL) * 100));
+        // Get current tier progress
+        const currentTier = getCurrentTier(referralCount);
+        const nextTier = getNextTier(referralCount);
         
         // Generate referral link
         const botUsername = (ctx as any).me || process.env.BOT_USERNAME || "anonymouschatbot";
         const referralLink = `https://t.me/${botUsername}?start=${referralCode}`;
         
-        // Create progress bar
-        const progressBar = createProgressBar(progressPercent);
+        // Build progress message
+        let text = `🎁 <b>Referral Rewards</b>\n\n`;
         
-        // Build text based on status
-        let text = "";
-        let buttons: any[][] = [];
+        // Show stats
+        text += `📊 <b>Your Stats:</b>\n`;
+        text += `   👥 Total Invited: ${referralCount}\n`;
+        text += `   ✅ Active Friends: ${activeReferrals}\n`;
+        text += `   🏆 Premium Earned: ${premiumDaysEarned} days\n\n`;
         
-        if (hasPremium && premiumFromReferral) {
-            text = `🎁 <b>Referral Rewards</b> ✨\n\n` +
-                `👥 Friends Invited: ${referralCount}/${REFERRAL_GOAL}\n` +
-                `${progressBar}\n\n` +
-                `🎉 You've already unlocked Premium!\n` +
-                `Share your link to invite more friends!\n\n` +
-                `🔗 Your Referral Link:\n` +
-                `<code>${referralLink}</code>`;
-            
-            buttons = [
-                [Markup.button.url("📤 Share", `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent("Join me on Anonymous Chat! 🌟")}`)],
-                [Markup.button.callback("🔙 Main Menu", "BACK_MAIN_MENU")]
-            ];
+        // Show progress to next tier
+        if (nextTier) {
+            const progress = Math.min(100, Math.round((referralCount / nextTier.count) * 100));
+            const remaining = nextTier.count - referralCount;
+            text += `🎯 <b>Next Reward:</b> ${nextTier.badge} ${nextTier.reward}\n`;
+            text += `${createProgressBar(progress)} ${remaining} more to go!\n\n`;
+        } else {
+            text += `🎉 <b>Max Level Reached!</b> 🎉\n\n`;
         }
-        else if (referralCount >= REFERRAL_GOAL) {
-            // Grant premium for first time
-            await updateUser(userId, { 
-                premium: true,
-                premiumFromReferral: true,
-                premiumExpiry: Date.now() + (PREMIUM_DAYS * 24 * 60 * 60 * 1000)
-            });
-            
-            text = `🎉 <b>Congratulations!</b> 🎉\n\n` +
-                `You've invited ${REFERRAL_GOAL} friends!\n\n` +
-                `✨ Premium Unlocked! ✨\n` +
-                `🎁 7 Days of Premium Features\n\n` +
-                `👥 Total Invited: ${referralCount}\n\n` +
-                `🔗 Your Referral Link:\n` +
-                `<code>${referralLink}</code>`;
-            
-            buttons = [
-                [Markup.button.url("📤 Share", `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent("Join me on Anonymous Chat! 🌟")}`)],
-                [Markup.button.callback("🚀 Start Chatting", "START_SEARCH")]
-            ];
+        
+        // Show tier progress
+        text += `🏅 <b>Your Tiers:</b>\n`;
+        for (const tier of REFERRAL_TIERS) {
+            const achieved = referralCount >= tier.count;
+            const status = achieved ? "✅" : "○";
+            text += `${status} ${tier.badge} ${tier.reward} (${tier.count}): ${tier.description}\n`;
         }
-        else {
-            const premiumStatus = remaining === 0 ? "🎁 Unlocking Soon!" : `${remaining} more to unlock`;
-            text = `🎁 <b>Referral Rewards</b> 🎁\n\n` +
-                `Invite friends to unlock <b>7 days FREE Premium!</b>\n\n` +
-                `👥 Friends: ${referralCount}/${REFERRAL_GOAL}\n` +
-                `${progressBar}\n` +
-                `${premiumStatus}\n\n` +
-                `🔗 Your Referral Link:\n` +
-                `<code>${referralLink}</code>\n\n` +
-                `📋 <b>How it works:</b>\n` +
-                `1. Copy your link\n` +
-                `2. Share with friends\n` +
-                `3. Get rewarded at ${REFERRAL_GOAL} invites!`;
-            
-            buttons = [
-                [Markup.button.url("📤 Share on Telegram", `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent("Join me on Anonymous Chat! 🌟")}`)],
-                [Markup.button.callback("🔙 Main Menu", "BACK_MAIN_MENU")]
-            ];
-        }
+        
+        text += `\n🔗 <b>Your Referral Link:</b>\n`;
+        text += `<code>${referralLink}</code>\n\n`;
+        
+        text += `📋 <b>How to earn rewards:</b>\n`;
+        text += `1. Copy your link above\n`;
+        text += `2. Share with friends on Telegram\n`;
+        text += `3. Friends get bonus too!\n`;
+        text += `4. Unlock all tiers for maximum rewards!\n\n`;
+        
+        text += `💡 <b>Tips:</b>\n`;
+        text += `• Share in groups (but avoid spam!)\n`;
+        text += `• Tell friends about the bot features\n`;
+        text += `• Each active referral counts!\n`;
+        
+        // Create inline keyboard with share button
+        const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent("🌟 Join me on Anonymous Chat! Chat with strangers anonymously. Use my link:")}`;
+        
+        const buttons = [
+            [Markup.button.url("📤 Share on Telegram", shareUrl)],
+            [Markup.button.callback("🔄 Refresh Stats", "REFRESH_REFERRAL")],
+            [Markup.button.callback("🔙 Main Menu", "BACK_MAIN_MENU")]
+        ];
         
         await ctx.reply(text, { 
             parse_mode: "HTML", 
@@ -116,7 +116,27 @@ function createProgressBar(percent: number): string {
     return `<code>${bar}</code> ${percent}%`;
 }
 
-// Export action handlers
+// Get current tier based on referral count
+function getCurrentTier(count: number): ReferralTier | null {
+    for (let i = REFERRAL_TIERS.length - 1; i >= 0; i--) {
+        if (count >= REFERRAL_TIERS[i].count) {
+            return REFERRAL_TIERS[i];
+        }
+    }
+    return null;
+}
+
+// Get next tier to achieve
+function getNextTier(count: number): ReferralTier | null {
+    for (const tier of REFERRAL_TIERS) {
+        if (count < tier.count) {
+            return tier;
+        }
+    }
+    return null;
+}
+
+// Export for action handlers
 export function initReferralActions(bot: Telegraf<Context>) {
     // Safe answer callback query helper
     async function safeAnswerCbQuery(ctx: any, text?: string) {
@@ -139,13 +159,120 @@ export function initReferralActions(bot: Telegraf<Context>) {
             }
         }
     }
-
+    
+    // Refresh referral stats
+    bot.action("REFRESH_REFERRAL", async (ctx) => {
+        await safeAnswerCbQuery(ctx);
+        const userId = ctx.from?.id as number;
+        
+        const user = await getUser(userId);
+        let referralCode = (user as any).referralCode;
+        if (!referralCode) {
+            referralCode = `REF${userId}${Date.now().toString().slice(-6)}`;
+            await updateUser(userId, { referralCode });
+        }
+        
+        const referralStats = await getReferralStats(userId);
+        const referralCount = referralStats.total;
+        const activeReferrals = referralStats.active;
+        const premiumDaysEarned = referralStats.premiumDaysEarned;
+        
+        const botUsername = (ctx as any).me || process.env.BOT_USERNAME || "anonymouschatbot";
+        const referralLink = `https://t.me/${botUsername}?start=${referralCode}`;
+        
+        const nextTier = getNextTier(referralCount);
+        let progressText = `🔄 <b>Updated Stats:</b>\n\n`;
+        progressText += `📊 Total: ${referralCount} | Active: ${activeReferrals} | Premium: ${premiumDaysEarned} days\n\n`;
+        
+        if (nextTier) {
+            const progress = Math.min(100, Math.round((referralCount / nextTier.count) * 100));
+            const remaining = nextTier.count - referralCount;
+            progressText += `🎯 Next: ${nextTier.badge} ${nextTier.reward} - ${remaining} more needed\n`;
+            progressText += `${createProgressBar(progress)}\n\n`;
+        }
+        
+        progressText += `🔗 ${referralLink}`;
+        
+        const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent("🌟 Join me on Anonymous Chat! Use my link:")}`;
+        
+        const buttons = [
+            [Markup.button.url("📤 Share", shareUrl)],
+            [Markup.button.callback("🔙 Back", "BACK_REFERRAL_MENU")]
+        ];
+        
+        await safeEditMessageText(ctx, progressText, { 
+            parse_mode: "HTML", 
+            ...Markup.inlineKeyboard(buttons)
+        });
+    });
+    
+    // Back to referral menu
+    bot.action("BACK_REFERRAL_MENU", async (ctx) => {
+        await safeAnswerCbQuery(ctx);
+        
+        const userId = ctx.from?.id as number;
+        const user = await getUser(userId);
+        let referralCode = (user as any).referralCode;
+        if (!referralCode) {
+            referralCode = `REF${userId}${Date.now().toString().slice(-6)}`;
+            await updateUser(userId, { referralCode });
+        }
+        
+        const referralStats = await getReferralStats(userId);
+        const referralCount = referralStats.total;
+        const activeReferrals = referralStats.active;
+        const premiumDaysEarned = referralStats.premiumDaysEarned;
+        
+        const nextTier = getNextTier(referralCount);
+        
+        const botUsername = (ctx as any).me || process.env.BOT_USERNAME || "anonymouschatbot";
+        const referralLink = `https://t.me/${botUsername}?start=${referralCode}`;
+        
+        let text = `🎁 <b>Referral Rewards</b>\n\n`;
+        text += `📊 <b>Your Stats:</b>\n`;
+        text += `   👥 Total Invited: ${referralCount}\n`;
+        text += `   ✅ Active Friends: ${activeReferrals}\n`;
+        text += `   🏆 Premium Earned: ${premiumDaysEarned} days\n\n`;
+        
+        if (nextTier) {
+            const progress = Math.min(100, Math.round((referralCount / nextTier.count) * 100));
+            const remaining = nextTier.count - referralCount;
+            text += `🎯 <b>Next Reward:</b> ${nextTier.badge} ${nextTier.reward}\n`;
+            text += `${createProgressBar(progress)} ${remaining} more to go!\n\n`;
+        } else {
+            text += `🎉 <b>Max Level Reached!</b> 🎉\n\n`;
+        }
+        
+        text += `🏅 <b>Tiers:</b>\n`;
+        for (const tier of REFERRAL_TIERS) {
+            const achieved = referralCount >= tier.count;
+            const status = achieved ? "✅" : "○";
+            text += `${status} ${tier.badge} ${tier.reward} (${tier.count})\n`;
+        }
+        
+        text += `\n🔗 <code>${referralLink}</code>`;
+        
+        const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent("🌟 Join me on Anonymous Chat! Use my link:")}`;
+        
+        const buttons = [
+            [Markup.button.url("📤 Share", shareUrl)],
+            [Markup.button.callback("🔄 Refresh", "REFRESH_REFERRAL")],
+            [Markup.button.callback("🔙 Main Menu", "BACK_MAIN_MENU")]
+        ];
+        
+        await safeEditMessageText(ctx, text, { 
+            parse_mode: "HTML", 
+            ...Markup.inlineKeyboard(buttons)
+        });
+    });
+    
     // Back to main menu
     bot.action("BACK_MAIN_MENU", async (ctx) => {
         await safeAnswerCbQuery(ctx);
         const mainMenuKeyboard = Markup.inlineKeyboard([
             [Markup.button.callback("🔍 Search", "START_SEARCH")],
             [Markup.button.callback("⚙️ Settings", "OPEN_SETTINGS")],
+            [Markup.button.callback("🎁 Referrals", "OPEN_REFERRAL")],
             [Markup.button.callback("❓ Help", "START_HELP")]
         ]);
         
@@ -158,4 +285,4 @@ export function initReferralActions(bot: Telegraf<Context>) {
 }
 
 // Export constants
-export { REFERRAL_GOAL, PREMIUM_DAYS };
+export { REFERRAL_TIERS };

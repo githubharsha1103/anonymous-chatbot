@@ -60,7 +60,7 @@ exports.default = {
     name: "start",
     description: "Start the bot",
     execute: (ctx, bot) => __awaiter(void 0, void 0, void 0, function* () {
-        var _a, _b, _c, _d, _e, _f;
+        var _a, _b, _c, _d, _e, _f, _g, _h;
         const userId = (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id;
         // Save user's username if available
         const username = ((_b = ctx.from) === null || _b === void 0 ? void 0 : _b.username) || ((_c = ctx.from) === null || _c === void 0 ? void 0 : _c.first_name) || "Unknown";
@@ -70,6 +70,10 @@ exports.default = {
         const user = yield (0, db_1.getUser)(userId);
         // Check for referral code in start parameter
         const startParam = ctx.startPayload || ((_f = (_e = (_d = ctx.update) === null || _d === void 0 ? void 0 : _d.message) === null || _e === void 0 ? void 0 : _e.text) === null || _f === void 0 ? void 0 : _f.split(" ")[1]);
+        console.log(`[START] - User ${userId} (${username}) starting`);
+        console.log(`[START] - startPayload: ${ctx.startPayload}`);
+        console.log(`[START] - message text: ${(_h = (_g = ctx.update) === null || _g === void 0 ? void 0 : _g.message) === null || _h === void 0 ? void 0 : _h.text}`);
+        console.log(`[START] - parsed startParam: ${startParam}`);
         // Initialize new user
         if (user.isNew) {
             // Build update data

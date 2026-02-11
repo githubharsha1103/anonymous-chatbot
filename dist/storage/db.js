@@ -32,6 +32,7 @@ exports.incUserTotalChats = incUserTotalChats;
 exports.updateLastActive = updateLastActive;
 exports.getInactiveUsers = getInactiveUsers;
 exports.getUserStats = getUserStats;
+exports.getReferralStats = getReferralStats;
 exports.getReferralCount = getReferralCount;
 exports.incrementReferralCount = incrementReferralCount;
 exports.getUserByReferralCode = getUserByReferralCode;
@@ -508,6 +509,68 @@ function getUserStats() {
     });
 }
 // ==================== REFERRAL FUNCTIONS ====================
+// Referral tier configuration
+const REFERRAL_TIERS = [
+    { count: 3, premiumDays: 1 },
+    { count: 7, premiumDays: 3 },
+    { count: 15, premiumDays: 7 },
+    { count: 30, premiumDays: 14 },
+    { count: 50, premiumDays: 30 }
+];
+// Calculate premium days earned based on referral count
+function calculatePremiumDays(referralCount) {
+    let totalDays = 0;
+    let previousCount = 0;
+    for (const tier of REFERRAL_TIERS) {
+        if (referralCount >= tier.count) {
+            // Calculate incremental days for this tier
+            const incrementalCount = tier.count - previousCount;
+            // Simplified: each tier gives its full premium days when reached
+            totalDays = tier.premiumDays;
+            previousCount = tier.count;
+        }
+        else if (referralCount > previousCount) {
+            // Partially completed tier - no partial rewards in this model
+            break;
+        }
+    }
+    return totalDays;
+}
+function getReferralStats(userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const user = yield getUser(userId);
+        const referralCount = user.referralCount || 0;
+        // Count active referrals (users who have been active in last 7 days)
+        const allUsers = yield getAllUsers();
+        const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+        let activeCount = 0;
+        for (const id of allUsers) {
+            const referredUser = yield getUser(parseInt(id));
+            if (referredUser.referredBy === user.referralCode) {
+                const lastActive = referredUser.lastActive || referredUser.createdAt || 0;
+                if (lastActive >= sevenDaysAgo) {
+                    activeCount++;
+                }
+            }
+        }
+        // Get premium days earned from user record
+        const premiumDaysEarned = user.totalPremiumDaysFromReferral || 0;
+        // Determine current tier
+        let currentTier = 0;
+        for (let i = REFERRAL_TIERS.length - 1; i >= 0; i--) {
+            if (referralCount >= REFERRAL_TIERS[i].count) {
+                currentTier = i + 1;
+                break;
+            }
+        }
+        return {
+            total: referralCount,
+            active: activeCount,
+            premiumDaysEarned,
+            currentTier
+        };
+    });
+}
 // Get user's referral count
 function getReferralCount(userId) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -554,8 +617,10 @@ function getUserByReferralCode(referralCode) {
 // Process a referral - call when a new user joins with a referral code
 function processReferral(referredUserId, referralCode) {
     return __awaiter(this, void 0, void 0, function* () {
+        console.log(`[REFERRAL] - processReferral called: referredUserId=${referredUserId}, referralCode=${referralCode}`);
         // Find the referrer
         const referrerId = yield getUserByReferralCode(referralCode);
+        console.log(`[REFERRAL] - getUserByReferralCode result: referrerId=${referrerId}`);
         if (!referrerId) {
             console.log(`[REFERRAL] - Invalid referral code: ${referralCode}`);
             return false;
@@ -567,19 +632,60 @@ function processReferral(referredUserId, referralCode) {
         }
         // Check if user was already referred by someone
         const referredUser = yield getUser(referredUserId);
+        console.log(`[REFERRAL] - referredUser.referredBy: ${referredUser.referredBy}`);
         if (referredUser.referredBy) {
             console.log(`[REFERRAL] - User ${referredUserId} was already referred by ${referredUser.referredBy}`);
             return false;
         }
         // Mark the referred user as having been referred
         yield updateUser(referredUserId, { referredBy: referralCode });
-        // Increment referrer's count using atomic update to prevent race conditions
+        console.log(`[REFERRAL] - Marked user ${referredUserId} as referred by ${referralCode}`);
+        // Get referrer's current state before increment
+        const referrer = yield getUser(referrerId);
+        const oldCount = referrer.referralCount || 0;
+        const claimedTiers = referrer.referralTiersClaimed || [];
+        console.log(`[REFERRAL] - Referrer ${referrerId} current count: ${oldCount}`);
+        // Increment referrer's count using atomic update
         console.log(`[REFERRAL] - About to increment referral count for referrer ${referrerId}`);
         yield atomicIncrementReferralCount(referrerId);
-        // Verify the increment
+        // Verify and get new count
         const newCount = yield getReferralCount(referrerId);
         console.log(`[REFERRAL] - Referral count for user ${referrerId} is now: ${newCount}`);
-        console.log(`[REFERRAL] - User ${referredUserId} successfully referred by ${referrerId}`);
+        // Check for newly reached tiers and award premium
+        let newPremiumDays = 0;
+        const newlyClaimedTiers = [];
+        for (let i = 0; i < REFERRAL_TIERS.length; i++) {
+            const tier = REFERRAL_TIERS[i];
+            const tierCount = tier.count;
+            // If this tier is newly reached (old count < tier <= new count)
+            if (oldCount < tierCount && newCount >= tierCount) {
+                if (!claimedTiers.includes(tierCount)) {
+                    // Award premium days for this tier
+                    newPremiumDays += tier.premiumDays;
+                    claimedTiers.push(tierCount);
+                    newlyClaimedTiers.push(tierCount);
+                    console.log(`[REFERRAL] - User ${referrerId} reached tier ${tierCount}! Awarding ${tier.premiumDays} premium days`);
+                }
+            }
+        }
+        // Update referrer with new premium days and claimed tiers
+        if (newPremiumDays > 0) {
+            const currentPremiumDays = referrer.totalPremiumDaysFromReferral || 0;
+            const newTotalPremiumDays = currentPremiumDays + newPremiumDays;
+            // Extend premium expiry
+            const currentExpiry = referrer.premiumExpiry || 0;
+            const newExpiry = Math.max(currentExpiry, Date.now()) + (newPremiumDays * 24 * 60 * 60 * 1000);
+            yield updateUser(referrerId, {
+                premium: true,
+                premiumExpiry: newExpiry,
+                referralTiersClaimed: claimedTiers,
+                totalPremiumDaysFromReferral: newTotalPremiumDays
+            });
+            console.log(`[REFERRAL] - User ${referrerId} earned ${newPremiumDays} premium days! Total: ${newTotalPremiumDays} days`);
+            // Notify the referrer (optional - could send a message)
+            console.log(`[REFERRAL] - Tier rewards: ${newlyClaimedTiers.join(", ")} claimed`);
+        }
+        console.log(`[REFERRAL] - SUCCESS: User ${referredUserId} successfully referred by ${referrerId}`);
         return true;
     });
 }

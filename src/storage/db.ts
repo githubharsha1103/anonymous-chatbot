@@ -47,7 +47,8 @@ export interface User {
   referralCode?: string; // User's unique referral code
   referredBy?: string; // The referral code used when signing up
   referralCount?: number; // Number of users this user has referred
-  premiumFromReferral?: boolean; // Whether premium was earned through referrals
+  referralTiersClaimed?: number[]; // Array of tier counts that have been claimed
+  totalPremiumDaysFromReferral?: number; // Total premium days earned from referrals
   premiumExpiry?: number; // Premium expiry timestamp
 }
 
@@ -516,6 +517,83 @@ export async function getUserStats(): Promise<{
 
 // ==================== REFERRAL FUNCTIONS ====================
 
+// Referral tier configuration
+const REFERRAL_TIERS = [
+    { count: 3, premiumDays: 1 },
+    { count: 7, premiumDays: 3 },
+    { count: 15, premiumDays: 7 },
+    { count: 30, premiumDays: 14 },
+    { count: 50, premiumDays: 30 }
+];
+
+// Calculate premium days earned based on referral count
+function calculatePremiumDays(referralCount: number): number {
+    let totalDays = 0;
+    let previousCount = 0;
+    
+    for (const tier of REFERRAL_TIERS) {
+        if (referralCount >= tier.count) {
+            // Calculate incremental days for this tier
+            const incrementalCount = tier.count - previousCount;
+            // Simplified: each tier gives its full premium days when reached
+            totalDays = tier.premiumDays;
+            previousCount = tier.count;
+        } else if (referralCount > previousCount) {
+            // Partially completed tier - no partial rewards in this model
+            break;
+        }
+    }
+    
+    return totalDays;
+}
+
+// Get detailed referral statistics
+interface ReferralStats {
+    total: number;
+    active: number;
+    premiumDaysEarned: number;
+    currentTier: number;
+}
+
+export async function getReferralStats(userId: number): Promise<ReferralStats> {
+    const user = await getUser(userId);
+    const referralCount = user.referralCount || 0;
+    
+    // Count active referrals (users who have been active in last 7 days)
+    const allUsers = await getAllUsers();
+    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+    let activeCount = 0;
+    
+    for (const id of allUsers) {
+        const referredUser = await getUser(parseInt(id));
+        if (referredUser.referredBy === user.referralCode) {
+            const lastActive = referredUser.lastActive || referredUser.createdAt || 0;
+            if (lastActive >= sevenDaysAgo) {
+                activeCount++;
+            }
+        }
+    }
+    
+    // Get premium days earned from user record
+    const premiumDaysEarned = user.totalPremiumDaysFromReferral || 0;
+    
+    // Determine current tier
+    let currentTier = 0;
+    for (let i = REFERRAL_TIERS.length - 1; i >= 0; i--) {
+        if (referralCount >= REFERRAL_TIERS[i].count) {
+            currentTier = i + 1;
+            break;
+        }
+    }
+    
+    return {
+        total: referralCount,
+        active: activeCount,
+        premiumDaysEarned,
+        currentTier
+    };
+}
+
 // Get user's referral count
 export async function getReferralCount(userId: number): Promise<number> {
   const user = await getUser(userId);
@@ -558,8 +636,11 @@ export async function getUserByReferralCode(referralCode: string): Promise<numbe
 
 // Process a referral - call when a new user joins with a referral code
 export async function processReferral(referredUserId: number, referralCode: string): Promise<boolean> {
+  console.log(`[REFERRAL] - processReferral called: referredUserId=${referredUserId}, referralCode=${referralCode}`);
+  
   // Find the referrer
   const referrerId = await getUserByReferralCode(referralCode);
+  console.log(`[REFERRAL] - getUserByReferralCode result: referrerId=${referrerId}`);
   
   if (!referrerId) {
     console.log(`[REFERRAL] - Invalid referral code: ${referralCode}`);
@@ -574,6 +655,8 @@ export async function processReferral(referredUserId: number, referralCode: stri
   
   // Check if user was already referred by someone
   const referredUser = await getUser(referredUserId);
+  console.log(`[REFERRAL] - referredUser.referredBy: ${referredUser.referredBy}`);
+  
   if (referredUser.referredBy) {
     console.log(`[REFERRAL] - User ${referredUserId} was already referred by ${referredUser.referredBy}`);
     return false;
@@ -581,16 +664,65 @@ export async function processReferral(referredUserId: number, referralCode: stri
   
   // Mark the referred user as having been referred
   await updateUser(referredUserId, { referredBy: referralCode });
+  console.log(`[REFERRAL] - Marked user ${referredUserId} as referred by ${referralCode}`);
   
-  // Increment referrer's count using atomic update to prevent race conditions
+  // Get referrer's current state before increment
+  const referrer = await getUser(referrerId);
+  const oldCount = referrer.referralCount || 0;
+  const claimedTiers = referrer.referralTiersClaimed || [];
+  console.log(`[REFERRAL] - Referrer ${referrerId} current count: ${oldCount}`);
+  
+  // Increment referrer's count using atomic update
   console.log(`[REFERRAL] - About to increment referral count for referrer ${referrerId}`);
   await atomicIncrementReferralCount(referrerId);
   
-  // Verify the increment
+  // Verify and get new count
   const newCount = await getReferralCount(referrerId);
   console.log(`[REFERRAL] - Referral count for user ${referrerId} is now: ${newCount}`);
   
-  console.log(`[REFERRAL] - User ${referredUserId} successfully referred by ${referrerId}`);
+  // Check for newly reached tiers and award premium
+  let newPremiumDays = 0;
+  const newlyClaimedTiers: number[] = [];
+  
+  for (let i = 0; i < REFERRAL_TIERS.length; i++) {
+    const tier = REFERRAL_TIERS[i];
+    const tierCount = tier.count;
+    
+    // If this tier is newly reached (old count < tier <= new count)
+    if (oldCount < tierCount && newCount >= tierCount) {
+      if (!claimedTiers.includes(tierCount)) {
+        // Award premium days for this tier
+        newPremiumDays += tier.premiumDays;
+        claimedTiers.push(tierCount);
+        newlyClaimedTiers.push(tierCount);
+        console.log(`[REFERRAL] - User ${referrerId} reached tier ${tierCount}! Awarding ${tier.premiumDays} premium days`);
+      }
+    }
+  }
+  
+  // Update referrer with new premium days and claimed tiers
+  if (newPremiumDays > 0) {
+    const currentPremiumDays = referrer.totalPremiumDaysFromReferral || 0;
+    const newTotalPremiumDays = currentPremiumDays + newPremiumDays;
+    
+    // Extend premium expiry
+    const currentExpiry = referrer.premiumExpiry || 0;
+    const newExpiry = Math.max(currentExpiry, Date.now()) + (newPremiumDays * 24 * 60 * 60 * 1000);
+    
+    await updateUser(referrerId, {
+      premium: true,
+      premiumExpiry: newExpiry,
+      referralTiersClaimed: claimedTiers,
+      totalPremiumDaysFromReferral: newTotalPremiumDays
+    });
+    
+    console.log(`[REFERRAL] - User ${referrerId} earned ${newPremiumDays} premium days! Total: ${newTotalPremiumDays} days`);
+    
+    // Notify the referrer (optional - could send a message)
+    console.log(`[REFERRAL] - Tier rewards: ${newlyClaimedTiers.join(", ")} claimed`);
+  }
+  
+  console.log(`[REFERRAL] - SUCCESS: User ${referredUserId} successfully referred by ${referrerId}`);
   return true;
 }
 
