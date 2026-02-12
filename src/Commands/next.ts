@@ -98,19 +98,27 @@ export default {
 
       // Find a compatible match
       // Bidirectional matching: both users must be compatible
-      // 1. Current user's preference must match waiting user's gender
-      // 2. Waiting user's preference must match current user's gender
-      const matchIndex = bot.waitingQueue.findIndex(waiting => {
-        const w = waiting as WaitingUser;
+      // We fetch fresh user data from DB to ensure preferences are up-to-date
+      let matchIndex = -1;
+      
+      for (let i = 0; i < bot.waitingQueue.length; i++) {
+        const w = bot.waitingQueue[i] as WaitingUser;
+        
+        // Fetch fresh user data for the waiting user
+        const waitingUserData = await getUser(w.id);
         
         // Check if waiting user's gender matches current user's preference
-        const genderMatches = !matchPreference || w.gender === matchPreference;
+        const genderMatches = !matchPreference || (waitingUserData.gender || "any") === matchPreference;
         
         // Check if current user's gender matches waiting user's preference
-        const preferenceMatches = !w.preference || w.preference === "any" || w.preference === gender;
+        const waitingPref = waitingUserData.preference || "any";
+        const preferenceMatches = waitingPref === "any" || waitingPref === gender;
         
-        return genderMatches && preferenceMatches;
-      });
+        if (genderMatches && preferenceMatches) {
+          matchIndex = i;
+          break;
+        }
+      }
 
       if (matchIndex !== -1) {
         const match = bot.waitingQueue[matchIndex] as WaitingUser;
