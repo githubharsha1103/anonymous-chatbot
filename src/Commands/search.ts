@@ -205,10 +205,26 @@ export default {
           matchPartnerInfo
         );
 
-        // If message failed to send (partner blocked/removed bot), end the chat
+        // If message failed to send, check if partner is still in running chats
+        // They might have network issues, but we can try to reconnect
         if (!matchSent) {
-          endChatDueToError(bot, userId, match.id);
-          return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+          // Check if partner is still in running chats (they haven't left)
+          const partnerStillThere = bot.runningChats.includes(match.id);
+          
+          if (partnerStillThere) {
+            // Partner is still there - maybe network issue, try to notify and let them continue waiting
+            // Don't end the chat completely, just notify the current user
+            await sendMessageWithRetry(bot, match.id, "⚠️ Connection issue. Please wait...", { parse_mode: "Markdown" });
+            
+            // Add current user back to queue to find another partner
+            bot.waitingQueue.push({ id: userId, preference, gender, isPremium } as WaitingUser);
+            
+            return ctx.reply("⚠️ Temporary connection issue with partner. You've been added back to the queue...\n⏳ Waiting for a new partner...");
+          } else {
+            // Partner has actually left (was removed from running chats by cleanup)
+            endChatDueToError(bot, userId, match.id);
+            return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+          }
         }
 
         return ctx.reply(userPartnerInfo);
