@@ -97,16 +97,19 @@ export default {
       const matchPreference = (isPremium && preference !== "any") ? preference : null;
 
       // Find a compatible match
+      // Bidirectional matching: both users must be compatible
+      // 1. Current user's preference must match waiting user's gender
+      // 2. Waiting user's preference must match current user's gender
       const matchIndex = bot.waitingQueue.findIndex(waiting => {
         const w = waiting as WaitingUser;
         
-        if (matchPreference) {
-          // Premium user with specific preference - only match with that gender
-          return w.gender === matchPreference;
-        } else {
-          // Normal user or "any" preference - match with anyone
-          return true;
-        }
+        // Check if waiting user's gender matches current user's preference
+        const genderMatches = !matchPreference || w.gender === matchPreference;
+        
+        // Check if current user's gender matches waiting user's preference
+        const preferenceMatches = !w.preference || w.preference === "any" || w.preference === gender;
+        
+        return genderMatches && preferenceMatches;
       });
 
       if (matchIndex !== -1) {
