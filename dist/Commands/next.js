@@ -77,17 +77,23 @@ exports.default = {
             // Otherwise (free user or "any" preference), match with anyone
             const matchPreference = (isPremium && preference !== "any") ? preference : null;
             // Find a compatible match
-            const matchIndex = bot.waitingQueue.findIndex(waiting => {
-                const w = waiting;
-                if (matchPreference) {
-                    // Premium user with specific preference - only match with that gender
-                    return w.gender === matchPreference;
+            // Bidirectional matching: both users must be compatible
+            // We fetch fresh user data from DB to ensure preferences are up-to-date
+            let matchIndex = -1;
+            for (let i = 0; i < bot.waitingQueue.length; i++) {
+                const w = bot.waitingQueue[i];
+                // Fetch fresh user data for the waiting user
+                const waitingUserData = yield (0, db_1.getUser)(w.id);
+                // Check if waiting user's gender matches current user's preference
+                const genderMatches = !matchPreference || (waitingUserData.gender || "any") === matchPreference;
+                // Check if current user's gender matches waiting user's preference
+                const waitingPref = waitingUserData.preference || "any";
+                const preferenceMatches = waitingPref === "any" || waitingPref === gender;
+                if (genderMatches && preferenceMatches) {
+                    matchIndex = i;
+                    break;
                 }
-                else {
-                    // Normal user or "any" preference - match with anyone
-                    return true;
-                }
-            });
+            }
             if (matchIndex !== -1) {
                 const match = bot.waitingQueue[matchIndex];
                 const matchUser = yield (0, db_1.getUser)(match.id);
@@ -135,10 +141,23 @@ exports.default = {
 /end — Leave the chat`;
                 // Use sendMessageWithRetry to handle blocked matches
                 const matchSent = yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, match.id, matchPartnerInfo);
-                // If message failed to send, end the chat
+                // If message failed to send, check if partner is still in running chats
                 if (!matchSent) {
-                    (0, telegramErrorHandler_1.endChatDueToError)(bot, userId, match.id);
-                    return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+                    // Check if partner is still in running chats (they haven't left)
+                    const partnerStillThere = bot.runningChats.includes(match.id);
+                    if (partnerStillThere) {
+                        // Partner is still there - maybe network issue, try to notify and let them continue waiting
+                        yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, match.id, "⚠️ Connection issue. Please wait...", { parse_mode: "Markdown" });
+                        // Add current user back to queue to find another partner
+                        const currentGender = yield (0, db_1.getGender)(userId);
+                        bot.waitingQueue.push({ id: userId, preference, gender: currentGender || "any", isPremium });
+                        return ctx.reply("⚠️ Temporary connection issue with partner. You've been added back to the queue...\n⏳ Waiting for a new partner...");
+                    }
+                    else {
+                        // Partner has actually left
+                        (0, telegramErrorHandler_1.endChatDueToError)(bot, userId, match.id);
+                        return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+                    }
                 }
                 return ctx.reply(userPartnerInfo);
             }

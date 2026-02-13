@@ -199,8 +199,14 @@ exports.bot.command("broadcast", (ctx) => __awaiter(void 0, void 0, void 0, func
     }
     // Send broadcast with rate limiting
     const userIds = users.map(id => Number(id)).filter(id => !isNaN(id));
-    const { success, failed } = yield (0, telegramErrorHandler_1.broadcastWithRateLimit)(exports.bot, userIds, msg);
-    ctx.reply(`Broadcast completed!\n✅ Sent: ${success}\n❌ Failed: ${failed}`);
+    const { success, failed, failedUserIds } = yield (0, telegramErrorHandler_1.broadcastWithRateLimit)(exports.bot, userIds, msg);
+    // Delete users who failed to receive broadcast (blocked or deactivated)
+    let deletedCount = 0;
+    for (const userId of failedUserIds) {
+        yield (0, db_1.deleteUser)(userId, "Broadcast failed - blocked or deactivated");
+        deletedCount++;
+    }
+    ctx.reply(`Broadcast completed!\n✅ Sent: ${success}\n❌ Failed: ${failed}\n🗑️ Deleted: ${deletedCount}`);
 }));
 /* ---------------- ADMIN ACTIVE CHATS ---------------- */
 exports.bot.command("active", (ctx) => {
@@ -297,6 +303,22 @@ else {
     // For local development, use long polling
     console.log("[INFO] - Using long polling (local development)");
     exports.bot.launch();
+}
+// Keep-alive mechanism to prevent bot from stopping due to inactivity
+// This periodically sends a request to Telegram to keep the connection alive
+const KEEPALIVE_INTERVAL = parseInt(process.env.KEEPALIVE_INTERVAL || "300000", 10); // 5 minutes default
+if (KEEPALIVE_INTERVAL > 0) {
+    console.log(`[INFO] - Starting keep-alive ping every ${KEEPALIVE_INTERVAL / 1000} seconds`);
+    setInterval(() => __awaiter(void 0, void 0, void 0, function* () {
+        try {
+            // Send a getMe request to keep the connection alive
+            yield exports.bot.telegram.getMe();
+            console.log("[KEEPALIVE] - Bot connection is active");
+        }
+        catch (error) {
+            console.error("[KEEPALIVE] - Error:", error);
+        }
+    }), KEEPALIVE_INTERVAL);
 }
 process.on("unhandledRejection", (reason, promise) => {
     console.error("[UNHANDLED REJECTION] -", reason);

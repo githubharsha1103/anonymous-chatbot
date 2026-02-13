@@ -192,13 +192,22 @@ function initAdminActions(bot) {
         const user1Messages = bot.messageCountMap.get(user1) || 0;
         const user2Messages = bot.messageCountMap.get(user2) || 0;
         const totalMessages = user1Messages + user2Messages;
+        // Format user info with gender and username
+        const formatUserInfo = (userData, userId) => {
+            const name = userData.name || "Unknown";
+            const gender = userData.gender ? (userData.gender.charAt(0).toUpperCase() + userData.gender.slice(1)) : "Not set";
+            const age = userData.age || "Not set";
+            const state = userData.state || "Not set";
+            return `<b>${name}</b> (${userId})\n` +
+                `👤 Gender: ${gender} | Age: ${age} | 📍 ${state}`;
+        };
         const keyboard = telegraf_1.Markup.inlineKeyboard([
             [telegraf_1.Markup.button.callback("🛑 Terminate Chat", `ADMIN_TERMINATE_${user1}_${user2}`)],
             [telegraf_1.Markup.button.callback("🔙 Exit Spectator Mode", `ADMIN_EXIT_SPECTATE`)]
         ]);
         yield safeEditMessageText(ctx, `<b>👁️ Spectating Chat</b>\n\n` +
-            `👤 User 1: <code>${user1}</code>\n` +
-            `👤 User 2: <code>${user2}</code>\n\n` +
+            `<b>User 1:</b>\n${formatUserInfo(user1Data, user1)}\n\n` +
+            `<b>User 2:</b>\n${formatUserInfo(user2Data, user2)}\n\n` +
             `<b>⏱️ Duration:</b> ${durationText}\n` +
             `<b>💬 Messages:</b> ${totalMessages} (U1: ${user1Messages}, U2: ${user2Messages})\n\n` +
             `Messages from this chat will be forwarded here in real-time.\n\n` +

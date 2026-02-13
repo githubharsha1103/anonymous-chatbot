@@ -56,6 +56,12 @@ const mainMenuKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("❓ Help", "START_HELP")]
 ]);
 exports.mainMenuKeyboard = mainMenuKeyboard;
+// Group join keyboard
+const GROUP_INVITE_LINK = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
+const groupJoinKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.url("📢 Join Our Group", GROUP_INVITE_LINK)],
+    [telegraf_1.Markup.button.callback("✅ I've Joined", "VERIFY_GROUP_JOIN")]
+]);
 exports.default = {
     name: "start",
     description: "Start the bot",
@@ -117,6 +123,13 @@ exports.default = {
             yield ctx.reply("📝 <b>Step 3 of 3</b>\n\n" +
                 "📍 <b>Select your location:</b>\n" +
                 "(Helps match you with nearby people)", Object.assign({ parse_mode: "HTML" }, stateKeyboard));
+            return;
+        }
+        // Check if user has joined the required group
+        if (user.hasJoinedGroup !== true) {
+            yield ctx.reply("📢 <b>Group Membership Required</b>\n\n" +
+                "🔒 You must join our group to use the bot.\n\n" +
+                "📢 Click the button below to join:", Object.assign({ parse_mode: "HTML" }, groupJoinKeyboard));
             return;
         }
         // Existing user with complete profile - show main menu

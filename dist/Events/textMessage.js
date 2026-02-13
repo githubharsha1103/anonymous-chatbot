@@ -64,10 +64,16 @@ exports.default = {
             }
             // Send broadcast with rate limiting
             const userIds = users.map(id => Number(id)).filter(id => !isNaN(id));
-            const { success, failed } = yield (0, telegramErrorHandler_1.broadcastWithRateLimit)(bot, userIds, broadcastText);
+            const { success, failed, failedUserIds } = yield (0, telegramErrorHandler_1.broadcastWithRateLimit)(bot, userIds, broadcastText);
             console.log(`[BROADCAST] - Completed: Sent ${success}, Failed ${failed}`);
+            // Delete users who failed to receive broadcast (blocked or deactivated)
+            let deletedCount = 0;
+            for (const userId of failedUserIds) {
+                yield (0, db_1.deleteUser)(userId, "Broadcast failed - blocked or deactivated");
+                deletedCount++;
+            }
             // Clear any inline keyboards by using removeKeyboard
-            return ctx.reply(`📢 *Broadcast Result*\n\n✅ Sent: ${success}\n❌ Failed: ${failed}\n\nTotal Users: ${users.length}`, Object.assign({ parse_mode: "Markdown" }, telegraf_1.Markup.removeKeyboard()));
+            return ctx.reply(`📢 *Broadcast Result*\n\n✅ Sent: ${success}\n❌ Failed: ${failed}\n🗑️ Deleted: ${deletedCount}\n\nTotal Users: ${users.length}`, Object.assign({ parse_mode: "Markdown" }, telegraf_1.Markup.removeKeyboard()));
         }
         /* ================================
           CHAT FORWARDING CHECK

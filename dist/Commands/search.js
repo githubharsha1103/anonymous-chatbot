@@ -30,6 +30,12 @@ const setupStateKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
     [telegraf_1.Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
 ]);
+// Group join keyboard
+const GROUP_INVITE_LINK = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
+const groupJoinKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.url("📢 Join Our Group", GROUP_INVITE_LINK)],
+    [telegraf_1.Markup.button.callback("✅ I've Joined", "VERIFY_GROUP_JOIN")]
+]);
 // Function to redirect user to complete setup
 function redirectToSetup(ctx) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -59,6 +65,22 @@ function redirectToSetup(ctx) {
         return null; // Setup is complete
     });
 }
+// Function to check if user is group member (re-verifies on each search for security)
+function isUserGroupMember(bot, userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID || "-1001234567890";
+            // Use GROUP_CHAT_ID directly - Telegram API requires numeric chat ID
+            const chatMember = yield bot.telegram.getChatMember(GROUP_CHAT_ID, userId);
+            const validStatuses = ['creator', 'administrator', 'member', 'restricted'];
+            return validStatuses.includes(chatMember.status);
+        }
+        catch (error) {
+            console.error(`[GroupCheck] - Error checking group membership for user ${userId}:`, error);
+            return false;
+        }
+    });
+}
 exports.default = {
     name: "search",
     description: "Search for a chat",
@@ -77,6 +99,17 @@ exports.default = {
         const user = yield (0, db_1.getUser)(userId);
         if (!user.gender || !user.age || !user.state) {
             return redirectToSetup(ctx);
+        }
+        // Check if user has joined the required group (re-verify for security)
+        const hasJoined = user.hasJoinedGroup === true && (yield isUserGroupMember(bot, userId));
+        if (!hasJoined) {
+            // Update database to remove verified status if they're no longer in group
+            yield (0, db_1.updateUser)(userId, { hasJoinedGroup: false });
+            return ctx.reply("📢 *Group Membership Required*\n\n" +
+                "🔒 You must join our group before you can search for chat partners.\n\n" +
+                "📢 Click the link below to join:\n" +
+                GROUP_INVITE_LINK + "\n\n" +
+                "After joining, click /start to verify and unlock all features!", Object.assign({ parse_mode: "Markdown" }, groupJoinKeyboard));
         }
         // Acquire mutex to prevent race conditions
         yield bot.queueMutex.acquire();
@@ -99,17 +132,23 @@ exports.default = {
             // Otherwise (free user or "any" preference), match with anyone
             const matchPreference = (isPremium && preference !== "any") ? preference : null;
             // Find a compatible match from the queue
-            const matchIndex = bot.waitingQueue.findIndex(waiting => {
-                const w = waiting;
-                if (matchPreference) {
-                    // Premium user with specific preference - only match with that gender
-                    return w.gender === matchPreference;
+            // Bidirectional matching: both users must be compatible
+            // We fetch fresh user data from DB to ensure preferences are up-to-date
+            let matchIndex = -1;
+            for (let i = 0; i < bot.waitingQueue.length; i++) {
+                const w = bot.waitingQueue[i];
+                // Fetch fresh user data for the waiting user
+                const waitingUserData = yield (0, db_1.getUser)(w.id);
+                // Check if waiting user's gender matches current user's preference
+                const genderMatches = !matchPreference || (waitingUserData.gender || "any") === matchPreference;
+                // Check if current user's gender matches waiting user's preference
+                const waitingPref = waitingUserData.preference || "any";
+                const preferenceMatches = waitingPref === "any" || waitingPref === gender;
+                if (genderMatches && preferenceMatches) {
+                    matchIndex = i;
+                    break;
                 }
-                else {
-                    // Normal user or "any" preference - match with anyone
-                    return true;
-                }
-            });
+            }
             if (matchIndex !== -1) {
                 const match = bot.waitingQueue[matchIndex];
                 const matchUser = yield (0, db_1.getUser)(match.id);
@@ -162,10 +201,24 @@ exports.default = {
 /end — Leave the chat`;
                 // Use sendMessageWithRetry to handle blocked partners
                 const matchSent = yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, match.id, matchPartnerInfo);
-                // If message failed to send (partner blocked/removed bot), end the chat
+                // If message failed to send, check if partner is still in running chats
+                // They might have network issues, but we can try to reconnect
                 if (!matchSent) {
-                    (0, telegramErrorHandler_1.endChatDueToError)(bot, userId, match.id);
-                    return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+                    // Check if partner is still in running chats (they haven't left)
+                    const partnerStillThere = bot.runningChats.includes(match.id);
+                    if (partnerStillThere) {
+                        // Partner is still there - maybe network issue, try to notify and let them continue waiting
+                        // Don't end the chat completely, just notify the current user
+                        yield (0, telegramErrorHandler_1.sendMessageWithRetry)(bot, match.id, "⚠️ Connection issue. Please wait...", { parse_mode: "Markdown" });
+                        // Add current user back to queue to find another partner
+                        bot.waitingQueue.push({ id: userId, preference, gender, isPremium });
+                        return ctx.reply("⚠️ Temporary connection issue with partner. You've been added back to the queue...\n⏳ Waiting for a new partner...");
+                    }
+                    else {
+                        // Partner has actually left (was removed from running chats by cleanup)
+                        (0, telegramErrorHandler_1.endChatDueToError)(bot, userId, match.id);
+                        return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+                    }
                 }
                 return ctx.reply(userPartnerInfo);
             }

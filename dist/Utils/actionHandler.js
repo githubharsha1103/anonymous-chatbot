@@ -83,6 +83,33 @@ const mainMenuKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.callback("⚙️ Settings", "OPEN_SETTINGS")],
     [telegraf_1.Markup.button.callback("❓ Help", "START_HELP")]
 ]);
+// Group verification settings
+const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID || "-1001234567890";
+const GROUP_INVITE_LINK = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
+// Cache for resolved chat ID
+let resolvedChatId = null;
+// Keyboard for group join verification
+const groupJoinKeyboard = telegraf_1.Markup.inlineKeyboard([
+    [telegraf_1.Markup.button.url("📢 Join Our Group", GROUP_INVITE_LINK)],
+    [telegraf_1.Markup.button.callback("✅ I've Joined", "VERIFY_GROUP_JOIN")]
+]);
+// Check if user is a member of the group
+function isUserGroupMember(userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            // Use GROUP_CHAT_ID directly - Telegram API requires numeric chat ID
+            const chatId = GROUP_CHAT_ID;
+            const chatMember = yield index_1.bot.telegram.getChatMember(chatId, userId);
+            // Member status: 'creator', 'administrator', 'member', 'restricted' are valid
+            const validStatuses = ['creator', 'administrator', 'member', 'restricted'];
+            return validStatuses.includes(chatMember.status);
+        }
+        catch (error) {
+            console.error(`[GroupCheck] - Error checking group membership for user ${userId}:`, error);
+            return false;
+        }
+    });
+}
 // Safe answerCallbackQuery helper
 function safeAnswerCbQuery(ctx, text) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -544,7 +571,43 @@ function showSetupComplete(ctx) {
         const genderEmoji = user.gender === "male" ? "👨" : user.gender === "female" ? "👩" : "❓";
         const genderText = user.gender ? (user.gender.charAt(0).toUpperCase() + user.gender.slice(1)) : "Not Set";
         const stateText = user.state === "Other" ? "🌍 Other" : (user.state || "Not Set");
-        const text = `✨ *Profile Complete!* ✨
+        // Check if user has joined the group
+        const hasJoined = user.hasJoinedGroup === true;
+        let text;
+        let keyboard;
+        if (hasJoined) {
+            // User has joined group - show main menu
+            text =
+                `✨ *Profile Complete!* ✨\n\n` +
+                    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                    `📋 *Your Profile:*\n\n` +
+                    `${genderEmoji} *Gender:* ${genderText}\n` +
+                    `🎂 *Age:* ${user.age || "Not Set"}\n` +
+                    `📍 *Location:* ${stateText}\n\n` +
+                    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                    `🎉 *You're all set to start chatting!*/search - Find a chat partner now\n` +
+                    `⚙️ /settings - Update your profile anytime\n` +
+                    `❓ /help - Get help with commands\n\n` +
+                    `💡 *Tip:* Be friendly and respectful for the best experience!`;
+            keyboard = mainMenuKeyboard;
+        }
+        else {
+            // User hasn't joined group yet - show group join requirement
+            text =
+                `✨ *Profile Complete!* ✨\n\n` +
+                    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                    `📋 *Your Profile:*\n\n` +
+                    `${genderEmoji} *Gender:* ${genderText}\n` +
+                    `🎂 *Age:* ${user.age || "Not Set"}\n` +
+                    `📍 *Location:* ${stateText}\n\n` +
+                    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                    `🎉 *Almost there!*\n\n` +
+                    `📢 *Please join our group to start chatting!*\n\n` +
+                    `This helps us keep the community safe and verified.\n\n` +
+                    `Click the button below to join, then confirm!`;
+            keyboard = groupJoinKeyboard;
+        }
+        `✨ *Profile Complete!* ✨
 
 ` +
             `━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -558,12 +621,12 @@ function showSetupComplete(ctx) {
             `❓ /help - Get help with commands\n\n` +
             `💡 *Tip:* Be friendly and respectful for the best experience!`;
         try {
-            yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
+            yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, keyboard));
         }
         catch (error) {
             if (!((_a = error.description) === null || _a === void 0 ? void 0 : _a.includes("message is not modified"))) {
                 yield safeAnswerCbQuery(ctx);
-                yield ctx.reply(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
+                yield ctx.reply(text, Object.assign({ parse_mode: "Markdown" }, keyboard));
             }
         }
     });
@@ -572,6 +635,30 @@ function showSetupComplete(ctx) {
 index_1.bot.action("SETUP_DONE", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     yield safeAnswerCbQuery(ctx);
     yield showSetupComplete(ctx);
+}));
+// ========================================
+// GROUP VERIFICATION SYSTEM
+// ========================================
+// User clicks "I've Joined" button - verify group membership
+index_1.bot.action("VERIFY_GROUP_JOIN", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
+    if (!ctx.from)
+        return;
+    yield safeAnswerCbQuery(ctx);
+    const userId = ctx.from.id;
+    // Check if user is actually a member of the group
+    const isMember = yield isUserGroupMember(userId);
+    if (isMember) {
+        // User joined - update database and show main menu
+        yield (0, db_1.updateUser)(userId, { hasJoinedGroup: true });
+        yield safeAnswerCbQuery(ctx, "✅ Welcome to the group! You can now start chatting!");
+        yield showSetupComplete(ctx);
+    }
+    else {
+        // User hasn't joined - show error
+        yield safeAnswerCbQuery(ctx, "❌ You haven't joined the group yet! Please click the link to join.");
+        // Re-show the group join message
+        yield showSetupComplete(ctx);
+    }
 }));
 // ========================================
 // CHAT RATING SYSTEM

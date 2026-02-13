@@ -738,13 +738,16 @@ bot.action("SETUP_DONE", async (ctx) => {
 
 // User clicks "I've Joined" button - verify group membership
 bot.action("VERIFY_GROUP_JOIN", async (ctx) => {
+    console.log("[GroupCheck] - VERIFY_GROUP_JOIN action triggered by user:", ctx.from?.id);
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
     
     const userId = ctx.from.id;
+    console.log("[GroupCheck] - Checking membership for user:", userId);
     
     // Check if user is actually a member of the group
     const isMember = await isUserGroupMember(userId);
+    console.log("[GroupCheck] - User", userId, "is member:", isMember);
     
     if (isMember) {
         // User joined - update database and show main menu

@@ -305,6 +305,7 @@ function broadcastWithRateLimit(bot, userIds, text, onProgress) {
     return __awaiter(this, void 0, void 0, function* () {
         let success = 0;
         let failed = 0;
+        const failedUserIds = [];
         for (const userId of userIds) {
             const result = yield sendMessageWithRetry(bot, userId, text);
             if (result) {
@@ -312,6 +313,7 @@ function broadcastWithRateLimit(bot, userIds, text, onProgress) {
             }
             else {
                 failed++;
+                failedUserIds.push(userId);
             }
             if (onProgress) {
                 onProgress(success, failed);
@@ -321,6 +323,6 @@ function broadcastWithRateLimit(bot, userIds, text, onProgress) {
                 yield new Promise(resolve => setTimeout(resolve, MIN_DELAY_MS));
             }
         }
-        return { success, failed };
+        return { success, failed, failedUserIds };
     });
 }
