@@ -93,9 +93,6 @@ const mainMenuKeyboard = Markup.inlineKeyboard([
 const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID || "-1001234567890";
 const GROUP_INVITE_LINK = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
 
-// Cache for resolved chat ID
-let resolvedChatId: string | null = null;
-
 // Keyboard for group join verification
 const groupJoinKeyboard = Markup.inlineKeyboard([
     [Markup.button.url("📢 Join Our Group", GROUP_INVITE_LINK)],
@@ -149,17 +146,17 @@ async function showSettings(ctx: ActionContext) {
     const referralCount = await getReferralCount(ctx.from.id);
 
     const text =
-`⚙ Settings
+    `⚙ Settings
+ 
+ 👤 Gender: ${u.gender ?? "Not Set"}
+ 🎂 Age: ${u.age ?? "Not Set"}
+ 📍 State: ${u.state ?? "Not Set"}
+ 💕 Preference: ${u.premium ? (u.preference === "any" ? "Any" : u.preference === "male" ? "Male" : "Female") : "🔒 Premium Only"}
+ 💎 Premium: ${u.premium ? "Yes ✅" : "No ❌"}
+ 💬 Daily chats left: ${100 - (u.daily || 0)}/100
+ 👥 Referrals: ${referralCount}/30
 
-👤 Gender: ${u.gender ?? "Not Set"}
-🎂 Age: ${u.age ?? "Not Set"}
-📍 State: ${u.state ?? "Not Set"}
-💕 Preference: ${u.premium ? (u.preference === "any" ? "Any" : u.preference === "male" ? "Male" : "Female") : "🔒 Premium Only"}
-💎 Premium: ${u.premium ? "Yes ✅" : "No ❌"}
-💬 Daily chats left: ${100 - (u.daily || 0)}/100
-👥 Referrals: ${referralCount}/30
-
-Use buttons below to update:`;
+ Use buttons below to update:`;
 
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback("👤 Gender", "SET_GENDER")],
@@ -627,11 +624,12 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
         try {
             await ctx.telegram.sendMessage(
                 adminId,
-                `🚨 REPORT RECEIVED\n\n` +
-                `Reporter: ${ctx.from.id}\n` +
-                `Reported User: ${partnerId}\n` +
-                `Reason: ${reportReason}\n` +
-                `Time: ${new Date().toLocaleString()}`
+                `🚨 *Report Submitted*\n\n` +
+                `📋 *Reason:* ${reportReason}\n` +
+                `👤 *Reported User ID:* ${partnerId}\n` +
+                `👤 *Reported by:* ${ctx.from.id}\n\n` +
+                `Please review this report.`,
+                { parse_mode: "Markdown" }
             );
         } catch {
             // Admin might not exist, ignore
@@ -654,7 +652,6 @@ bot.action("REPORT_CANCEL", async (ctx) => {
 });
 
 
-
 // Show improved setup complete message with summary
 async function showSetupComplete(ctx: ActionContext) {
     if (!ctx.from) return;
@@ -674,47 +671,34 @@ async function showSetupComplete(ctx: ActionContext) {
     if (hasJoined) {
         // User has joined group - show main menu
         text =
-        `✨ *Profile Complete!* ✨\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `📋 *Your Profile:*\n\n` +
+        "✨ *Profile Complete!* ✨\n\n" +
+        "━━━━━━━━━━━━━━━━━━━━\n\n" +
+        "📋 *Your Profile:*\n\n" +
         `${genderEmoji} *Gender:* ${genderText}\n` +
         `🎂 *Age:* ${user.age || "Not Set"}\n` +
         `📍 *Location:* ${stateText}\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `🎉 *You're all set to start chatting!*/search - Find a chat partner now\n` +
-        `⚙️ /settings - Update your profile anytime\n` +
-        `❓ /help - Get help with commands\n\n` +
-        `💡 *Tip:* Be friendly and respectful for the best experience!`;
+        "━━━━━━━━━━━━━━━━━━━━\n\n" +
+        "🎉 *You're all set to start chatting!*/search - Find a chat partner now\n" +
+        "⚙️ /settings - Update your profile anytime\n" +
+        "❓ /help - Get help with commands\n\n" +
+        "💡 *Tip:* Be friendly and respectful for the best experience!";
         keyboard = mainMenuKeyboard;
     } else {
         // User hasn't joined group yet - show group join requirement
         text =
-        `✨ *Profile Complete!* ✨\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `📋 *Your Profile:*\n\n` +
+        "✨ *Profile Complete!* ✨\n\n" +
+        "━━━━━━━━━━━━━━━━━━━━\n\n" +
+        "📋 *Your Profile:*\n\n" +
         `${genderEmoji} *Gender:* ${genderText}\n` +
         `🎂 *Age:* ${user.age || "Not Set"}\n` +
         `📍 *Location:* ${stateText}\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `🎉 *Almost there!*\n\n` +
-        `📢 *Please join our group to start chatting!*\n\n` +
-        `This helps us keep the community safe and verified.\n\n` +
-        `Click the button below to join, then confirm!`;
+        "━━━━━━━━━━━━━━━━━━━━\n\n" +
+        "🎉 *Almost there!*\n\n" +
+        "📢 *Please join our group to start chatting!*\n\n" +
+        "This helps us keep the community safe and verified.\n\n" +
+        "Click the button below to join, then confirm!";
         keyboard = groupJoinKeyboard;
     }
-`✨ *Profile Complete!* ✨
-
-` +
-`━━━━━━━━━━━━━━━━━━━━\n\n` +
-`📋 *Your Profile:*\n\n` +
-`${genderEmoji} *Gender:* ${genderText}\n` +
-`🎂 *Age:* ${user.age || "Not Set"}\n` +
-`📍 *Location:* ${stateText}\n\n` +
-`━━━━━━━━━━━━━━━━━━━━\n\n` +
-`🎉 *You're all set to start chatting!*/search - Find a chat partner now\n` +
-`⚙️ /settings - Update your profile anytime\n` +
-`❓ /help - Get help with commands\n\n` +
-`💡 *Tip:* Be friendly and respectful for the best experience!`;
 
     try {
         await ctx.editMessageText(text, { parse_mode: "Markdown", ...keyboard });
@@ -792,19 +776,50 @@ bot.action("RATE_GOOD", async (ctx) => {
         }
     }
     
-    // Log positive feedback for admins
-    console.log(`[RATING] User ${ctx.from.id} rated chat as GOOD`);
+    const partnerId = user.lastPartner;
+    if (partnerId) {
+        await updateUser(partnerId, { chatRating: 5 });
+    }
 });
 
-// Rate chat as Okay
-bot.action("RATE_OKAY", async (ctx) => {
+// Rate chat as Bad
+bot.action("RATE_BAD", async (ctx) => {
+    await safeAnswerCbQuery(ctx, "Thanks for your feedback. We'll use it to improve.");
+    if (!ctx.from) return;
+    
+    const user = await getUser(ctx.from.id);
+    
+    const text =
+        `📝 *Thanks for your feedback!*\n\n` +
+        `Sorry to hear your chat experience wasn't great.\n\n` +
+        `Your feedback helps us make the community better.`;
+    
+    try {
+        await ctx.editMessageText(text, { parse_mode: "Markdown", ...ratingThankYouKeyboard });
+    } catch (error: any) {
+        // Ignore "message not modified" errors
+        if (!error.description?.includes("message is not modified")) {
+            await safeAnswerCbQuery(ctx, "Thanks for your feedback. We'll use it to improve.");
+        }
+    }
+    
+    const partnerId = user.lastPartner;
+    if (partnerId) {
+        await updateUser(partnerId, { chatRating: 1 });
+    }
+});
+
+// Rate chat as Medium
+bot.action("RATE_MEDIUM", async (ctx) => {
     await safeAnswerCbQuery(ctx, "Thanks for your feedback!");
     if (!ctx.from) return;
     
+    const user = await getUser(ctx.from.id);
+    
     const text =
-        `😐 *Thanks for your feedback!*\n\n` +
-        `We appreciate your honest rating.\n\n` +
-        `If you have suggestions to improve, feel free to share them with the admin!`;
+        `📝 *Thanks for your feedback!*\n\n` +
+        `We appreciate your honesty.\n\n` +
+        `Your feedback helps us make the community better.`;
     
     try {
         await ctx.editMessageText(text, { parse_mode: "Markdown", ...ratingThankYouKeyboard });
@@ -815,70 +830,8 @@ bot.action("RATE_OKAY", async (ctx) => {
         }
     }
     
-    console.log(`[RATING] User ${ctx.from.id} rated chat as OKAY`);
-});
-
-// Rate chat as Bad - prompt for report
-const badRatingKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🚨 Report User", "OPEN_REPORT")],
-    [Markup.button.callback("Skip", "RATE_SKIP")]
-]);
-
-bot.action("RATE_BAD", async (ctx) => {
-    await safeAnswerCbQuery(ctx, "We're sorry to hear that 😞");
-    if (!ctx.from) return;
-    
-    const text =
-        `😟 *We're sorry to hear that!*\n\n` +
-        `We want to make this community safe for everyone.\n\n` +
-        `Would you like to report the user for violating our guidelines? Your report is anonymous and helps us take action.`;
-    
-    try {
-        await ctx.editMessageText(text, { parse_mode: "Markdown", ...badRatingKeyboard });
-    } catch (error: any) {
-        // Ignore "message not modified" errors
-        if (!error.description?.includes("message is not modified")) {
-            await safeAnswerCbQuery(ctx, "We're sorry to hear that 😞");
-        }
-    }
-    
-    console.log(`[RATING] User ${ctx.from.id} rated chat as BAD - potential report`);
-});
-
-// Skip rating after bad experience
-bot.action("RATE_SKIP", async (ctx) => {
-    await safeAnswerCbQuery(ctx);
-    if (!ctx.from) return;
-    
-    const text =
-        `💡 *No problem!*\n\n` +
-        `Thanks for using our chat service.\n\n` +
-        `Use /search to find a new partner anytime!`;
-    
-    try {
-        await ctx.editMessageText(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
-    } catch (error: any) {
-        if (!error.description?.includes("message is not modified")) {
-            await ctx.reply(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
-        }
-    }
-});
-
-// End menu action (for END_MENU callback)
-bot.action("END_MENU", async (ctx) => {
-    await safeAnswerCbQuery(ctx);
-    if (!ctx.from) return;
-    
-    const text =
-`🌟 *Welcome back!*
-
-Use the menu below to navigate:`;
-
-    try {
-        await ctx.editMessageText(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
-    } catch (error: any) {
-        if (!error.description?.includes("message is not modified")) {
-            await ctx.reply(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
-        }
+    const partnerId = user.lastPartner;
+    if (partnerId) {
+        await updateUser(partnerId, { chatRating: 3 });
     }
 });
