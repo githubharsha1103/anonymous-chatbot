@@ -320,6 +320,8 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   
   // Webhook endpoint
   app.post(WEBHOOK_PATH, (req: Request, res: Response) => {
+    // Log that we received an update
+    console.log("[WEBHOOK] - Received update:", JSON.stringify(req.body).substring(0, 200));
     // Handle Telegram update
     bot.handleUpdate(req.body).then(() => {
       res.sendStatus(200);
