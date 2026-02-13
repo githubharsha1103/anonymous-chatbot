@@ -49,6 +49,13 @@ const mainMenuKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("❓ Help", "START_HELP")]
 ]);
 
+// Group join keyboard
+const GROUP_INVITE_LINK = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
+const groupJoinKeyboard = Markup.inlineKeyboard([
+    [Markup.button.url("📢 Join Our Group", GROUP_INVITE_LINK)],
+    [Markup.button.callback("✅ I've Joined", "VERIFY_GROUP_JOIN")]
+]);
+
 export default {
     name: "start",
     description: "Start the bot",
@@ -134,7 +141,18 @@ export default {
             );
             return;
         }
-
+        
+        // Check if user has joined the required group
+        if (user.hasJoinedGroup !== true) {
+            await ctx.reply(
+                "📢 <b>Group Membership Required</b>\n\n" +
+                "🔒 You must join our group to use the bot.\n\n" +
+                "📢 Click the button below to join:",
+                { parse_mode: "HTML", ...groupJoinKeyboard }
+            );
+            return;
+        }
+        
         // Existing user with complete profile - show main menu
         await ctx.reply(
             "🌟 <b>Welcome back!</b> 🌟\n\n" +

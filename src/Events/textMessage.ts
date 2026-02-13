@@ -2,7 +2,7 @@ import { Context, NarrowedContext } from "telegraf";
 import { Event } from "../Utils/eventHandler";
 import { ExtraTelegraf } from "..";
 import { Message, Update } from "telegraf/types";
-import { updateUser, getUser, getAllUsers } from "../storage/db";
+import { updateUser, getUser, getAllUsers, deleteUser } from "../storage/db";
 import { isBotBlockedError, cleanupBlockedUser, isNotEnoughRightsError, isRateLimitError, getRetryDelay, broadcastWithRateLimit } from "../Utils/telegramErrorHandler";
 import { waitingForBroadcast } from "../Commands/adminaccess";
 import { Markup } from "telegraf";
@@ -73,13 +73,20 @@ export default {
 
         // Send broadcast with rate limiting
         const userIds = users.map(id => Number(id)).filter(id => !isNaN(id));
-        const { success, failed } = await broadcastWithRateLimit(bot, userIds, broadcastText);
+        const { success, failed, failedUserIds } = await broadcastWithRateLimit(bot, userIds, broadcastText);
 
         console.log(`[BROADCAST] - Completed: Sent ${success}, Failed ${failed}`);
         
+        // Delete users who failed to receive broadcast (blocked or deactivated)
+        let deletedCount = 0;
+        for (const userId of failedUserIds) {
+            await deleteUser(userId, "Broadcast failed - blocked or deactivated");
+            deletedCount++;
+        }
+        
         // Clear any inline keyboards by using removeKeyboard
         return ctx.reply(
-            `📢 *Broadcast Result*\n\n✅ Sent: ${success}\n❌ Failed: ${failed}\n\nTotal Users: ${users.length}`,
+            `📢 *Broadcast Result*\n\n✅ Sent: ${success}\n❌ Failed: ${failed}\n🗑️ Deleted: ${deletedCount}\n\nTotal Users: ${users.length}`,
             { parse_mode: "Markdown", ...Markup.removeKeyboard() }
         );
     }

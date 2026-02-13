@@ -89,6 +89,49 @@ const mainMenuKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("❓ Help", "START_HELP")]
 ]);
 
+// Group verification settings
+const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID || "-1001234567890";
+const GROUP_INVITE_LINK = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
+
+// Cache for resolved chat ID
+let resolvedChatId: string | null = null;
+
+// Function to resolve chat ID from invite link
+async function resolveGroupChatId(): Promise<string> {
+    if (resolvedChatId) return resolvedChatId;
+    
+    try {
+        // Try to get chat info using the invite link
+        const chat = await bot.telegram.getChat(GROUP_INVITE_LINK);
+        resolvedChatId = chat.id.toString();
+        console.log(`[GroupCheck] - Resolved chat ID: ${resolvedChatId}`);
+        return resolvedChatId;
+    } catch (error) {
+        console.error("[GroupCheck] - Failed to resolve chat ID from invite link, using default:", error);
+        return GROUP_CHAT_ID;
+    }
+}
+
+// Keyboard for group join verification
+const groupJoinKeyboard = Markup.inlineKeyboard([
+    [Markup.button.url("📢 Join Our Group", GROUP_INVITE_LINK)],
+    [Markup.button.callback("✅ I've Joined", "VERIFY_GROUP_JOIN")]
+]);
+
+// Check if user is a member of the group
+async function isUserGroupMember(userId: number): Promise<boolean> {
+    try {
+        const chatId = await resolveGroupChatId();
+        const chatMember = await bot.telegram.getChatMember(chatId, userId);
+        // Member status: 'creator', 'administrator', 'member', 'restricted' are valid
+        const validStatuses = ['creator', 'administrator', 'member', 'restricted'];
+        return validStatuses.includes(chatMember.status);
+    } catch (error) {
+        console.error(`[GroupCheck] - Error checking group membership for user ${userId}:`, error);
+        return false;
+    }
+}
+
 // Safe answerCallbackQuery helper
 async function safeAnswerCbQuery(ctx: ActionContext, text?: string) {
     try {
@@ -637,7 +680,43 @@ async function showSetupComplete(ctx: ActionContext) {
     const genderText = user.gender ? (user.gender.charAt(0).toUpperCase() + user.gender.slice(1)) : "Not Set";
     const stateText = user.state === "Other" ? "🌍 Other" : (user.state || "Not Set");
     
-    const text =
+    // Check if user has joined the group
+    const hasJoined = user.hasJoinedGroup === true;
+    
+    let text: string;
+    let keyboard: any;
+    
+    if (hasJoined) {
+        // User has joined group - show main menu
+        text =
+        `✨ *Profile Complete!* ✨\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `📋 *Your Profile:*\n\n` +
+        `${genderEmoji} *Gender:* ${genderText}\n` +
+        `🎂 *Age:* ${user.age || "Not Set"}\n` +
+        `📍 *Location:* ${stateText}\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `🎉 *You're all set to start chatting!*/search - Find a chat partner now\n` +
+        `⚙️ /settings - Update your profile anytime\n` +
+        `❓ /help - Get help with commands\n\n` +
+        `💡 *Tip:* Be friendly and respectful for the best experience!`;
+        keyboard = mainMenuKeyboard;
+    } else {
+        // User hasn't joined group yet - show group join requirement
+        text =
+        `✨ *Profile Complete!* ✨\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `📋 *Your Profile:*\n\n` +
+        `${genderEmoji} *Gender:* ${genderText}\n` +
+        `🎂 *Age:* ${user.age || "Not Set"}\n` +
+        `📍 *Location:* ${stateText}\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `🎉 *Almost there!*\n\n` +
+        `📢 *Please join our group to start chatting!*\n\n` +
+        `This helps us keep the community safe and verified.\n\n` +
+        `Click the button below to join, then confirm!`;
+        keyboard = groupJoinKeyboard;
+    }
 `✨ *Profile Complete!* ✨
 
 ` +
@@ -653,11 +732,11 @@ async function showSetupComplete(ctx: ActionContext) {
 `💡 *Tip:* Be friendly and respectful for the best experience!`;
 
     try {
-        await ctx.editMessageText(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
+        await ctx.editMessageText(text, { parse_mode: "Markdown", ...keyboard });
     } catch (error: any) {
         if (!error.description?.includes("message is not modified")) {
             await safeAnswerCbQuery(ctx);
-            await ctx.reply(text, { parse_mode: "Markdown", ...mainMenuKeyboard });
+            await ctx.reply(text, { parse_mode: "Markdown", ...keyboard });
         }
     }
 }
@@ -666,6 +745,33 @@ async function showSetupComplete(ctx: ActionContext) {
 bot.action("SETUP_DONE", async (ctx) => {
     await safeAnswerCbQuery(ctx);
     await showSetupComplete(ctx);
+});
+
+// ========================================
+// GROUP VERIFICATION SYSTEM
+// ========================================
+
+// User clicks "I've Joined" button - verify group membership
+bot.action("VERIFY_GROUP_JOIN", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    
+    const userId = ctx.from.id;
+    
+    // Check if user is actually a member of the group
+    const isMember = await isUserGroupMember(userId);
+    
+    if (isMember) {
+        // User joined - update database and show main menu
+        await updateUser(userId, { hasJoinedGroup: true });
+        await safeAnswerCbQuery(ctx, "✅ Welcome to the group! You can now start chatting!");
+        await showSetupComplete(ctx);
+    } else {
+        // User hasn't joined - show error
+        await safeAnswerCbQuery(ctx, "❌ You haven't joined the group yet! Please click the link to join.");
+        // Re-show the group join message
+        await showSetupComplete(ctx);
+    }
 });
 
 // ========================================

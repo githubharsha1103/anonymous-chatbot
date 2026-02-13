@@ -11,7 +11,8 @@ import {
   updateUser,
   closeDatabase,
   getTotalChats,
-  incrementTotalChats
+  incrementTotalChats,
+  deleteUser
 } from "./storage/db";
 import { isBotBlockedError, cleanupBlockedUser, broadcastWithRateLimit } from "./Utils/telegramErrorHandler";
 
@@ -227,9 +228,16 @@ bot.command("broadcast", async (ctx) => {
 
   // Send broadcast with rate limiting
   const userIds = users.map(id => Number(id)).filter(id => !isNaN(id));
-  const { success, failed } = await broadcastWithRateLimit(bot, userIds, msg);
+  const { success, failed, failedUserIds } = await broadcastWithRateLimit(bot, userIds, msg);
+  
+  // Delete users who failed to receive broadcast (blocked or deactivated)
+  let deletedCount = 0;
+  for (const userId of failedUserIds) {
+    await deleteUser(userId, "Broadcast failed - blocked or deactivated");
+    deletedCount++;
+  }
 
-  ctx.reply(`Broadcast completed!\n✅ Sent: ${success}\n❌ Failed: ${failed}`);
+  ctx.reply(`Broadcast completed!\n✅ Sent: ${success}\n❌ Failed: ${failed}\n🗑️ Deleted: ${deletedCount}`);
 });
 
 /* ---------------- ADMIN ACTIVE CHATS ---------------- */
@@ -345,6 +353,23 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   // For local development, use long polling
   console.log("[INFO] - Using long polling (local development)");
   bot.launch();
+}
+
+// Keep-alive mechanism to prevent bot from stopping due to inactivity
+// This periodically sends a request to Telegram to keep the connection alive
+const KEEPALIVE_INTERVAL = parseInt(process.env.KEEPALIVE_INTERVAL || "300000", 10); // 5 minutes default
+
+if (KEEPALIVE_INTERVAL > 0) {
+  console.log(`[INFO] - Starting keep-alive ping every ${KEEPALIVE_INTERVAL / 1000} seconds`);
+  setInterval(async () => {
+    try {
+      // Send a getMe request to keep the connection alive
+      await bot.telegram.getMe();
+      console.log("[KEEPALIVE] - Bot connection is active");
+    } catch (error) {
+      console.error("[KEEPALIVE] - Error:", error);
+    }
+  }, KEEPALIVE_INTERVAL);
 }
 
 process.on("unhandledRejection", (reason, promise) => {

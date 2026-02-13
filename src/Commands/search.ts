@@ -24,6 +24,13 @@ const setupStateKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
 ]);
 
+// Group join keyboard
+const GROUP_INVITE_LINK = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
+const groupJoinKeyboard = Markup.inlineKeyboard([
+    [Markup.button.url("📢 Join Our Group", GROUP_INVITE_LINK)],
+    [Markup.button.callback("✅ I've Joined", "VERIFY_GROUP_JOIN")]
+]);
+
 // Type for users in waiting queue
 interface WaitingUser {
   id: number;
@@ -69,6 +76,28 @@ async function redirectToSetup(ctx: Context) {
     return null; // Setup is complete
 }
 
+// Function to check if user is group member (re-verifies on each search for security)
+async function isUserGroupMember(bot: ExtraTelegraf, userId: number): Promise<boolean> {
+    try {
+        const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID || "-1001234567890";
+        // Try to resolve chat ID from invite link first
+        let chatId = GROUP_CHAT_ID;
+        try {
+            const chat = await bot.telegram.getChat(GROUP_INVITE_LINK);
+            chatId = chat.id.toString();
+        } catch {
+            // Fall back to env value
+        }
+        
+        const chatMember = await bot.telegram.getChatMember(chatId, userId);
+        const validStatuses = ['creator', 'administrator', 'member', 'restricted'];
+        return validStatuses.includes(chatMember.status);
+    } catch (error) {
+        console.error(`[GroupCheck] - Error checking group membership for user ${userId}:`, error);
+        return false;
+    }
+}
+
 export default {
   name: "search",
   description: "Search for a chat",
@@ -90,6 +119,21 @@ export default {
     const user = await getUser(userId);
     if (!user.gender || !user.age || !user.state) {
         return redirectToSetup(ctx);
+    }
+    
+    // Check if user has joined the required group (re-verify for security)
+    const hasJoined = user.hasJoinedGroup === true && await isUserGroupMember(bot, userId);
+    if (!hasJoined) {
+        // Update database to remove verified status if they're no longer in group
+        await updateUser(userId, { hasJoinedGroup: false });
+        return ctx.reply(
+            "📢 *Group Membership Required*\n\n" +
+            "🔒 You must join our group before you can search for chat partners.\n\n" +
+            "📢 Click the link below to join:\n" +
+            GROUP_INVITE_LINK + "\n\n" +
+            "After joining, click /start to verify and unlock all features!",
+            { parse_mode: "Markdown", ...groupJoinKeyboard }
+        );
     }
 
     // Acquire mutex to prevent race conditions

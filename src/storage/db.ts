@@ -42,6 +42,7 @@ export interface User {
   lastActive?: number; // Timestamp of last activity
   createdAt?: number; // Account creation timestamp
   setupStep?: string; // Track new user setup progress: 'gender', 'age', 'state', 'done'
+  hasJoinedGroup?: boolean; // Track if user has joined the required group
   
   // Referral system fields
   referralCode?: string; // User's unique referral code

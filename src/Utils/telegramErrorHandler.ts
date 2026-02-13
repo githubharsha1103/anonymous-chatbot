@@ -353,9 +353,10 @@ export async function broadcastWithRateLimit(
   userIds: number[],
   text: string,
   onProgress?: (success: number, failed: number) => void
-): Promise<{ success: number; failed: number }> {
+): Promise<{ success: number; failed: number; failedUserIds: number[] }> {
   let success = 0;
   let failed = 0;
+  const failedUserIds: number[] = [];
   
   for (const userId of userIds) {
     const result = await sendMessageWithRetry(bot, userId, text);
@@ -363,6 +364,7 @@ export async function broadcastWithRateLimit(
       success++;
     } else {
       failed++;
+      failedUserIds.push(userId);
     }
     
     if (onProgress) {
@@ -375,5 +377,5 @@ export async function broadcastWithRateLimit(
     }
   }
   
-  return { success, failed };
+  return { success, failed, failedUserIds };
 }
