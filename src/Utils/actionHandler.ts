@@ -96,22 +96,6 @@ const GROUP_INVITE_LINK = process.env.GROUP_INVITE_LINK || "https://t.me/telugua
 // Cache for resolved chat ID
 let resolvedChatId: string | null = null;
 
-// Function to resolve chat ID from invite link
-async function resolveGroupChatId(): Promise<string> {
-    if (resolvedChatId) return resolvedChatId;
-    
-    try {
-        // Try to get chat info using the invite link
-        const chat = await bot.telegram.getChat(GROUP_INVITE_LINK);
-        resolvedChatId = chat.id.toString();
-        console.log(`[GroupCheck] - Resolved chat ID: ${resolvedChatId}`);
-        return resolvedChatId;
-    } catch (error) {
-        console.error("[GroupCheck] - Failed to resolve chat ID from invite link, using default:", error);
-        return GROUP_CHAT_ID;
-    }
-}
-
 // Keyboard for group join verification
 const groupJoinKeyboard = Markup.inlineKeyboard([
     [Markup.button.url("📢 Join Our Group", GROUP_INVITE_LINK)],
@@ -121,7 +105,8 @@ const groupJoinKeyboard = Markup.inlineKeyboard([
 // Check if user is a member of the group
 async function isUserGroupMember(userId: number): Promise<boolean> {
     try {
-        const chatId = await resolveGroupChatId();
+        // Use GROUP_CHAT_ID directly - Telegram API requires numeric chat ID
+        const chatId = GROUP_CHAT_ID;
         const chatMember = await bot.telegram.getChatMember(chatId, userId);
         // Member status: 'creator', 'administrator', 'member', 'restricted' are valid
         const validStatuses = ['creator', 'administrator', 'member', 'restricted'];

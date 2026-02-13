@@ -80,16 +80,8 @@ async function redirectToSetup(ctx: Context) {
 async function isUserGroupMember(bot: ExtraTelegraf, userId: number): Promise<boolean> {
     try {
         const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID || "-1001234567890";
-        // Try to resolve chat ID from invite link first
-        let chatId = GROUP_CHAT_ID;
-        try {
-            const chat = await bot.telegram.getChat(GROUP_INVITE_LINK);
-            chatId = chat.id.toString();
-        } catch {
-            // Fall back to env value
-        }
-        
-        const chatMember = await bot.telegram.getChatMember(chatId, userId);
+        // Use GROUP_CHAT_ID directly - Telegram API requires numeric chat ID
+        const chatMember = await bot.telegram.getChatMember(GROUP_CHAT_ID, userId);
         const validStatuses = ['creator', 'administrator', 'member', 'restricted'];
         return validStatuses.includes(chatMember.status);
     } catch (error) {
