@@ -86,8 +86,6 @@ const mainMenuKeyboard = telegraf_1.Markup.inlineKeyboard([
 // Group verification settings
 const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID || "-1001234567890";
 const GROUP_INVITE_LINK = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
-// Cache for resolved chat ID
-let resolvedChatId = null;
 // Keyboard for group join verification
 const groupJoinKeyboard = telegraf_1.Markup.inlineKeyboard([
     [telegraf_1.Markup.button.url("📢 Join Our Group", GROUP_INVITE_LINK)],
@@ -150,16 +148,16 @@ function showSettings(ctx) {
         const u = yield (0, db_1.getUser)(ctx.from.id);
         const referralCount = yield (0, db_1.getReferralCount)(ctx.from.id);
         const text = `⚙ Settings
+ 
+ 👤 Gender: ${(_a = u.gender) !== null && _a !== void 0 ? _a : "Not Set"}
+ 🎂 Age: ${(_b = u.age) !== null && _b !== void 0 ? _b : "Not Set"}
+ 📍 State: ${(_c = u.state) !== null && _c !== void 0 ? _c : "Not Set"}
+ 💕 Preference: ${u.premium ? (u.preference === "any" ? "Any" : u.preference === "male" ? "Male" : "Female") : "🔒 Premium Only"}
+ 💎 Premium: ${u.premium ? "Yes ✅" : "No ❌"}
+ 💬 Daily chats left: ${100 - (u.daily || 0)}/100
+ 👥 Referrals: ${referralCount}/30
 
-👤 Gender: ${(_a = u.gender) !== null && _a !== void 0 ? _a : "Not Set"}
-🎂 Age: ${(_b = u.age) !== null && _b !== void 0 ? _b : "Not Set"}
-📍 State: ${(_c = u.state) !== null && _c !== void 0 ? _c : "Not Set"}
-💕 Preference: ${u.premium ? (u.preference === "any" ? "Any" : u.preference === "male" ? "Male" : "Female") : "🔒 Premium Only"}
-💎 Premium: ${u.premium ? "Yes ✅" : "No ❌"}
-💬 Daily chats left: ${100 - (u.daily || 0)}/100
-👥 Referrals: ${referralCount}/30
-
-Use buttons below to update:`;
+ Use buttons below to update:`;
         const keyboard = telegraf_1.Markup.inlineKeyboard([
             [telegraf_1.Markup.button.callback("👤 Gender", "SET_GENDER")],
             [telegraf_1.Markup.button.callback("🎂 Age", "SET_AGE")],
@@ -538,11 +536,11 @@ index_1.bot.action("REPORT_CONFIRM", (ctx) => __awaiter(void 0, void 0, void 0, 
     const adminIds = ADMINS.map(id => parseInt(id));
     for (const adminId of adminIds) {
         try {
-            yield ctx.telegram.sendMessage(adminId, `🚨 REPORT RECEIVED\n\n` +
-                `Reporter: ${ctx.from.id}\n` +
-                `Reported User: ${partnerId}\n` +
-                `Reason: ${reportReason}\n` +
-                `Time: ${new Date().toLocaleString()}`);
+            yield ctx.telegram.sendMessage(adminId, `🚨 *Report Submitted*\n\n` +
+                `📋 *Reason:* ${reportReason}\n` +
+                `👤 *Reported User ID:* ${partnerId}\n` +
+                `👤 *Reported by:* ${ctx.from.id}\n\n` +
+                `Please review this report.`, { parse_mode: "Markdown" });
         }
         catch (_a) {
             // Admin might not exist, ignore
@@ -578,48 +576,35 @@ function showSetupComplete(ctx) {
         if (hasJoined) {
             // User has joined group - show main menu
             text =
-                `✨ *Profile Complete!* ✨\n\n` +
-                    `━━━━━━━━━━━━━━━━━━━━\n\n` +
-                    `📋 *Your Profile:*\n\n` +
+                "✨ *Profile Complete!* ✨\n\n" +
+                    "━━━━━━━━━━━━━━━━━━━━\n\n" +
+                    "📋 *Your Profile:*\n\n" +
                     `${genderEmoji} *Gender:* ${genderText}\n` +
                     `🎂 *Age:* ${user.age || "Not Set"}\n` +
                     `📍 *Location:* ${stateText}\n\n` +
-                    `━━━━━━━━━━━━━━━━━━━━\n\n` +
-                    `🎉 *You're all set to start chatting!*/search - Find a chat partner now\n` +
-                    `⚙️ /settings - Update your profile anytime\n` +
-                    `❓ /help - Get help with commands\n\n` +
-                    `💡 *Tip:* Be friendly and respectful for the best experience!`;
+                    "━━━━━━━━━━━━━━━━━━━━\n\n" +
+                    "🎉 *You're all set to start chatting!*/search - Find a chat partner now\n" +
+                    "⚙️ /settings - Update your profile anytime\n" +
+                    "❓ /help - Get help with commands\n\n" +
+                    "💡 *Tip:* Be friendly and respectful for the best experience!";
             keyboard = mainMenuKeyboard;
         }
         else {
             // User hasn't joined group yet - show group join requirement
             text =
-                `✨ *Profile Complete!* ✨\n\n` +
-                    `━━━━━━━━━━━━━━━━━━━━\n\n` +
-                    `📋 *Your Profile:*\n\n` +
+                "✨ *Profile Complete!* ✨\n\n" +
+                    "━━━━━━━━━━━━━━━━━━━━\n\n" +
+                    "📋 *Your Profile:*\n\n" +
                     `${genderEmoji} *Gender:* ${genderText}\n` +
                     `🎂 *Age:* ${user.age || "Not Set"}\n` +
                     `📍 *Location:* ${stateText}\n\n` +
-                    `━━━━━━━━━━━━━━━━━━━━\n\n` +
-                    `🎉 *Almost there!*\n\n` +
-                    `📢 *Please join our group to start chatting!*\n\n` +
-                    `This helps us keep the community safe and verified.\n\n` +
-                    `Click the button below to join, then confirm!`;
+                    "━━━━━━━━━━━━━━━━━━━━\n\n" +
+                    "🎉 *Almost there!*\n\n" +
+                    "📢 *Please join our group to start chatting!*\n\n" +
+                    "This helps us keep the community safe and verified.\n\n" +
+                    "Click the button below to join, then confirm!";
             keyboard = groupJoinKeyboard;
         }
-        `✨ *Profile Complete!* ✨
-
-` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `📋 *Your Profile:*\n\n` +
-            `${genderEmoji} *Gender:* ${genderText}\n` +
-            `🎂 *Age:* ${user.age || "Not Set"}\n` +
-            `📍 *Location:* ${stateText}\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `🎉 *You're all set to start chatting!*/search - Find a chat partner now\n` +
-            `⚙️ /settings - Update your profile anytime\n` +
-            `❓ /help - Get help with commands\n\n` +
-            `💡 *Tip:* Be friendly and respectful for the best experience!`;
         try {
             yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, keyboard));
         }
@@ -641,12 +626,16 @@ index_1.bot.action("SETUP_DONE", (ctx) => __awaiter(void 0, void 0, void 0, func
 // ========================================
 // User clicks "I've Joined" button - verify group membership
 index_1.bot.action("VERIFY_GROUP_JOIN", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    console.log("[GroupCheck] - VERIFY_GROUP_JOIN action triggered by user:", (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id);
     if (!ctx.from)
         return;
     yield safeAnswerCbQuery(ctx);
     const userId = ctx.from.id;
+    console.log("[GroupCheck] - Checking membership for user:", userId);
     // Check if user is actually a member of the group
     const isMember = yield isUserGroupMember(userId);
+    console.log("[GroupCheck] - User", userId, "is member:", isMember);
     if (isMember) {
         // User joined - update database and show main menu
         yield (0, db_1.updateUser)(userId, { hasJoinedGroup: true });
@@ -686,18 +675,45 @@ index_1.bot.action("RATE_GOOD", (ctx) => __awaiter(void 0, void 0, void 0, funct
             yield safeAnswerCbQuery(ctx, "We're glad you had a good experience! 😊");
         }
     }
-    // Log positive feedback for admins
-    console.log(`[RATING] User ${ctx.from.id} rated chat as GOOD`);
+    const partnerId = user.lastPartner;
+    if (partnerId) {
+        yield (0, db_1.updateUser)(partnerId, { chatRating: 5 });
+    }
 }));
-// Rate chat as Okay
-index_1.bot.action("RATE_OKAY", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
+// Rate chat as Bad
+index_1.bot.action("RATE_BAD", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    yield safeAnswerCbQuery(ctx, "Thanks for your feedback. We'll use it to improve.");
+    if (!ctx.from)
+        return;
+    const user = yield (0, db_1.getUser)(ctx.from.id);
+    const text = `📝 *Thanks for your feedback!*\n\n` +
+        `Sorry to hear your chat experience wasn't great.\n\n` +
+        `Your feedback helps us make the community better.`;
+    try {
+        yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, ratingThankYouKeyboard));
+    }
+    catch (error) {
+        // Ignore "message not modified" errors
+        if (!((_a = error.description) === null || _a === void 0 ? void 0 : _a.includes("message is not modified"))) {
+            yield safeAnswerCbQuery(ctx, "Thanks for your feedback. We'll use it to improve.");
+        }
+    }
+    const partnerId = user.lastPartner;
+    if (partnerId) {
+        yield (0, db_1.updateUser)(partnerId, { chatRating: 1 });
+    }
+}));
+// Rate chat as Medium
+index_1.bot.action("RATE_MEDIUM", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     yield safeAnswerCbQuery(ctx, "Thanks for your feedback!");
     if (!ctx.from)
         return;
-    const text = `😐 *Thanks for your feedback!*\n\n` +
-        `We appreciate your honest rating.\n\n` +
-        `If you have suggestions to improve, feel free to share them with the admin!`;
+    const user = yield (0, db_1.getUser)(ctx.from.id);
+    const text = `📝 *Thanks for your feedback!*\n\n` +
+        `We appreciate your honesty.\n\n` +
+        `Your feedback helps us make the community better.`;
     try {
         yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, ratingThankYouKeyboard));
     }
@@ -707,65 +723,8 @@ index_1.bot.action("RATE_OKAY", (ctx) => __awaiter(void 0, void 0, void 0, funct
             yield safeAnswerCbQuery(ctx, "Thanks for your feedback!");
         }
     }
-    console.log(`[RATING] User ${ctx.from.id} rated chat as OKAY`);
-}));
-// Rate chat as Bad - prompt for report
-const badRatingKeyboard = telegraf_1.Markup.inlineKeyboard([
-    [telegraf_1.Markup.button.callback("🚨 Report User", "OPEN_REPORT")],
-    [telegraf_1.Markup.button.callback("Skip", "RATE_SKIP")]
-]);
-index_1.bot.action("RATE_BAD", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a;
-    yield safeAnswerCbQuery(ctx, "We're sorry to hear that 😞");
-    if (!ctx.from)
-        return;
-    const text = `😟 *We're sorry to hear that!*\n\n` +
-        `We want to make this community safe for everyone.\n\n` +
-        `Would you like to report the user for violating our guidelines? Your report is anonymous and helps us take action.`;
-    try {
-        yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, badRatingKeyboard));
-    }
-    catch (error) {
-        // Ignore "message not modified" errors
-        if (!((_a = error.description) === null || _a === void 0 ? void 0 : _a.includes("message is not modified"))) {
-            yield safeAnswerCbQuery(ctx, "We're sorry to hear that 😞");
-        }
-    }
-    console.log(`[RATING] User ${ctx.from.id} rated chat as BAD - potential report`);
-}));
-// Skip rating after bad experience
-index_1.bot.action("RATE_SKIP", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a;
-    yield safeAnswerCbQuery(ctx);
-    if (!ctx.from)
-        return;
-    const text = `💡 *No problem!*\n\n` +
-        `Thanks for using our chat service.\n\n` +
-        `Use /search to find a new partner anytime!`;
-    try {
-        yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
-    }
-    catch (error) {
-        if (!((_a = error.description) === null || _a === void 0 ? void 0 : _a.includes("message is not modified"))) {
-            yield ctx.reply(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
-        }
-    }
-}));
-// End menu action (for END_MENU callback)
-index_1.bot.action("END_MENU", (ctx) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a;
-    yield safeAnswerCbQuery(ctx);
-    if (!ctx.from)
-        return;
-    const text = `🌟 *Welcome back!*
-
-Use the menu below to navigate:`;
-    try {
-        yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
-    }
-    catch (error) {
-        if (!((_a = error.description) === null || _a === void 0 ? void 0 : _a.includes("message is not modified"))) {
-            yield ctx.reply(text, Object.assign({ parse_mode: "Markdown" }, mainMenuKeyboard));
-        }
+    const partnerId = user.lastPartner;
+    if (partnerId) {
+        yield (0, db_1.updateUser)(partnerId, { chatRating: 3 });
     }
 }));

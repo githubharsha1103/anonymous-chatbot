@@ -338,7 +338,31 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   
   // Health check endpoint
   app.get("/health", (req: Request, res: Response) => {
+    // Check if bot is responding
+    bot.telegram.getMe().then(botInfo => {
+      res.json({ 
+        status: "OK", 
+        bot: botInfo.username,
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+      });
+    }).catch(err => {
+      res.status(503).json({ 
+        status: "ERROR", 
+        error: err.message,
+        timestamp: new Date().toISOString()
+      });
+    });
+  });
+  
+  // Enhanced health check for Render/hosting platforms
+  app.get("/healthz", (req: Request, res: Response) => {
     res.send("OK");
+  });
+  
+  // Ready endpoint - returns 200 when ready
+  app.get("/ready", (req: Request, res: Response) => {
+    res.send("READY");
   });
   
   // Root endpoint for Render health checks
@@ -357,21 +381,91 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
 }
 
 // Keep-alive mechanism to prevent bot from stopping due to inactivity
-// This periodically sends a request to Telegram to keep the connection alive
-const KEEPALIVE_INTERVAL = parseInt(process.env.KEEPALIVE_INTERVAL || "300000", 10); // 5 minutes default
+// This periodically sends a message to admin to keep the bot active
+const KEEPALIVE_INTERVAL = parseInt(process.env.KEEPALIVE_INTERVAL || "720000", 10); // 12 minutes default
+const ADMIN_ID = process.env.ADMIN_IDS?.split(",")[0]?.replace("@", "") || "";
 
-if (KEEPALIVE_INTERVAL > 0) {
-  console.log(`[INFO] - Starting keep-alive ping every ${KEEPALIVE_INTERVAL / 1000} seconds`);
+if (KEEPALIVE_INTERVAL > 0 && ADMIN_ID) {
+  console.log(`[INFO] - Starting keep-alive ping every ${KEEPALIVE_INTERVAL / 1000 / 60} minutes to admin`);
+  
   setInterval(async () => {
     try {
-      // Send a getMe request to keep the connection alive
-      await bot.telegram.getMe();
-      console.log("[KEEPALIVE] - Bot connection is active");
+      // Send a message to admin to keep the bot active
+      const adminId = parseInt(ADMIN_ID.replace(/\D/g, ""), 10);
+      if (!isNaN(adminId)) {
+        await bot.telegram.sendMessage(adminId, `✅ Bot is alive!\n⏰ Keepalive ping at: ${new Date().toLocaleTimeString()}`);
+        console.log("[KEEPALIVE] - Sent keepalive message to admin");
+      }
     } catch (error) {
       console.error("[KEEPALIVE] - Error:", error);
     }
   }, KEEPALIVE_INTERVAL);
+} else {
+  console.log("[WARN] - Keepalive disabled: ADMIN_IDS not set");
 }
+
+/* ---------------- SELF-PING KEEPALIVE FOR RENDER/HOSTING PLATFORMS ---------------- */
+// This endpoint allows external services (like Render's health check or a cron job) to keep the bot alive
+const SELF_PING_PORT = parseInt(process.env.SELF_PING_PORT || "3001", 10);
+
+// Only start self-ping server if explicitly enabled
+if (process.env.ENABLE_SELF_PING === "true") {
+  import('express').then(({ default: express }) => {
+    const pingApp = express();
+    
+    pingApp.get("/ping", (req: Request, res: Response) => {
+      res.send("OK");
+    });
+    
+    pingApp.listen(SELF_PING_PORT, "0.0.0.0", () => {
+      console.log(`[INFO] - Self-ping server listening on port ${SELF_PING_PORT}`);
+      console.log(`[INFO] - Add this URL to your external cron/ping service: http://your-app:${SELF_PING_PORT}/ping`);
+    });
+  }).catch(err => {
+    console.error("[ERROR] - Failed to start self-ping server:", err);
+  });
+}
+
+/* ---------------- AUTO-RESTART MECHANISM ---------------- */
+// Monitors bot health and attempts to restart if stopped
+let isBotRunning = false;
+let restartAttempts = 0;
+const MAX_RESTART_ATTEMPTS = 5;
+const RESTART_DELAY = 10000; // 10 seconds between restart attempts
+
+function checkBotHealth() {
+  // Check if bot is supposed to be running but isn't
+  const shouldBeRunning = !(process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL);
+  
+  if (shouldBeRunning && !isBotRunning && bot.botInfo) {
+    console.log("[WARN] - Bot appears to have stopped, attempting restart...");
+    if (restartAttempts < MAX_RESTART_ATTEMPTS) {
+      restartAttempts++;
+      try {
+        bot.launch();
+        isBotRunning = true;
+        console.log(`[INFO] - Bot restarted successfully (attempt ${restartAttempts})`);
+        restartAttempts = 0; // Reset on successful restart
+      } catch (error) {
+        console.error("[ERROR] - Failed to restart bot:", error);
+        setTimeout(checkBotHealth, RESTART_DELAY);
+      }
+    } else {
+      console.error("[ERROR] - Max restart attempts reached, giving up");
+    }
+  }
+}
+
+// Check bot health every minute
+setInterval(checkBotHealth, 60000);
+
+// Track when bot actually launches
+bot.launch().then(() => {
+  isBotRunning = true;
+  console.log("[INFO] - Bot launched successfully");
+}).catch((err: Error) => {
+  console.error("[ERROR] - Failed to launch bot:", err.message);
+});
 
 process.on("unhandledRejection", (reason, promise) => {
   console.error("[UNHANDLED REJECTION] -", reason);
