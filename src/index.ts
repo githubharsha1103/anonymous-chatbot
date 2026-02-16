@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import { Context, Telegraf } from "telegraf";
 import http from 'http';
+import https from 'https';
 
 import { 
   setGender,
@@ -377,22 +378,45 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   });
   
   // Internal self-ping to keep the bot alive (FREE alternative to cron jobs)
-  // This pings the health endpoint every 5 minutes to prevent the service from sleeping
-  const SELF_PING_INTERVAL = parseInt(process.env.SELF_PING_INTERVAL || "300000", 10); // 5 minutes default
+  // This pings an external service every 14 minutes to keep the service active
+  const SELF_PING_INTERVAL = parseInt(process.env.SELF_PING_INTERVAL || "840000", 10); // 14 minutes default
   
   if (SELF_PING_INTERVAL > 0) {
     console.log(`[INFO] - Starting internal self-ping every ${SELF_PING_INTERVAL / 1000 / 60} minutes`);
     
     setInterval(() => {
+      // Option 1: Use external free uptime service (cron-job.org allows free pings)
+      // Register at https://cron-job.org for a free endpoint to ping
+      const externalPingUrl = process.env.SELF_PING_URL;
+      
+      if (externalPingUrl) {
+        https.get(externalPingUrl, (res) => {
+          if (res.statusCode === 200) {
+            console.log("[SELF-PING] - External ping successful");
+          } else {
+            console.log(`[SELF-PING] - External ping returned status: ${res.statusCode}`);
+          }
+        }).on('error', (err) => {
+          console.log("[SELF-PING] - External ping skipped:", err.message);
+        });
+      }
+      
+      // Option 2: Keep bot alive by sending a request to Telegram API (getMe)
+      // This keeps the webhook processor active
+      bot.telegram.getMe().then(() => {
+        console.log("[SELF-PING] - Telegram API ping successful - bot is alive");
+      }).catch((err) => {
+        console.log("[SELF-PING] - Telegram API ping:", err.message);
+      });
+      
+      // Option 3: Local health endpoint ping (backup)
       const pingUrl = `http://localhost:${PORT}/healthz`;
       http.get(pingUrl, (res: http.IncomingMessage) => {
         if (res.statusCode === 200) {
-          console.log("[SELF-PING] - Internal ping successful");
-        } else {
-          console.log(`[SELF-PING] - Internal ping returned status: ${res.statusCode}`);
+          console.log("[SELF-PING] - Local ping successful");
         }
-      }).on('error', (err: Error) => {
-        console.error("[SELF-PING] - Internal ping failed:", err.message);
+      }).on('error', () => {
+        // Local ping might fail in some hosting environments, that's ok
       });
     }, SELF_PING_INTERVAL);
   }
@@ -400,37 +424,6 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   // For local development, use long polling
   console.log("[INFO] - Using long polling (local development)");
   bot.launch();
-}
-
-// Keep-alive mechanism to prevent bot from stopping due to inactivity
-// This periodically sends a message to admin to keep the bot active
-const KEEPALIVE_INTERVAL = parseInt(process.env.KEEPALIVE_INTERVAL || "720000", 10); // 12 minutes default
-const ADMIN_ID = process.env.ADMIN_IDS?.split(",")[0]?.replace("@", "") || "";
-
-if (KEEPALIVE_INTERVAL > 0 && ADMIN_ID) {
-  console.log(`[INFO] - Starting keep-alive ping every ${KEEPALIVE_INTERVAL / 1000 / 60} minutes to admin`);
-  
-  setInterval(async () => {
-    try {
-      // Check if ADMIN_ID is a username (starts with letters) or numeric ID
-      const isUsername = isNaN(parseInt(ADMIN_ID, 10));
-      
-      if (isUsername) {
-        // It's a username - send to @username
-        await bot.telegram.sendMessage(`@${ADMIN_ID}`, `✅ Bot is alive!\n⏰ Keepalive ping at: ${new Date().toLocaleTimeString()}`);
-        console.log("[KEEPALIVE] - Sent keepalive message to @" + ADMIN_ID);
-      } else {
-        // It's a numeric ID
-        const adminId = parseInt(ADMIN_ID, 10);
-        await bot.telegram.sendMessage(adminId, `✅ Bot is alive!\n⏰ Keepalive ping at: ${new Date().toLocaleTimeString()}`);
-        console.log("[KEEPALIVE] - Sent keepalive message to admin" + adminId);
-      }
-    } catch (error) {
-      console.error("[KEEPALIVE] - Error:", error);
-    }
-  }, KEEPALIVE_INTERVAL);
-} else {
-  console.log("[WARN] - Keepalive disabled: ADMIN_IDS not set");
 }
 
 /* ---------------- SELF-PING KEEPALIVE FOR RENDER/HOSTING PLATFORMS ---------------- */
