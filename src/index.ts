@@ -466,6 +466,11 @@ function checkBotHealth() {
   // Check if bot is supposed to be running but isn't
   const shouldBeRunning = !(process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL);
   
+  // Only relevant for polling mode, not webhook mode
+  if (!shouldBeRunning) {
+    return; // Skip health check in webhook mode
+  }
+  
   if (shouldBeRunning && !isBotRunning && bot.botInfo) {
     console.log("[WARN] - Bot appears to have stopped, attempting restart...");
     if (restartAttempts < MAX_RESTART_ATTEMPTS) {
@@ -489,12 +494,17 @@ function checkBotHealth() {
 setInterval(checkBotHealth, 60000);
 
 // Track when bot actually launches
-bot.launch().then(() => {
-  isBotRunning = true;
-  console.log("[INFO] - Bot launched successfully");
-}).catch((err: Error) => {
-  console.error("[ERROR] - Failed to launch bot:", err.message);
-});
+// Only launch in polling mode if NOT using webhooks
+if (!process.env.RENDER_EXTERNAL_HOSTNAME && !process.env.WEBHOOK_URL) {
+  bot.launch().then(() => {
+    isBotRunning = true;
+    console.log("[INFO] - Bot launched successfully (polling mode)");
+  }).catch((err: Error) => {
+    console.error("[ERROR] - Failed to launch bot:", err.message);
+  });
+} else {
+  console.log("[INFO] - Bot running in webhook mode, no polling launch needed");
+}
 
 process.on("unhandledRejection", (reason, promise) => {
   console.error("[UNHANDLED REJECTION] -", reason);
