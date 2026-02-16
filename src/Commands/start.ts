@@ -142,21 +142,15 @@ export default {
             return;
         }
         
-        // Check if user has joined the required group
-        if (user.hasJoinedGroup !== true) {
-            await ctx.reply(
-                "📢 <b>Group Membership Required</b>\n\n" +
-                "🔒 You must join our group to use the bot.\n\n" +
-                "📢 Click the button below to join:",
-                { parse_mode: "HTML", ...groupJoinKeyboard }
-            );
-            return;
-        }
-        
         // Existing user with complete profile - show main menu
+        // Group join is now optional - show invite link but allow access
+        const groupInviteLink = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
         await ctx.reply(
             "🌟 <b>Welcome back!</b> 🌟\n\n" +
             "This bot helps you chat anonymously with people worldwide.\n\n" +
+            "📢 <b>Join our community group!</b>\n" +
+            "Meet more people and stay updated!\n" +
+            "👉 " + groupInviteLink + "\n\n" +
             "Use the menu below to navigate:",
             { parse_mode: "HTML", ...mainMenuKeyboard }
         );
