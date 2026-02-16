@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import { Context, Telegraf } from "telegraf";
+import http from 'http';
 
 import { 
   setGender,
@@ -371,9 +372,30 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   });
   
   // Start the server
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`[INFO] - Server listening on port ${PORT}`);
   });
+  
+  // Internal self-ping to keep the bot alive (FREE alternative to cron jobs)
+  // This pings the health endpoint every 5 minutes to prevent the service from sleeping
+  const SELF_PING_INTERVAL = parseInt(process.env.SELF_PING_INTERVAL || "300000", 10); // 5 minutes default
+  
+  if (SELF_PING_INTERVAL > 0) {
+    console.log(`[INFO] - Starting internal self-ping every ${SELF_PING_INTERVAL / 1000 / 60} minutes`);
+    
+    setInterval(() => {
+      const pingUrl = `http://localhost:${PORT}/healthz`;
+      http.get(pingUrl, (res: http.IncomingMessage) => {
+        if (res.statusCode === 200) {
+          console.log("[SELF-PING] - Internal ping successful");
+        } else {
+          console.log(`[SELF-PING] - Internal ping returned status: ${res.statusCode}`);
+        }
+      }).on('error', (err: Error) => {
+        console.error("[SELF-PING] - Internal ping failed:", err.message);
+      });
+    }, SELF_PING_INTERVAL);
+  }
 } else {
   // For local development, use long polling
   console.log("[INFO] - Using long polling (local development)");
@@ -390,11 +412,18 @@ if (KEEPALIVE_INTERVAL > 0 && ADMIN_ID) {
   
   setInterval(async () => {
     try {
-      // Send a message to admin to keep the bot active
-      const adminId = parseInt(ADMIN_ID.replace(/\D/g, ""), 10);
-      if (!isNaN(adminId)) {
+      // Check if ADMIN_ID is a username (starts with letters) or numeric ID
+      const isUsername = isNaN(parseInt(ADMIN_ID, 10));
+      
+      if (isUsername) {
+        // It's a username - send to @username
+        await bot.telegram.sendMessage(`@${ADMIN_ID}`, `✅ Bot is alive!\n⏰ Keepalive ping at: ${new Date().toLocaleTimeString()}`);
+        console.log("[KEEPALIVE] - Sent keepalive message to @" + ADMIN_ID);
+      } else {
+        // It's a numeric ID
+        const adminId = parseInt(ADMIN_ID, 10);
         await bot.telegram.sendMessage(adminId, `✅ Bot is alive!\n⏰ Keepalive ping at: ${new Date().toLocaleTimeString()}`);
-        console.log("[KEEPALIVE] - Sent keepalive message to admin");
+        console.log("[KEEPALIVE] - Sent keepalive message to admin" + adminId);
       }
     } catch (error) {
       console.error("[KEEPALIVE] - Error:", error);
