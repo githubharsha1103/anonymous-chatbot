@@ -411,18 +411,6 @@ function cleanupStaleData() {
 // Run cleanup every 5 minutes
 setInterval(cleanupStaleData, 300000);
 
-// Track when bot actually launches
-// Only launch in polling mode if NOT using webhooks
-if (!process.env.RENDER_EXTERNAL_HOSTNAME && !process.env.WEBHOOK_URL) {
-  bot.launch().then(() => {
-    console.log("[INFO] - Bot launched successfully (polling mode)");
-  }).catch((err: Error) => {
-    console.error("[ERROR] - Failed to launch bot:", err.message);
-  });
-} else {
-  console.log("[INFO] - Bot running in webhook mode, no polling launch needed");
-}
-
 process.on("unhandledRejection", (reason, promise) => {
   console.error("[UNHANDLED REJECTION] -", reason);
 });
