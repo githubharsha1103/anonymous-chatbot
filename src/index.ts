@@ -320,21 +320,22 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   app.use(express.json());
   
   // Webhook endpoint
-  app.post(WEBHOOK_PATH, (req: Request, res: Response) => {
+  app.post(WEBHOOK_PATH, async (req: Request, res: Response) => {
     // Log that we received an update
     const updateType = req.body.callback_query ? "callback_query" : req.body.message ? "message" : req.body.inline_query ? "inline_query" : "other";
     console.log("[WEBHOOK] - Received update:", updateType, "from user:", req.body.callback_query?.from?.id || req.body.message?.from?.id);
     
-    // Handle Telegram update
-    bot.handleUpdate(req.body).then(() => {
+    try {
+      // Handle Telegram update and wait for it to complete
+      await bot.handleUpdate(req.body);
       console.log("[WEBHOOK] - Update processed successfully");
       res.sendStatus(200);
-    }).catch((err: Error) => {
+    } catch (err: any) {
       // Log but don't crash on network errors to Telegram API
       const errMsg = err?.message || 'Unknown error';
       console.error("[ERROR] - Failed to handle update:", errMsg, err);
       res.sendStatus(200); // Always return 200 to Telegram to prevent retries
-    });
+    }
   });
   
   // Health check endpoint
