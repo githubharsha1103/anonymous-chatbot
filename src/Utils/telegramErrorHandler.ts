@@ -356,23 +356,33 @@ export async function broadcastWithRateLimit(
   let success = 0;
   let failed = 0;
   const failedUserIds: number[] = [];
-  
-  for (const userId of userIds) {
-    const result = await sendMessageWithRetry(bot, userId, text);
-    if (result) {
-      success++;
-    } else {
-      failed++;
-      failedUserIds.push(userId);
-    }
+  const BATCH_SIZE = 10; // Process 10 users concurrently
+  const BATCH_DELAY = 2000; // Wait 2 seconds between batches
+
+  // Process in batches to keep bot responsive
+  for (let i = 0; i < userIds.length; i += BATCH_SIZE) {
+    const batch = userIds.slice(i, i + BATCH_SIZE);
     
-    if (onProgress) {
-      onProgress(success, failed);
-    }
+    // Process batch in parallel
+    const batchPromises = batch.map(async (userId) => {
+      const result = await sendMessageWithRetry(bot, userId, text);
+      if (result) {
+        success++;
+      } else {
+        failed++;
+        failedUserIds.push(userId);
+      }
+      
+      if (onProgress) {
+        onProgress(success, failed);
+      }
+    });
     
-    // Add delay between broadcasts to avoid rate limits
-    if (userIds.indexOf(userId) < userIds.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, MIN_DELAY_MS));
+    await Promise.all(batchPromises);
+    
+    // Yield to event loop between batches
+    if (i + BATCH_SIZE < userIds.length) {
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
     }
   }
   

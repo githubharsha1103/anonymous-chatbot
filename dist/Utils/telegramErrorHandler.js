@@ -306,21 +306,29 @@ function broadcastWithRateLimit(bot, userIds, text, onProgress) {
         let success = 0;
         let failed = 0;
         const failedUserIds = [];
-        for (const userId of userIds) {
-            const result = yield sendMessageWithRetry(bot, userId, text);
-            if (result) {
-                success++;
-            }
-            else {
-                failed++;
-                failedUserIds.push(userId);
-            }
-            if (onProgress) {
-                onProgress(success, failed);
-            }
-            // Add delay between broadcasts to avoid rate limits
-            if (userIds.indexOf(userId) < userIds.length - 1) {
-                yield new Promise(resolve => setTimeout(resolve, MIN_DELAY_MS));
+        const BATCH_SIZE = 10; // Process 10 users concurrently
+        const BATCH_DELAY = 2000; // Wait 2 seconds between batches
+        // Process in batches to keep bot responsive
+        for (let i = 0; i < userIds.length; i += BATCH_SIZE) {
+            const batch = userIds.slice(i, i + BATCH_SIZE);
+            // Process batch in parallel
+            const batchPromises = batch.map((userId) => __awaiter(this, void 0, void 0, function* () {
+                const result = yield sendMessageWithRetry(bot, userId, text);
+                if (result) {
+                    success++;
+                }
+                else {
+                    failed++;
+                    failedUserIds.push(userId);
+                }
+                if (onProgress) {
+                    onProgress(success, failed);
+                }
+            }));
+            yield Promise.all(batchPromises);
+            // Yield to event loop between batches
+            if (i + BATCH_SIZE < userIds.length) {
+                yield new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
             }
         }
         return { success, failed, failedUserIds };

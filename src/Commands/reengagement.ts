@@ -203,18 +203,32 @@ ${message}
 
         let sent = 0;
         let failed = 0;
+        const BATCH_SIZE = 50; // Process 50 users at a time
+        const BATCH_DELAY = 2000; // Wait 2 seconds between batches
 
-        for (const id of inactiveUsers) {
-            const userId = parseInt(id);
-            if (isNaN(userId)) continue;
+        // Process in batches to avoid blocking the bot
+        for (let i = 0; i < inactiveUsers.length; i += BATCH_SIZE) {
+            const batch = inactiveUsers.slice(i, i + BATCH_SIZE);
             
-            try {
-                await bot.telegram.sendMessage(userId, introText, { parse_mode: "HTML", ...keyboard });
-                sent++;
-            } catch {
-                failed++;
+            // Process batch in parallel (max 10 concurrent)
+            const batchPromises = batch.slice(0, 10).map(async (id) => {
+                const userId = parseInt(id);
+                if (isNaN(userId)) return;
+                
+                try {
+                    await bot.telegram.sendMessage(userId, introText, { parse_mode: "HTML", ...keyboard });
+                    sent++;
+                } catch {
+                    failed++;
+                }
+            });
+            
+            await Promise.all(batchPromises);
+            
+            // Yield to event loop between batches to keep bot responsive
+            if (i + BATCH_SIZE < inactiveUsers.length) {
+                await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
             }
-            await new Promise(resolve => setTimeout(resolve, 100));
         }
 
         await safeEditMessageText(ctx,
@@ -253,18 +267,32 @@ ${message}
 
         let sent = 0;
         let failed = 0;
+        const BATCH_SIZE = 50; // Process 50 users at a time
+        const BATCH_DELAY = 2000; // Wait 2 seconds between batches
 
-        for (const id of inactiveUsers) {
-            const userId = parseInt(id);
-            if (isNaN(userId)) continue;
+        // Process in batches to avoid blocking the bot
+        for (let i = 0; i < inactiveUsers.length; i += BATCH_SIZE) {
+            const batch = inactiveUsers.slice(i, i + BATCH_SIZE);
             
-            try {
-                await bot.telegram.sendMessage(userId, introText, { parse_mode: "HTML", ...keyboard });
-                sent++;
-            } catch {
-                failed++;
+            // Process batch in parallel (max 10 concurrent)
+            const batchPromises = batch.slice(0, 10).map(async (id) => {
+                const userId = parseInt(id);
+                if (isNaN(userId)) return;
+                
+                try {
+                    await bot.telegram.sendMessage(userId, introText, { parse_mode: "HTML", ...keyboard });
+                    sent++;
+                } catch {
+                    failed++;
+                }
+            });
+            
+            await Promise.all(batchPromises);
+            
+            // Yield to event loop between batches to keep bot responsive
+            if (i + BATCH_SIZE < inactiveUsers.length) {
+                await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
             }
-            await new Promise(resolve => setTimeout(resolve, 100));
         }
 
         await safeEditMessageText(ctx,
