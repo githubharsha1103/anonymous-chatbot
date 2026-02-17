@@ -79,6 +79,7 @@ class ExtraTelegraf extends telegraf_1.Telegraf {
         const index = this.runningChats.indexOf(id);
         if (index === -1)
             return null; // User not in any chat
+        // Validate that we have an even-indexed user (users should be stored in pairs)
         // Even index (0, 2, 4...) - partner is at index + 1
         if (index % 2 === 0) {
             // Check if partner exists at index + 1
@@ -136,6 +137,18 @@ class ExtraTelegraf extends telegraf_1.Telegraf {
 }
 exports.ExtraTelegraf = ExtraTelegraf;
 exports.bot = new ExtraTelegraf(process.env.BOT_TOKEN);
+// Add global error handling middleware for Telegraf BEFORE loading handlers
+exports.bot.use((ctx, next) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    try {
+        yield next();
+    }
+    catch (err) {
+        const userId = (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id;
+        console.error("[MIDDLEWARE ERROR] -", err);
+        // Don't let errors propagate - log and continue
+    }
+}));
 /* ---------------- LOADERS ---------------- */
 const commandHandler_1 = require("./Utils/commandHandler");
 const eventHandler_1 = require("./Utils/eventHandler");
@@ -288,30 +301,17 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
             res.sendStatus(200); // Always return 200 to Telegram to prevent retries
         }
     }));
-    // Health check endpoint
+    // Health check endpoint - simplified version that doesn't make API calls
     app.get("/health", (req, res) => {
-        // Check if bot is responding
-        exports.bot.telegram.getMe().then(botInfo => {
-            res.json({
-                status: "OK",
-                bot: botInfo.username,
-                uptime: process.uptime(),
-                timestamp: new Date().toISOString()
-            });
-        }).catch(err => {
-            res.status(503).json({
-                status: "ERROR",
-                error: err.message,
-                timestamp: new Date().toISOString()
-            });
+        res.json({
+            status: "OK",
+            uptime: process.uptime(),
+            timestamp: new Date().toISOString()
         });
     });
     // Health check endpoints for Render - MUST return status 200
     app.get("/healthz", (req, res) => {
         res.status(200).send("OK");
-    });
-    app.get("/health", (req, res) => {
-        res.status(200).json({ status: "OK", timestamp: Date.now() });
     });
     app.get("/ready", (req, res) => {
         res.status(200).send("READY");
@@ -331,46 +331,33 @@ else {
     console.log("[INFO] - Using long polling (local development)");
     exports.bot.launch();
 }
-/* ---------------- AUTO-RESTART MECHANISM ---------------- */
-// Monitors bot health and attempts to restart if stopped
-let isBotRunning = false;
-let restartAttempts = 0;
-const MAX_RESTART_ATTEMPTS = 5;
-const RESTART_DELAY = 10000; // 10 seconds between restart attempts
-function checkBotHealth() {
-    // Check if bot is supposed to be running but isn't
-    const shouldBeRunning = !(process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL);
-    // Only relevant for polling mode, not webhook mode
-    if (!shouldBeRunning) {
-        return; // Skip health check in webhook mode
+/* ---------------- GLOBAL ERROR HANDLING ---------------- */
+// Use Telegraf's built-in error handling via middleware
+/* ---------------- PERIODIC CLEANUP ---------------- */
+// Clean up stale data from Maps to prevent memory leaks
+function cleanupStaleData() {
+    try {
+        // Clean up rate limit map (remove entries older than 1 minute)
+        const now = Date.now();
+        const RATE_LIMIT_CLEANUP_THRESHOLD = 60000; // 1 minute
+        for (const [userId, timestamp] of exports.bot.rateLimitMap) {
+            if (now - timestamp > RATE_LIMIT_CLEANUP_THRESHOLD) {
+                exports.bot.rateLimitMap.delete(userId);
+            }
+        }
+        // Log cleanup stats
+        console.log(`[CLEANUP] - Rate limit map size: ${exports.bot.rateLimitMap.size}, Running chats: ${exports.bot.runningChats.length}, Waiting queue: ${exports.bot.waitingQueue.length}`);
     }
-    if (shouldBeRunning && !isBotRunning && exports.bot.botInfo) {
-        console.log("[WARN] - Bot appears to have stopped, attempting restart...");
-        if (restartAttempts < MAX_RESTART_ATTEMPTS) {
-            restartAttempts++;
-            try {
-                exports.bot.launch();
-                isBotRunning = true;
-                console.log(`[INFO] - Bot restarted successfully (attempt ${restartAttempts})`);
-                restartAttempts = 0; // Reset on successful restart
-            }
-            catch (error) {
-                console.error("[ERROR] - Failed to restart bot:", error);
-                setTimeout(checkBotHealth, RESTART_DELAY);
-            }
-        }
-        else {
-            console.error("[ERROR] - Max restart attempts reached, giving up");
-        }
+    catch (error) {
+        console.error("[CLEANUP] - Error during cleanup:", error);
     }
 }
-// Check bot health every minute
-setInterval(checkBotHealth, 60000);
+// Run cleanup every 5 minutes
+setInterval(cleanupStaleData, 300000);
 // Track when bot actually launches
 // Only launch in polling mode if NOT using webhooks
 if (!process.env.RENDER_EXTERNAL_HOSTNAME && !process.env.WEBHOOK_URL) {
     exports.bot.launch().then(() => {
-        isBotRunning = true;
         console.log("[INFO] - Bot launched successfully (polling mode)");
     }).catch((err) => {
         console.error("[ERROR] - Failed to launch bot:", err.message);
