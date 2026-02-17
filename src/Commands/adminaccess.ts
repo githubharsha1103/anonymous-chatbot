@@ -62,8 +62,8 @@ async function safeAnswerCbQuery(ctx: any, text?: string) {
         if (ctx.callbackQuery?.id) {
             await ctx.answerCbQuery(text);
         }
-    } catch {
-        // Ignore errors
+    } catch (error: any) {
+        console.error("[ADMIN ERROR] - Error answering callback:", error.message || error);
     }
 }
 
@@ -88,15 +88,13 @@ export default {
 } as Command;
 
 export function initAdminActions(bot: ExtraTelegraf) {
-    // Safe editMessageText that ignores "not modified" error
+    // Safe editMessageText that logs all errors
     async function safeEditMessageText(ctx: any, text: string, extra?: any) {
         try {
             await ctx.editMessageText(text, extra);
         } catch (error: any) {
-            // Ignore "message is not modified" error
-            if (!error.message?.includes("not modified")) {
-                console.error("[ADMIN ERROR] -", error.message || error);
-            }
+            // Log all errors for debugging
+            console.error("[ADMIN ERROR] - Error editing message:", error.message || error);
         }
     }
 
