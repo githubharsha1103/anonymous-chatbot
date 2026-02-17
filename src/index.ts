@@ -2,7 +2,6 @@ import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import { Context, Telegraf } from "telegraf";
 import http from 'http';
-import https from 'https';
 
 import { 
   setGender,
@@ -380,76 +379,10 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
     console.log(`[INFO] - Server listening on port ${PORT}`);
     console.log(`[INFO] - Health check endpoints active`);
   });
-  
-  // Internal self-ping to keep the bot alive (FREE alternative to cron jobs)
-  // This pings an external service every 14 minutes to keep the service active
-  const SELF_PING_INTERVAL = parseInt(process.env.SELF_PING_INTERVAL || "840000", 10); // 14 minutes default
-  
-  if (SELF_PING_INTERVAL > 0) {
-    console.log(`[INFO] - Starting internal self-ping every ${SELF_PING_INTERVAL / 1000 / 60} minutes`);
-    
-    setInterval(() => {
-      // Option 1: Use external free uptime service (cron-job.org allows free pings)
-      // Register at https://cron-job.org for a free endpoint to ping
-      const externalPingUrl = process.env.SELF_PING_URL;
-      
-      if (externalPingUrl) {
-        https.get(externalPingUrl, (res) => {
-          if (res.statusCode === 200) {
-            console.log("[SELF-PING] - External ping successful");
-          } else {
-            console.log(`[SELF-PING] - External ping returned status: ${res.statusCode}`);
-          }
-        }).on('error', (err) => {
-          console.log("[SELF-PING] - External ping skipped:", err.message);
-        });
-      }
-      
-      // Option 2: Keep bot alive by sending a request to Telegram API (getMe)
-      // This keeps the webhook processor active
-      bot.telegram.getMe().then(() => {
-        console.log("[SELF-PING] - Telegram API ping successful - bot is alive");
-      }).catch((err) => {
-        console.log("[SELF-PING] - Telegram API ping:", err.message);
-      });
-      
-      // Option 3: Local health endpoint ping (backup)
-      const pingUrl = `http://localhost:${PORT}/healthz`;
-      http.get(pingUrl, (res: http.IncomingMessage) => {
-        if (res.statusCode === 200) {
-          console.log("[SELF-PING] - Local ping successful");
-        }
-      }).on('error', () => {
-        // Local ping might fail in some hosting environments, that's ok
-      });
-    }, SELF_PING_INTERVAL);
-  }
 } else {
   // For local development, use long polling
   console.log("[INFO] - Using long polling (local development)");
   bot.launch();
-}
-
-/* ---------------- SELF-PING KEEPALIVE FOR RENDER/HOSTING PLATFORMS ---------------- */
-// This endpoint allows external services (like Render's health check or a cron job) to keep the bot alive
-const SELF_PING_PORT = parseInt(process.env.SELF_PING_PORT || "3001", 10);
-
-// Only start self-ping server if explicitly enabled
-if (process.env.ENABLE_SELF_PING === "true") {
-  import('express').then(({ default: express }) => {
-    const pingApp = express();
-    
-    pingApp.get("/ping", (req: Request, res: Response) => {
-      res.send("OK");
-    });
-    
-    pingApp.listen(SELF_PING_PORT, "0.0.0.0", () => {
-      console.log(`[INFO] - Self-ping server listening on port ${SELF_PING_PORT}`);
-      console.log(`[INFO] - Add this URL to your external cron/ping service: http://your-app:${SELF_PING_PORT}/ping`);
-    });
-  }).catch(err => {
-    console.error("[ERROR] - Failed to start self-ping server:", err);
-  });
 }
 
 /* ---------------- AUTO-RESTART MECHANISM ---------------- */
