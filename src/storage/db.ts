@@ -334,6 +334,55 @@ export async function getReportCount(id: number): Promise<number> {
   return user.reportCount || 0;
 }
 
+// Get all reported users sorted by report count
+export async function getReportedUsers(): Promise<{telegramId: number, reportCount: number, reportReason: string | null}[]> {
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getUsersCollection();
+      const users = await collection.find(
+        { reportCount: { $gt: 0 } },
+        { projection: { telegramId: 1, reportCount: 1, reportReason: 1 } }
+      ).sort({ reportCount: -1 }).toArray();
+      return users.map((u: any) => ({
+        telegramId: u.telegramId,
+        reportCount: u.reportCount || 0,
+        reportReason: u.reportReason || null
+      }));
+    } catch (error) {
+      console.error("[ERROR] - MongoDB error getting reported users:", error);
+    }
+  }
+  
+  // JSON fallback
+  const fs = require("fs");
+  if (!fs.existsSync(JSON_FILE)) return [];
+  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+  
+  const reportedUsers: {telegramId: number, reportCount: number, reportReason: string | null}[] = [];
+  for (const [id, userData] of Object.entries(dbObj)) {
+    const user = userData as any;
+    if (user.reportCount && user.reportCount > 0) {
+      reportedUsers.push({
+        telegramId: parseInt(id),
+        reportCount: user.reportCount || 0,
+        reportReason: user.reportReason || null
+      });
+    }
+  }
+  
+  // Sort by report count descending
+  return reportedUsers.sort((a, b) => b.reportCount - a.reportCount);
+}
+
+// Get user report details
+export async function getUserReportDetails(id: number): Promise<{reportCount: number, reportReason: string | null}> {
+  const user = await getUser(id);
+  return {
+    reportCount: user.reportCount || 0,
+    reportReason: user.reportReason || null
+  };
+}
+
 export async function getBanReason(id: number): Promise<string | null> {
   const user = await getUser(id);
   return user.banReason || null;
