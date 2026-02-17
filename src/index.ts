@@ -357,24 +357,28 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
     });
   });
   
-  // Enhanced health check for Render/hosting platforms
+  // Health check endpoints for Render - MUST return status 200
   app.get("/healthz", (req: Request, res: Response) => {
-    res.send("OK");
+    res.status(200).send("OK");
   });
-  
-  // Ready endpoint - returns 200 when ready
+
+  app.get("/health", (req: Request, res: Response) => {
+    res.status(200).json({ status: "OK", timestamp: Date.now() });
+  });
+
   app.get("/ready", (req: Request, res: Response) => {
-    res.send("READY");
+    res.status(200).send("READY");
   });
-  
-  // Root endpoint for Render health checks
+
+  // ROOT endpoint - Render's health check hits this
   app.get("/", (req: Request, res: Response) => {
-    res.send("OK");
+    res.status(200).send("OK");
   });
-  
+
   // Start the server
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`[INFO] - Server listening on port ${PORT}`);
+    console.log(`[INFO] - Health check endpoints active`);
   });
   
   // Internal self-ping to keep the bot alive (FREE alternative to cron jobs)
