@@ -62,8 +62,8 @@ async function safeAnswerCbQuery(ctx: any, text?: string) {
         if (ctx.callbackQuery?.id) {
             await ctx.answerCbQuery(text);
         }
-    } catch {
-        // Ignore errors
+    } catch (error: any) {
+        console.error("[ADMIN ERROR] - answerCbQuery failed:", error?.message || error);
     }
 }
 
