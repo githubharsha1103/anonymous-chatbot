@@ -350,28 +350,34 @@ export async function getReportedUsers(): Promise<{telegramId: number, reportCou
       }));
     } catch (error) {
       console.error("[ERROR] - MongoDB error getting reported users:", error);
+      return []; // Return empty array on error to prevent hanging
     }
   }
   
   // JSON fallback
-  const fs = require("fs");
-  if (!fs.existsSync(JSON_FILE)) return [];
-  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
-  
-  const reportedUsers: {telegramId: number, reportCount: number, reportReason: string | null}[] = [];
-  for (const [id, userData] of Object.entries(dbObj)) {
-    const user = userData as any;
-    if (user.reportCount && user.reportCount > 0) {
-      reportedUsers.push({
-        telegramId: parseInt(id),
-        reportCount: user.reportCount || 0,
-        reportReason: user.reportReason || null
-      });
+  try {
+    const fs = require("fs");
+    if (!fs.existsSync(JSON_FILE)) return [];
+    const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+    
+    const reportedUsers: {telegramId: number, reportCount: number, reportReason: string | null}[] = [];
+    for (const [id, userData] of Object.entries(dbObj)) {
+      const user = userData as any;
+      if (user.reportCount && user.reportCount > 0) {
+        reportedUsers.push({
+          telegramId: parseInt(id),
+          reportCount: user.reportCount || 0,
+          reportReason: user.reportReason || null
+        });
+      }
     }
+    
+    // Sort by report count descending
+    return reportedUsers.sort((a, b) => b.reportCount - a.reportCount);
+  } catch (error) {
+    console.error("[ERROR] - JSON fallback error getting reported users:", error);
+    return [];
   }
-  
-  // Sort by report count descending
-  return reportedUsers.sort((a, b) => b.reportCount - a.reportCount);
 }
 
 // Get user report details
