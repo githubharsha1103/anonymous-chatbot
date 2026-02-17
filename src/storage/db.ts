@@ -334,23 +334,6 @@ export async function getReportCount(id: number): Promise<number> {
   return user.reportCount || 0;
 }
 
-// Simple function to get all users with reports - uses existing getUser to avoid connection issues
-export async function getReportedUsers(): Promise<{telegramId: number, reportCount: number}[]> {
-  const allUserIds = await getAllUsers();
-  const reportedUsers: {telegramId: number, reportCount: number}[] = [];
-  
-  for (const idStr of allUserIds) {
-    const id = parseInt(idStr);
-    const count = await getReportCount(id);
-    if (count > 0) {
-      reportedUsers.push({ telegramId: id, reportCount: count });
-    }
-  }
-  
-  // Sort by report count descending
-  return reportedUsers.sort((a, b) => b.reportCount - a.reportCount);
-}
-
 export async function getBanReason(id: number): Promise<string | null> {
   const user = await getUser(id);
   return user.banReason || null;
