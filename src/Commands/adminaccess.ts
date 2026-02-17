@@ -100,6 +100,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Back to main menu
     bot.action("ADMIN_BACK", async (ctx) => {
+        console.log("[ADMIN] - ADMIN_BACK triggered");
         await safeAnswerCbQuery(ctx);
         await safeEditMessageText(
             ctx,
