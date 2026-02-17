@@ -569,42 +569,31 @@ function showSetupComplete(ctx) {
         const genderEmoji = user.gender === "male" ? "👨" : user.gender === "female" ? "👩" : "❓";
         const genderText = user.gender ? (user.gender.charAt(0).toUpperCase() + user.gender.slice(1)) : "Not Set";
         const stateText = user.state === "Other" ? "🌍 Other" : (user.state || "Not Set");
-        // Check if user has joined the group
+        // Check if user has joined the group (optional - for display purposes only)
         const hasJoined = user.hasJoinedGroup === true;
         let text;
         let keyboard;
-        if (hasJoined) {
-            // User has joined group - show main menu
-            text =
-                "✨ *Profile Complete!* ✨\n\n" +
-                    "━━━━━━━━━━━━━━━━━━━━\n\n" +
-                    "📋 *Your Profile:*\n\n" +
-                    `${genderEmoji} *Gender:* ${genderText}\n` +
-                    `🎂 *Age:* ${user.age || "Not Set"}\n` +
-                    `📍 *Location:* ${stateText}\n\n` +
-                    "━━━━━━━━━━━━━━━━━━━━\n\n" +
-                    "🎉 *You're all set to start chatting!*/search - Find a chat partner now\n" +
-                    "⚙️ /settings - Update your profile anytime\n" +
-                    "❓ /help - Get help with commands\n\n" +
-                    "💡 *Tip:* Be friendly and respectful for the best experience!";
-            keyboard = mainMenuKeyboard;
-        }
-        else {
-            // User hasn't joined group yet - show group join requirement
-            text =
-                "✨ *Profile Complete!* ✨\n\n" +
-                    "━━━━━━━━━━━━━━━━━━━━\n\n" +
-                    "📋 *Your Profile:*\n\n" +
-                    `${genderEmoji} *Gender:* ${genderText}\n` +
-                    `🎂 *Age:* ${user.age || "Not Set"}\n` +
-                    `📍 *Location:* ${stateText}\n\n` +
-                    "━━━━━━━━━━━━━━━━━━━━\n\n" +
-                    "🎉 *Almost there!*\n\n" +
-                    "📢 *Please join our group to start chatting!*\n\n" +
-                    "This helps us keep the community safe and verified.\n\n" +
-                    "Click the button below to join, then confirm!";
-            keyboard = groupJoinKeyboard;
-        }
+        // Always show main menu - group join is now optional
+        // Users can chat without joining the group, but we show the invite link as optional
+        text =
+            "✨ *Profile Complete!* ✨\n\n" +
+                "━━━━━━━━━━━━━━━━━━━━\n\n" +
+                "📋 *Your Profile:*\n\n" +
+                `${genderEmoji} *Gender:* ${genderText}\n` +
+                `🎂 *Age:* ${user.age || "Not Set"}\n` +
+                `📍 *Location:* ${stateText}\n\n` +
+                "━━━━━━━━━━━━━━━━━━━━\n\n";
+        // Add optional group join message
+        text += "📢 *Want to join our community group?*\n" +
+            "Join to meet more people and stay updated!\n" +
+            `👉 ${GROUP_INVITE_LINK}\n\n` +
+            "━━━━━━━━━━━━━━━━━━━━\n\n" +
+            "🎉 *You're all set to start chatting!*\n" +
+            "/search - Find a chat partner now\n" +
+            "⚙️ /settings - Update your profile anytime\n" +
+            "❓ /help - Get help with commands\n\n" +
+            "💡 *Tip:* Be friendly and respectful for the best experience!";
+        keyboard = mainMenuKeyboard;
         try {
             yield ctx.editMessageText(text, Object.assign({ parse_mode: "Markdown" }, keyboard));
         }

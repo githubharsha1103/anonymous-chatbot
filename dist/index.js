@@ -1,37 +1,4 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -44,7 +11,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
-var _a, _b, _c;
+var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.bot = exports.ExtraTelegraf = void 0;
 require("dotenv/config");
@@ -303,22 +270,24 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
     // Use express.json() middleware for parsing Telegram updates
     app.use(express_1.default.json());
     // Webhook endpoint
-    app.post(WEBHOOK_PATH, (req, res) => {
+    app.post(WEBHOOK_PATH, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         var _a, _b, _c, _d;
         // Log that we received an update
         const updateType = req.body.callback_query ? "callback_query" : req.body.message ? "message" : req.body.inline_query ? "inline_query" : "other";
         console.log("[WEBHOOK] - Received update:", updateType, "from user:", ((_b = (_a = req.body.callback_query) === null || _a === void 0 ? void 0 : _a.from) === null || _b === void 0 ? void 0 : _b.id) || ((_d = (_c = req.body.message) === null || _c === void 0 ? void 0 : _c.from) === null || _d === void 0 ? void 0 : _d.id));
-        // Handle Telegram update
-        exports.bot.handleUpdate(req.body).then(() => {
+        try {
+            // Handle Telegram update and wait for it to complete
+            yield exports.bot.handleUpdate(req.body);
             console.log("[WEBHOOK] - Update processed successfully");
             res.sendStatus(200);
-        }).catch((err) => {
+        }
+        catch (err) {
             // Log but don't crash on network errors to Telegram API
             const errMsg = (err === null || err === void 0 ? void 0 : err.message) || 'Unknown error';
             console.error("[ERROR] - Failed to handle update:", errMsg, err);
             res.sendStatus(200); // Always return 200 to Telegram to prevent retries
-        });
-    });
+        }
+    }));
     // Health check endpoint
     app.get("/health", (req, res) => {
         // Check if bot is responding
@@ -337,68 +306,30 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
             });
         });
     });
-    // Enhanced health check for Render/hosting platforms
+    // Health check endpoints for Render - MUST return status 200
     app.get("/healthz", (req, res) => {
-        res.send("OK");
+        res.status(200).send("OK");
     });
-    // Ready endpoint - returns 200 when ready
+    app.get("/health", (req, res) => {
+        res.status(200).json({ status: "OK", timestamp: Date.now() });
+    });
     app.get("/ready", (req, res) => {
-        res.send("READY");
+        res.status(200).send("READY");
     });
-    // Root endpoint for Render health checks
+    // ROOT endpoint - Render's health check hits this
     app.get("/", (req, res) => {
-        res.send("OK");
+        res.status(200).send("OK");
     });
     // Start the server
-    app.listen(PORT, "0.0.0.0", () => {
+    const server = app.listen(PORT, "0.0.0.0", () => {
         console.log(`[INFO] - Server listening on port ${PORT}`);
+        console.log(`[INFO] - Health check endpoints active`);
     });
 }
 else {
     // For local development, use long polling
     console.log("[INFO] - Using long polling (local development)");
     exports.bot.launch();
-}
-// Keep-alive mechanism to prevent bot from stopping due to inactivity
-// This periodically sends a message to admin to keep the bot active
-const KEEPALIVE_INTERVAL = parseInt(process.env.KEEPALIVE_INTERVAL || "720000", 10); // 12 minutes default
-const ADMIN_ID = ((_c = (_b = process.env.ADMIN_IDS) === null || _b === void 0 ? void 0 : _b.split(",")[0]) === null || _c === void 0 ? void 0 : _c.replace("@", "")) || "";
-if (KEEPALIVE_INTERVAL > 0 && ADMIN_ID) {
-    console.log(`[INFO] - Starting keep-alive ping every ${KEEPALIVE_INTERVAL / 1000 / 60} minutes to admin`);
-    setInterval(() => __awaiter(void 0, void 0, void 0, function* () {
-        try {
-            // Send a message to admin to keep the bot active
-            const adminId = parseInt(ADMIN_ID.replace(/\D/g, ""), 10);
-            if (!isNaN(adminId)) {
-                yield exports.bot.telegram.sendMessage(adminId, `✅ Bot is alive!\n⏰ Keepalive ping at: ${new Date().toLocaleTimeString()}`);
-                console.log("[KEEPALIVE] - Sent keepalive message to admin");
-            }
-        }
-        catch (error) {
-            console.error("[KEEPALIVE] - Error:", error);
-        }
-    }), KEEPALIVE_INTERVAL);
-}
-else {
-    console.log("[WARN] - Keepalive disabled: ADMIN_IDS not set");
-}
-/* ---------------- SELF-PING KEEPALIVE FOR RENDER/HOSTING PLATFORMS ---------------- */
-// This endpoint allows external services (like Render's health check or a cron job) to keep the bot alive
-const SELF_PING_PORT = parseInt(process.env.SELF_PING_PORT || "3001", 10);
-// Only start self-ping server if explicitly enabled
-if (process.env.ENABLE_SELF_PING === "true") {
-    Promise.resolve().then(() => __importStar(require('express'))).then(({ default: express }) => {
-        const pingApp = express();
-        pingApp.get("/ping", (req, res) => {
-            res.send("OK");
-        });
-        pingApp.listen(SELF_PING_PORT, "0.0.0.0", () => {
-            console.log(`[INFO] - Self-ping server listening on port ${SELF_PING_PORT}`);
-            console.log(`[INFO] - Add this URL to your external cron/ping service: http://your-app:${SELF_PING_PORT}/ping`);
-        });
-    }).catch(err => {
-        console.error("[ERROR] - Failed to start self-ping server:", err);
-    });
 }
 /* ---------------- AUTO-RESTART MECHANISM ---------------- */
 // Monitors bot health and attempts to restart if stopped
@@ -409,6 +340,10 @@ const RESTART_DELAY = 10000; // 10 seconds between restart attempts
 function checkBotHealth() {
     // Check if bot is supposed to be running but isn't
     const shouldBeRunning = !(process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL);
+    // Only relevant for polling mode, not webhook mode
+    if (!shouldBeRunning) {
+        return; // Skip health check in webhook mode
+    }
     if (shouldBeRunning && !isBotRunning && exports.bot.botInfo) {
         console.log("[WARN] - Bot appears to have stopped, attempting restart...");
         if (restartAttempts < MAX_RESTART_ATTEMPTS) {
@@ -432,12 +367,18 @@ function checkBotHealth() {
 // Check bot health every minute
 setInterval(checkBotHealth, 60000);
 // Track when bot actually launches
-exports.bot.launch().then(() => {
-    isBotRunning = true;
-    console.log("[INFO] - Bot launched successfully");
-}).catch((err) => {
-    console.error("[ERROR] - Failed to launch bot:", err.message);
-});
+// Only launch in polling mode if NOT using webhooks
+if (!process.env.RENDER_EXTERNAL_HOSTNAME && !process.env.WEBHOOK_URL) {
+    exports.bot.launch().then(() => {
+        isBotRunning = true;
+        console.log("[INFO] - Bot launched successfully (polling mode)");
+    }).catch((err) => {
+        console.error("[ERROR] - Failed to launch bot:", err.message);
+    });
+}
+else {
+    console.log("[INFO] - Bot running in webhook mode, no polling launch needed");
+}
 process.on("unhandledRejection", (reason, promise) => {
     console.error("[UNHANDLED REJECTION] -", reason);
 });

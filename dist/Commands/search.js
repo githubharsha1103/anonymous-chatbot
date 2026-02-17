@@ -100,17 +100,8 @@ exports.default = {
         if (!user.gender || !user.age || !user.state) {
             return redirectToSetup(ctx);
         }
-        // Check if user has joined the required group (re-verify for security)
-        const hasJoined = user.hasJoinedGroup === true && (yield isUserGroupMember(bot, userId));
-        if (!hasJoined) {
-            // Update database to remove verified status if they're no longer in group
-            yield (0, db_1.updateUser)(userId, { hasJoinedGroup: false });
-            return ctx.reply("📢 *Group Membership Required*\n\n" +
-                "🔒 You must join our group before you can search for chat partners.\n\n" +
-                "📢 Click the link below to join:\n" +
-                GROUP_INVITE_LINK + "\n\n" +
-                "After joining, click /start to verify and unlock all features!", Object.assign({ parse_mode: "Markdown" }, groupJoinKeyboard));
-        }
+        // Group join is now optional - user can search without joining the group
+        // Proceed with search - no group verification needed
         // Acquire mutex to prevent race conditions
         yield bot.queueMutex.acquire();
         try {

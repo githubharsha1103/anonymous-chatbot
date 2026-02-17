@@ -125,16 +125,14 @@ exports.default = {
                 "(Helps match you with nearby people)", Object.assign({ parse_mode: "HTML" }, stateKeyboard));
             return;
         }
-        // Check if user has joined the required group
-        if (user.hasJoinedGroup !== true) {
-            yield ctx.reply("📢 <b>Group Membership Required</b>\n\n" +
-                "🔒 You must join our group to use the bot.\n\n" +
-                "📢 Click the button below to join:", Object.assign({ parse_mode: "HTML" }, groupJoinKeyboard));
-            return;
-        }
         // Existing user with complete profile - show main menu
+        // Group join is now optional - show invite link but allow access
+        const groupInviteLink = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
         yield ctx.reply("🌟 <b>Welcome back!</b> 🌟\n\n" +
             "This bot helps you chat anonymously with people worldwide.\n\n" +
+            "📢 <b>Join our community group!</b>\n" +
+            "Meet more people and stay updated!\n" +
+            "👉 " + groupInviteLink + "\n\n" +
             "Use the menu below to navigate:", Object.assign({ parse_mode: "HTML" }, mainMenuKeyboard));
     })
 };

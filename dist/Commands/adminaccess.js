@@ -69,8 +69,8 @@ function safeAnswerCbQuery(ctx, text) {
                 yield ctx.answerCbQuery(text);
             }
         }
-        catch (_b) {
-            // Ignore errors
+        catch (error) {
+            console.error("[ADMIN ERROR] - answerCbQuery failed:", (error === null || error === void 0 ? void 0 : error.message) || error);
         }
     });
 }
@@ -106,8 +106,17 @@ function initAdminActions(bot) {
     }
     // Back to main menu
     bot.action("ADMIN_BACK", (ctx) => __awaiter(this, void 0, void 0, function* () {
-        yield safeAnswerCbQuery(ctx);
-        yield safeEditMessageText(ctx, "🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:", Object.assign({ parse_mode: "Markdown" }, mainKeyboard));
+        var _a;
+        console.log("[ADMIN] - ADMIN_BACK action triggered for user:", (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id);
+        try {
+            yield safeAnswerCbQuery(ctx);
+            console.log("[ADMIN] - Answered callback query");
+            yield safeEditMessageText(ctx, "🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:", Object.assign({ parse_mode: "Markdown" }, mainKeyboard));
+            console.log("[ADMIN] - Edited message");
+        }
+        catch (err) {
+            console.error("[ADMIN] - Error in ADMIN_BACK:", err);
+        }
     }));
     // View all users
     bot.action("ADMIN_USERS", (ctx) => __awaiter(this, void 0, void 0, function* () {

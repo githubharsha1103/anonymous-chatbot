@@ -88,11 +88,10 @@ export function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): void {
     // Get partner before removing
     const partner = bot.getPartner(userId);
     
-    // Remove both users from running chats (pair is broken)
-    bot.runningChats = bot.runningChats.filter(u => u !== userId);
-    if (partner) {
-      bot.runningChats = bot.runningChats.filter(u => u !== partner);
-    }
+    // Remove both users from running chats (pair is broken) - filter once for efficiency
+    const usersToRemove = [userId];
+    if (partner) usersToRemove.push(partner);
+    bot.runningChats = bot.runningChats.filter(u => !usersToRemove.includes(u));
     
     cleanedUp = true;
     console.log(`[CLEANUP] - User ${userId} removed from running chats (partner: ${partner})`);
