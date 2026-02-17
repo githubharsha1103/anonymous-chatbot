@@ -323,8 +323,7 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   app.post(WEBHOOK_PATH, (req: Request, res: Response) => {
     // Log that we received an update
     const updateType = req.body.callback_query ? "callback_query" : req.body.message ? "message" : req.body.inline_query ? "inline_query" : "other";
-    const callbackData = req.body.callback_query?.data || "no callback data";
-    console.log("[WEBHOOK] - Received update:", updateType, "from user:", req.body.callback_query?.from?.id || req.body.message?.from?.id, "| callback data:", callbackData);
+    console.log("[WEBHOOK] - Received update:", updateType, "from user:", req.body.callback_query?.from?.id || req.body.message?.from?.id);
     
     // Handle Telegram update
     bot.handleUpdate(req.body).then(() => {

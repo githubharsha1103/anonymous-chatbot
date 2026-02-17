@@ -2,7 +2,7 @@ import { glob } from "glob";
 import { bot } from "../index";
 import { Context, Telegraf } from "telegraf";
 import { Markup } from "telegraf";
-import { updateUser, getUser, getReferralCount, getReportCount } from "../storage/db";
+import { updateUser, getUser, getReferralCount } from "../storage/db";
 import { handleTelegramError } from "./telegramErrorHandler";
 
 // Because it doesn't know that ctx has a match property. by default, Context<Update> doesn't include match, but telegraf adds it dynamically when using regex triggers.
@@ -617,10 +617,6 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
     
     // Notify the reporter
     await safeEditMessageText(ctx, "Thank you for reporting! 🙏", backKeyboard);
-    
-    // Increment report count on the reported user
-    const currentReportCount = await getReportCount(partnerId);
-    await updateUser(partnerId, { reportCount: currentReportCount + 1, reportReason: reportReason });
     
     // Send report to all admins
     const adminIds = ADMINS.map(id => parseInt(id));

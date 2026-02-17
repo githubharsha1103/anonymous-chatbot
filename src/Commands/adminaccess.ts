@@ -2,7 +2,7 @@ import { Context } from "telegraf";
 import { ExtraTelegraf, bot } from "..";
 import { Command } from "../Utils/commandHandler";
 import { Markup } from "telegraf";
-import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts, getReportedUsers, getUserReportDetails } from "../storage/db";
+import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts } from "../storage/db";
 
 const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
 
@@ -43,7 +43,7 @@ const mainKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("💬 Active Chats", "ADMIN_ACTIVE_CHATS")],
     [Markup.button.callback("📢 Broadcast Message", "ADMIN_BROADCAST")],
     [Markup.button.callback("📣 Re-engagement", "ADMIN_REENGAGE")],
-    [Markup.button.callback("📋 View Reported Users", "ADMIN_REPORTED")],
+    [Markup.button.callback("👤 Ban User", "ADMIN_BAN_USER")],
     [Markup.button.callback("🔗 Referral Stats", "ADMIN_REFERRALS")],
     [Markup.button.callback("🔒 Logout", "ADMIN_LOGOUT")]
 ]);
@@ -62,8 +62,8 @@ async function safeAnswerCbQuery(ctx: any, text?: string) {
         if (ctx.callbackQuery?.id) {
             await ctx.answerCbQuery(text);
         }
-    } catch (error: any) {
-        console.error("[ADMIN ERROR] - Error answering callback:", error.message || error);
+    } catch {
+        // Ignore errors
     }
 }
 
@@ -88,19 +88,20 @@ export default {
 } as Command;
 
 export function initAdminActions(bot: ExtraTelegraf) {
-    // Safe editMessageText that logs all errors
+    // Safe editMessageText that ignores "not modified" error
     async function safeEditMessageText(ctx: any, text: string, extra?: any) {
         try {
             await ctx.editMessageText(text, extra);
         } catch (error: any) {
-            // Log all errors for debugging
-            console.error("[ADMIN ERROR] - Error editing message:", error.message || error);
+            // Ignore "message is not modified" error
+            if (!error.message?.includes("not modified")) {
+                console.error("[ADMIN ERROR] -", error.message || error);
+            }
         }
     }
 
     // Back to main menu
     bot.action("ADMIN_BACK", async (ctx) => {
-        console.log("[ADMIN] - ADMIN_BACK triggered");
         await safeAnswerCbQuery(ctx);
         await safeEditMessageText(
             ctx,
@@ -355,36 +356,14 @@ export function initAdminActions(bot: ExtraTelegraf) {
         );
     });
 
-    // View reported users
-    bot.action("ADMIN_REPORTED", async (ctx) => {
+    // Ban user
+    bot.action("ADMIN_BAN_USER", async (ctx) => {
         await safeAnswerCbQuery(ctx);
-        
-        const reportedUsers = await getReportedUsers();
-        
-        if (reportedUsers.length === 0) {
-            await safeEditMessageText(ctx,
-                "📋 *Reported Users*\n\nNo users have been reported yet.\n\nUse the button below to return to menu.",
-                { parse_mode: "Markdown", ...backKeyboard }
-            );
-            return;
-        }
-        
-        // Build the list of reported users with their counts
-        let reportList = "";
-        const displayCount = Math.min(reportedUsers.length, 20); // Show max 20 users
-        
-        for (let i = 0; i < displayCount; i++) {
-            const user = reportedUsers[i];
-            const reason = user.reportReason ? ` (${user.reportReason})` : "";
-            reportList += `${i + 1}. <code>${user.telegramId}</code> - Reports: ${user.reportCount}${reason}\n`;
-        }
-        
-        if (reportedUsers.length > displayCount) {
-            reportList += `\n...and ${reportedUsers.length - displayCount} more users`;
-        }
-        
         await safeEditMessageText(ctx,
-            `📋 *Reported Users*\n\nTotal: ${reportedUsers.length}\n\n${reportList}\n\nUse the button below to return to menu.`,
+            "👤 *Ban User*\n\n" +
+            "To ban a user, use the /ban command with their User ID.\n\n" +
+            "Example: /ban 1130645873\n\n" +
+            "Use the button below to return to menu.",
             { parse_mode: "Markdown", ...backKeyboard }
         );
     });
