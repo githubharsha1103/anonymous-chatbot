@@ -102,12 +102,19 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Back to main menu
     bot.action("ADMIN_BACK", async (ctx) => {
-        await safeAnswerCbQuery(ctx);
-        await safeEditMessageText(
-            ctx,
-            "🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:",
-            { parse_mode: "Markdown", ...mainKeyboard }
-        );
+        console.log("[ADMIN] - ADMIN_BACK action triggered for user:", ctx.from?.id);
+        try {
+            await safeAnswerCbQuery(ctx);
+            console.log("[ADMIN] - Answered callback query");
+            await safeEditMessageText(
+                ctx,
+                "🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:",
+                { parse_mode: "Markdown", ...mainKeyboard }
+            );
+            console.log("[ADMIN] - Edited message");
+        } catch (err) {
+            console.error("[ADMIN] - Error in ADMIN_BACK:", err);
+        }
     });
 
     // View all users
