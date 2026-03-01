@@ -366,8 +366,9 @@ getTotalChats().then(chats => {
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || "/webhook";
 
-// For production (Render.com), use webhooks
-if (process.env.NODE_ENV === "production") {
+// For production (Render.com), use webhooks when domain is available
+const hasWebhookDomain = process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_HOSTNAME;
+if (hasWebhookDomain) {
   // Build webhook URL - prefer explicit WEBHOOK_URL, fallback to RENDER_EXTERNAL_HOSTNAME
   const domain = process.env.WEBHOOK_URL || 
     (process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : null);
