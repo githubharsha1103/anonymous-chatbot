@@ -383,27 +383,8 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   // Start HTTP server for webhooks
   const app = express();
   
-  // Use express.json() middleware for parsing Telegram updates
-  app.use(express.json());
-  
-  // Webhook endpoint
-  app.post(WEBHOOK_PATH, async (req: Request, res: Response) => {
-    // Log that we received an update
-    const updateType = req.body.callback_query ? "callback_query" : req.body.message ? "message" : req.body.inline_query ? "inline_query" : "other";
-    console.log("[WEBHOOK] - Received update:", updateType, "from user:", req.body.callback_query?.from?.id || req.body.message?.from?.id);
-    
-    try {
-      // Handle Telegram update and wait for it to complete
-      await bot.handleUpdate(req.body);
-      console.log("[WEBHOOK] - Update processed successfully");
-      res.sendStatus(200);
-    } catch (err: any) {
-      // Log but don't crash on network errors to Telegram API
-      const errMsg = err?.message || 'Unknown error';
-      console.error("[ERROR] - Failed to handle update:", errMsg, err);
-      res.sendStatus(200); // Always return 200 to Telegram to prevent retries
-    }
-  });
+  // Use Telegraf's built-in webhook callback handler
+  app.use(bot.webhookCallback(WEBHOOK_PATH));
   
   // Health check endpoint - simplified version that doesn't make API calls
   app.get("/health", (req: Request, res: Response) => {
