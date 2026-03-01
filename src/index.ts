@@ -373,9 +373,9 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   
   console.log(`[INFO] - Setting webhook to: ${webhookUrl}`);
   
-  // Set webhook
-  bot.telegram.setWebhook(webhookUrl).then(() => {
-    console.log("[INFO] - Webhook set successfully");
+  // Set webhook - drop_pending_updates clears old stuck updates
+  bot.telegram.setWebhook(webhookUrl, { drop_pending_updates: true }).then(() => {
+    console.log("[INFO] - Webhook set successfully (pending updates cleared)");
   }).catch((err: Error) => {
     console.error("[ERROR] - Failed to set webhook:", err.message);
   });
