@@ -38,6 +38,7 @@ export interface User {
   banReason?: string | null;
   banned?: boolean; // Whether the user is banned
   reports?: number; // Number of reports received from other users
+  reportedUsers?: number[]; // Array of user IDs that this user has reported
   totalChats?: number;
   chatRating?: number; // User's rating of their chat experience (1-5)
   messageCount?: number; // Number of messages in current chat
@@ -338,6 +339,31 @@ export async function getAllUsers(): Promise<string[]> {
 export async function getReportCount(id: number): Promise<number> {
   const user = await getUser(id);
   return user.reports || 0;
+}
+
+// Atomically increment user's report count to prevent race conditions
+export async function incrementReportCount(userId: number): Promise<number> {
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getUsersCollection();
+      await collection.updateOne(
+        { telegramId: userId },
+        { $inc: { reports: 1 } }
+      );
+      const user = await getUser(userId);
+      return user.reports || 0;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB incrementReportCount error:", error);
+    }
+  }
+  
+  // JSON/file fallback with read-modify-write
+  const fs = require("fs");
+  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+  const currentReports = dbObj[userId]?.reports || 0;
+  dbObj[userId] = { ...(dbObj[userId] || {}), reports: currentReports + 1 };
+  fs.writeFileSync(JSON_FILE, JSON.stringify(dbObj, null, 2));
+  return currentReports + 1;
 }
 
 export async function getBanReason(id: number): Promise<string | null> {

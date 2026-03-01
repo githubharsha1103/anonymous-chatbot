@@ -2,7 +2,7 @@ import { glob } from "glob";
 import { bot } from "../index";
 import { Context, Telegraf } from "telegraf";
 import { Markup } from "telegraf";
-import { updateUser, getUser, getReferralCount, banUser } from "../storage/db";
+import { updateUser, getUser, getReferralCount, banUser, isBanned, incrementReportCount } from "../storage/db";
 import { handleTelegramError } from "./telegramErrorHandler";
 
 // Because it doesn't know that ctx has a match property. by default, Context<Update> doesn't include match, but telegraf adds it dynamically when using regex triggers.
@@ -653,63 +653,55 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
         return safeEditMessageText(ctx, "Report cancelled.", backKeyboard);
     }
     
-    // Fetch the reported user and increment their report count
-    const reportedUser = await getUser(partnerId);
-    const currentReports = reportedUser.reports || 0;
-    const newReportCount = currentReports + 1;
-    
-    // Update the reported user's report count
-    await updateUser(partnerId, { reports: newReportCount });
-    
-    // Auto-ban threshold
-    const BAN_THRESHOLD = 5;
-    let wasBanned = false;
-    
-    // Check if user should be auto-banned
-    if (newReportCount >= BAN_THRESHOLD) {
-        await updateUser(partnerId, { banned: true, banReason: `Auto-banned for reaching ${BAN_THRESHOLD} reports` });
-        wasBanned = true;
+    // Check if user has already reported this partner
+    if (user.reportedUsers?.includes(partnerId)) {
+        return safeEditMessageText(ctx, "⚠️ You have already reported this user.", backKeyboard);
     }
+    
+    // Atomically increment report count to prevent race conditions
+    const newReportCount = await incrementReportCount(partnerId);
+    
+    // Track that this user has reported this partner
+    await updateUser(ctx.from.id, {
+        reportedUsers: [...(user.reportedUsers || []), partnerId]
+    });
     
     // Notify the reporter
     await safeEditMessageText(ctx, "Thank you for reporting! 🙏", backKeyboard);
     
     // Notify admins on every report
-    const NOTIFY_THRESHOLD = 1;
-    
-    if (newReportCount >= NOTIFY_THRESHOLD) {
-        const adminIds = ADMINS.map(id => parseInt(id));
-        for (const adminId of adminIds) {
-            try {
-                await ctx.telegram.sendMessage(
-                    adminId,
-                    `🚨 *User Reported*\n\n` +
-                    `👤 User ID: ${partnerId}\n` +
-                    `📊 Total Reports: ${newReportCount}\n` +
-                    `📝 Reason: ${reportReason}`,
-                    {
-                        parse_mode: "Markdown",
-                        reply_markup: {
-                            inline_keyboard: [
-                                [
-                                    {
-                                        text: "🚫 Ban User",
-                                        callback_data: `ADMIN_QUICK_BAN_${partnerId}`
-                                    }
-                                ],
-                                [
-                                    {
-                                        text: "❌ Ignore",
-                                        callback_data: "ADMIN_IGNORE_REPORT"
-                                    }
-                                ]
+    const adminIds = ADMINS.map(id => parseInt(id));
+    for (const adminId of adminIds) {
+        try {
+            await ctx.telegram.sendMessage(
+                adminId,
+                `🚨 *User Reported*\n\n` +
+                `👤 Reported User: ${partnerId}\n` +
+                `📊 Total Reports: ${newReportCount}\n` +
+                `📝 Reason: ${reportReason}\n` +
+                `🙋 Reported By: ${ctx.from.id}`,
+                {
+                    parse_mode: "Markdown",
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: "🚫 Ban User",
+                                    callback_data: `ADMIN_QUICK_BAN_${partnerId}`
+                                }
+                            ],
+                            [
+                                {
+                                    text: "❌ Ignore",
+                                    callback_data: "ADMIN_IGNORE_REPORT"
+                                }
                             ]
-                        }
+                        ]
                     }
-                );
-            } catch {
-                // Admin might not exist, ignore
-            }
+                }
+            );
+        } catch {
+            // Admin might not exist, ignore
         }
     }
     
@@ -730,12 +722,37 @@ bot.action("REPORT_CANCEL", async (ctx) => {
 
 // Quick ban from report notification
 bot.action(/ADMIN_QUICK_BAN_(\d+)/, async (ctx) => {
+    // Safety check for ctx.match
+    if (!ctx.match) return;
+    
+    // Verify admin authorization
+    if (!ctx.from || !isAdmin(ctx.from.id)) {
+        await ctx.answerCbQuery("Unauthorized");
+        return;
+    }
     await ctx.answerCbQuery("User banned ✅");
 
     const userId = parseInt(ctx.match[1]);
 
     try {
+        // Check if user is already banned
+        const alreadyBanned = await isBanned(userId);
+        if (alreadyBanned) {
+            await ctx.editMessageText(
+                `⚠️ *User Already Banned*\n\nUser ID: ${userId} is already banned.`,
+                { parse_mode: "Markdown" }
+            );
+            return;
+        }
+
+        // Add to bans collection
         await banUser(userId);
+        
+        // Update user's banned field and ban reason
+        await updateUser(userId, { 
+            banned: true, 
+            banReason: "Banned by admin via report notification" 
+        });
 
         await ctx.editMessageText(
             `🚫 *User Banned Successfully*\n\nUser ID: ${userId} has been banned.`,
@@ -755,12 +772,18 @@ bot.action(/ADMIN_QUICK_BAN_(\d+)/, async (ctx) => {
         }
 
     } catch (error) {
-        console.log("Quick ban failed:", error);
+        console.error("[ERROR] Quick ban failed:", error);
+        await ctx.answerCbQuery("Ban failed. Try again.");
     }
 });
 
 // Ignore report
 bot.action("ADMIN_IGNORE_REPORT", async (ctx) => {
+    // Verify admin authorization
+    if (!ctx.from || !isAdmin(ctx.from.id)) {
+        await ctx.answerCbQuery("Unauthorized");
+        return;
+    }
     await ctx.answerCbQuery("Ignored");
     await ctx.editMessageText("❌ Report ignored.");
 });
