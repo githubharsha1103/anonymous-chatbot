@@ -2,7 +2,7 @@ import { glob } from "glob";
 import { bot } from "../index";
 import { Context, Telegraf } from "telegraf";
 import { Markup } from "telegraf";
-import { updateUser, getUser, getReferralCount } from "../storage/db";
+import { updateUser, getUser, getReferralCount, banUser } from "../storage/db";
 import { handleTelegramError } from "./telegramErrorHandler";
 
 // Because it doesn't know that ctx has a match property. by default, Context<Update> doesn't include match, but telegraf adds it dynamically when using regex triggers.
@@ -683,13 +683,29 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
             try {
                 await ctx.telegram.sendMessage(
                     adminId,
-                    `🚨 *User Report Alert*\n\n` +
-                    `👤 Reported User ID: ${partnerId}\n` +
+                    `🚨 *User Reported*\n\n` +
+                    `👤 User ID: ${partnerId}\n` +
                     `📊 Total Reports: ${newReportCount}\n` +
-                    `📝 Reason: ${reportReason}` +
-                    (wasBanned ? `\n\n⚠️ User has been auto-banned!` : "") +
-                    `\n\nOpen Admin Panel → View Reports`,
-                    { parse_mode: "Markdown" }
+                    `📝 Reason: ${reportReason}`,
+                    {
+                        parse_mode: "Markdown",
+                        reply_markup: {
+                            inline_keyboard: [
+                                [
+                                    {
+                                        text: "🚫 Ban User",
+                                        callback_data: `ADMIN_QUICK_BAN_${partnerId}`
+                                    }
+                                ],
+                                [
+                                    {
+                                        text: "❌ Ignore",
+                                        callback_data: "ADMIN_IGNORE_REPORT"
+                                    }
+                                ]
+                            ]
+                        }
+                    }
                 );
             } catch {
                 // Admin might not exist, ignore
@@ -710,6 +726,43 @@ bot.action("REPORT_CANCEL", async (ctx) => {
     await updateUser(ctx.from.id, { reportingPartner: null, reportReason: null });
     
     return safeEditMessageText(ctx, "Report cancelled.", backKeyboard);
+});
+
+// Quick ban from report notification
+bot.action(/ADMIN_QUICK_BAN_(\d+)/, async (ctx) => {
+    await ctx.answerCbQuery("User banned ✅");
+
+    const userId = parseInt(ctx.match[1]);
+
+    try {
+        await banUser(userId);
+
+        await ctx.editMessageText(
+            `🚫 *User Banned Successfully*\n\nUser ID: ${userId} has been banned.`,
+            { parse_mode: "Markdown" }
+        );
+
+        // Optionally notify banned user
+        try {
+            await ctx.telegram.sendMessage(
+                userId,
+                `🚫 *You Have Been Banned*\n\n` +
+                `You were banned due to a report violation.`,
+                { parse_mode: "Markdown" }
+            );
+        } catch {
+            // User may have blocked bot
+        }
+
+    } catch (error) {
+        console.log("Quick ban failed:", error);
+    }
+});
+
+// Ignore report
+bot.action("ADMIN_IGNORE_REPORT", async (ctx) => {
+    await ctx.answerCbQuery("Ignored");
+    await ctx.editMessageText("❌ Report ignored.");
 });
 
 
