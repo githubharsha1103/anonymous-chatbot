@@ -674,23 +674,26 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
     // Notify the reporter
     await safeEditMessageText(ctx, "Thank you for reporting! 🙏", backKeyboard);
     
-    // Send report to all admins with updated report count
-    const adminIds = ADMINS.map(id => parseInt(id));
-    for (const adminId of adminIds) {
-        try {
-            await ctx.telegram.sendMessage(
-                adminId,
-                `🚨 *Report Submitted*\n\n` +
-                `📋 *Reason:* ${reportReason}\n` +
-                `👤 *Reported User ID:* ${partnerId}\n` +
-                `👤 *Reported by:* ${ctx.from.id}\n` +
-                `📊 *Total Reports:* ${newReportCount}` +
-                (wasBanned ? `\n\n⚠️ *User has been auto-banned for reaching ${BAN_THRESHOLD} reports!*` : "") +
-                `\n\nPlease review this report.`,
-                { parse_mode: "Markdown" }
-            );
-        } catch {
-            // Admin might not exist, ignore
+    // Notify admins on every report
+    const NOTIFY_THRESHOLD = 1;
+    
+    if (newReportCount >= NOTIFY_THRESHOLD) {
+        const adminIds = ADMINS.map(id => parseInt(id));
+        for (const adminId of adminIds) {
+            try {
+                await ctx.telegram.sendMessage(
+                    adminId,
+                    `🚨 *User Report Alert*\n\n` +
+                    `👤 Reported User ID: ${partnerId}\n` +
+                    `📊 Total Reports: ${newReportCount}\n` +
+                    `📝 Reason: ${reportReason}` +
+                    (wasBanned ? `\n\n⚠️ User has been auto-banned!` : "") +
+                    `\n\nOpen Admin Panel → View Reports`,
+                    { parse_mode: "Markdown" }
+                );
+            } catch {
+                // Admin might not exist, ignore
+            }
         }
     }
     
