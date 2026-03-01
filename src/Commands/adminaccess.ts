@@ -428,15 +428,21 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await safeAnswerCbQuery(ctx);
 
         const allUsers = await getAllUsers();
-        const reportedUsers: number[] = [];
 
-        for (const id of allUsers) {
-            const userId = parseInt(id);
-            const reportCount = await getReportCount(userId);
-            if (reportCount > 0) {
-                reportedUsers.push(userId);
+        // Performance: fetch all report counts in parallel
+        const reportPromises = allUsers.map(id => getReportCount(parseInt(id)));
+        const reportCounts = await Promise.all(reportPromises);
+
+        // Filter users with reports > 0 and sort by highest reports
+        const reportedUsers: { userId: number; count: number }[] = [];
+        for (let i = 0; i < allUsers.length; i++) {
+            if (reportCounts[i] > 0) {
+                reportedUsers.push({ userId: parseInt(allUsers[i]), count: reportCounts[i] });
             }
         }
+
+        // Sort by highest report count first
+        reportedUsers.sort((a, b) => b.count - a.count);
 
         if (reportedUsers.length === 0) {
             await safeEditMessageText(
@@ -449,8 +455,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
         const reportButtons = [];
 
-        for (const userId of reportedUsers) {
-            const count = await getReportCount(userId);
+        for (const { userId, count } of reportedUsers) {
             reportButtons.push([
                 Markup.button.callback(
                     `⚠️ User ${userId} (${count} reports)`,
