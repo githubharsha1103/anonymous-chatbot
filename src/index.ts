@@ -403,9 +403,17 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   });
 
   // Start the server
-  const server = app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", async () => {
     console.log(`[INFO] - Server listening on port ${PORT}`);
     console.log(`[INFO] - Health check endpoints active`);
+    
+    // Set webhook AFTER server is listening
+    try {
+      await bot.telegram.setWebhook(webhookUrl);
+      console.log("[INFO] - Webhook set successfully");
+    } catch (err: any) {
+      console.error("[ERROR] - Failed to set webhook:", err.message);
+    }
   });
 } else {
   // For local development, use long polling
