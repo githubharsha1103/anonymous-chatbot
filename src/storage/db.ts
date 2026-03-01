@@ -337,7 +337,7 @@ export async function getAllUsers(): Promise<string[]> {
 
 export async function getReportCount(id: number): Promise<number> {
   const user = await getUser(id);
-  return user.reportCount || 0;
+  return user.reports || 0;
 }
 
 export async function getBanReason(id: number): Promise<string | null> {

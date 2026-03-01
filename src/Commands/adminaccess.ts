@@ -43,7 +43,7 @@ const mainKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("💬 Active Chats", "ADMIN_ACTIVE_CHATS")],
     [Markup.button.callback("📢 Broadcast Message", "ADMIN_BROADCAST")],
     [Markup.button.callback("📣 Re-engagement", "ADMIN_REENGAGE")],
-    [Markup.button.callback("👤 Ban User", "ADMIN_BAN_USER")],
+    [Markup.button.callback("📋 View Reports", "ADMIN_VIEW_REPORTS")],
     [Markup.button.callback("🔗 Referral Stats", "ADMIN_REFERRALS")],
     [Markup.button.callback("🔒 Logout", "ADMIN_LOGOUT")]
 ]);
@@ -417,20 +417,57 @@ export function initAdminActions(bot: ExtraTelegraf) {
         );
     });
 
-    // Ban user
-    bot.action("ADMIN_BAN_USER", async (ctx) => {
+    // View Reports
+    bot.action("ADMIN_VIEW_REPORTS", async (ctx) => {
         // Re-validate admin permissions
         if (!validateAdmin(ctx)) {
             await safeAnswerCbQuery(ctx, "Unauthorized");
             return;
         }
+
         await safeAnswerCbQuery(ctx);
-        await safeEditMessageText(ctx,
-            "👤 *Ban User*\n\n" +
-            "To ban a user, use the /ban command with their User ID.\n\n" +
-            "Example: /ban 1130645873\n\n" +
-            "Use the button below to return to menu.",
-            { parse_mode: "Markdown", ...backKeyboard }
+
+        const allUsers = await getAllUsers();
+        const reportedUsers: number[] = [];
+
+        for (const id of allUsers) {
+            const userId = parseInt(id);
+            const reportCount = await getReportCount(userId);
+            if (reportCount > 0) {
+                reportedUsers.push(userId);
+            }
+        }
+
+        if (reportedUsers.length === 0) {
+            await safeEditMessageText(
+                ctx,
+                "📋 *Reported Users*\n\nNo users have been reported.\n\nUse the button below to return to menu.",
+                { parse_mode: "Markdown", ...backKeyboard }
+            );
+            return;
+        }
+
+        const reportButtons = [];
+
+        for (const userId of reportedUsers) {
+            const count = await getReportCount(userId);
+            reportButtons.push([
+                Markup.button.callback(
+                    `⚠️ User ${userId} (${count} reports)`,
+                    `ADMIN_USER_${userId}`
+                )
+            ]);
+        }
+
+        const keyboard = Markup.inlineKeyboard([
+            ...reportButtons,
+            [Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
+        ]);
+
+        await safeEditMessageText(
+            ctx,
+            `📋 *Reported Users*\n\nTotal Reported Users: ${reportedUsers.length}\n\nSelect a user to view details:`,
+            { parse_mode: "Markdown", ...keyboard }
         );
     });
 
