@@ -368,8 +368,17 @@ const WEBHOOK_PATH = process.env.WEBHOOK_PATH || "/webhook";
 
 // For production (Render.com), use webhooks
 if (process.env.NODE_ENV === "production") {
-  const domain = process.env.WEBHOOK_URL || `https://${process.env.RENDER_EXTERNAL_HOSTNAME}`;
+  // Build webhook URL - prefer explicit WEBHOOK_URL, fallback to RENDER_EXTERNAL_HOSTNAME
+  const domain = process.env.WEBHOOK_URL || 
+    (process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : null);
+  
+  if (!domain) {
+    console.error("[ERROR] - Cannot determine domain for webhook. Set WEBHOOK_URL or RENDER_EXTERNAL_HOSTNAME");
+    process.exit(1);
+  }
+  
   const webhookUrl = `${domain}${WEBHOOK_PATH}`;
+  console.log(`[INFO] - Setting webhook to: ${webhookUrl}`);
 
   const app = express();
 
