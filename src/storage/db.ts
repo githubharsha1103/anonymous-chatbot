@@ -76,6 +76,30 @@ async function connectToDatabase(): Promise<Db> {
     await db.collection<User>("users").createIndex({ referralCode: 1 });
     await db.collection<User>("users").createIndex({ referredBy: 1 });
     
+    // Performance indexes for admin commands and partner matching
+    await db.collection<User>("users").createIndex(
+      { lastActive: -1, banned: 1 },
+      { name: "admin_broadcast_idx" }
+    );
+    await db.collection<User>("users").createIndex(
+      { reports: -1 },
+      { name: "reports_idx" }
+    );
+    await db.collection<User>("users").createIndex(
+      { gender: 1, preference: 1, premium: 1, banned: 1 },
+      { name: "partner_match_idx" }
+    );
+    await db.collection<User>("users").createIndex(
+      { premium: 1, premiumExpiry: 1 },
+      { name: "premium_idx" }
+    );
+    await db.collection<User>("users").createIndex(
+      { state: 1, gender: 1 },
+      { name: "location_gender_idx" }
+    );
+    
+    console.log("[INFO] - Database indexes created successfully");
+    
     return db;
   } catch (error) {
     console.error("[ERROR] - MongoDB connection failed:", error);

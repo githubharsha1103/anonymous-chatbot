@@ -326,14 +326,17 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await updateUser(user1, { chatStartTime: null });
         await updateUser(user2, { chatStartTime: null });
         
-        // Notify both users that chat was terminated by admin
+        // Report keyboard - same as when partner leaves normally
+        const reportKeyboard = Markup.inlineKeyboard([
+            [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
+        ]);
+        
+        // Notify both users that chat was terminated (show as partner left)
         try {
             await ctx.telegram.sendMessage(
                 user1,
-                `🚫 *Chat Terminated by Admin*\n\n` +
-                `Your chat has been ended by an administrator.\n\n` +
-                `Use /search to find a new partner.`,
-                { parse_mode: "Markdown" }
+                `🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:`,
+                { parse_mode: "Markdown", ...reportKeyboard }
             );
         } catch (e) {
             // User might have blocked the bot
@@ -342,10 +345,8 @@ export function initAdminActions(bot: ExtraTelegraf) {
         try {
             await ctx.telegram.sendMessage(
                 user2,
-                `🚫 *Chat Terminated by Admin*\n\n` +
-                `Your chat has been ended by an administrator.\n\n` +
-                `Use /search to find a new partner.`,
-                { parse_mode: "Markdown" }
+                `🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:`,
+                { parse_mode: "Markdown", ...reportKeyboard }
             );
         } catch (e) {
             // User might have blocked the bot
