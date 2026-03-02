@@ -2,9 +2,10 @@ import { Context, NarrowedContext } from "telegraf";
 import { Event } from "../Utils/eventHandler";
 import { ExtraTelegraf } from "..";
 import { Message, Update } from "telegraf/types";
-import { updateUser, getUser, getAllUsers, deleteUser } from "../storage/db";
+import { updateUser, getUser, getAllUsers, deleteUser, isBanned, getReportCount, getReferralCount } from "../storage/db";
 import { isBotBlockedError, cleanupBlockedUser, isNotEnoughRightsError, isRateLimitError, getRetryDelay, broadcastWithRateLimit } from "../Utils/telegramErrorHandler";
-import { waitingForBroadcast } from "../Commands/adminaccess";
+import { waitingForBroadcast, waitingForUserId } from "../Commands/adminaccess";
+import { showUserDetails } from "../Commands/adminaccess";
 import { Markup } from "telegraf";
 
 // Setup step constants (must match start.ts)
@@ -89,6 +90,45 @@ export default {
             `📢 *Broadcast Result*\n\n✅ Sent: ${success}\n❌ Failed: ${failed}\n🗑️ Deleted: ${deletedCount}\n\nTotal Users: ${users.length}`,
             { parse_mode: "Markdown", ...Markup.removeKeyboard() }
         );
+    }
+
+    /* ================================
+       ADMIN SEARCH USER BY ID HANDLER
+      ================================= */
+
+    // Check if admin is waiting to search by user ID
+    if (waitingForUserId.has(ctx.from.id)) {
+        console.log(`[SEARCH_BY_ID] - Admin ${ctx.from.id} is searching for user...`);
+        
+        // Remove from waiting list immediately
+        waitingForUserId.delete(ctx.from.id);
+        
+        const userIdText = text?.trim();
+        if (!userIdText) {
+            return ctx.reply("❌ Please enter a valid User ID.", 
+                { parse_mode: "Markdown", ...Markup.removeKeyboard() }
+            );
+        }
+        
+        const userId = parseInt(userIdText);
+        if (isNaN(userId)) {
+            return ctx.reply("❌ Invalid User ID. Please enter a numeric ID.",
+                { parse_mode: "Markdown", ...Markup.removeKeyboard() }
+            );
+        }
+        
+        // Get user data to check if exists
+        const user = await getUser(userId);
+        
+        if (!user || user.isNew) {
+            return ctx.reply(
+                `🔍 *Search Result*\n\n❌ User with ID \`${userId}\` not found.\n\nThe user may not exist or has never started the bot.`,
+                { parse_mode: "Markdown", ...Markup.removeKeyboard() }
+            );
+        }
+        
+        // User exists - show full details with action buttons (same as clicking from user list)
+        return showUserDetails(ctx, userId);
     }
 
       /* ================================

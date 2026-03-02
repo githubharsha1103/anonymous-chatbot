@@ -38,6 +38,7 @@ function formatDuration(ms: number): string {
 // Admin main menu with clear options
 const mainKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("👥 View All Users", "ADMIN_USERS")],
+    [Markup.button.callback("🔍 Search by ID", "ADMIN_SEARCH_BY_ID")],
     [Markup.button.callback("🚫 View Bans", "ADMIN_BANS")],
     [Markup.button.callback("📊 Bot Statistics", "ADMIN_STATS")],
     [Markup.button.callback("💬 Active Chats", "ADMIN_ACTIVE_CHATS")],
@@ -52,10 +53,18 @@ const backKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
 ]);
 
+// Cancel keyboard for search by ID
+const searchCancelKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("⬅️ Cancel", "ADMIN_SEARCH_BY_ID_CANCEL")]
+]);
+
 const userPages: Map<number, number> = new Map();
 
 // Track admins waiting for broadcast input
 export const waitingForBroadcast: Set<number> = new Set();
+
+// Track admins waiting for user ID search input
+export const waitingForUserId: Set<number> = new Set();
 
 async function safeAnswerCbQuery(ctx: any, text?: string) {
     try {
@@ -152,6 +161,31 @@ export function initAdminActions(bot: ExtraTelegraf) {
         if (!ctx.from) return;
         userPages.set(ctx.from.id, 0);
         await showUsersPage(ctx, 0);
+    });
+
+    // Search user by ID
+    bot.action("ADMIN_SEARCH_BY_ID", async (ctx) => {
+        // Re-validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await safeAnswerCbQuery(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        
+        const adminId = ctx.from?.id;
+        if (!adminId) return;
+        
+        // Set waiting flag
+        waitingForUserId.add(adminId);
+        console.log(`[ADMIN] - Admin ${adminId} started search by ID, waitingForUserId.size = ${waitingForUserId.size}`);
+        
+        await safeEditMessageText(ctx,
+            "🔍 *Search User by ID*\n\n" +
+            "✍️ Enter the User ID you want to search for.\n\n" +
+            "Example: `123456789`\n\n" +
+            "Use the button below to cancel.",
+            { parse_mode: "Markdown", ...searchCancelKeyboard }
+        );
     });
 
     // View bans
@@ -418,6 +452,23 @@ export function initAdminActions(bot: ExtraTelegraf) {
         );
     });
 
+    // Cancel search by ID
+    bot.action("ADMIN_SEARCH_BY_ID_CANCEL", async (ctx) => {
+        await safeAnswerCbQuery(ctx);
+        
+        const adminId = ctx.from?.id;
+        if (adminId) {
+            waitingForUserId.delete(adminId);
+        }
+        
+        await safeEditMessageText(ctx,
+            "🔍 *Search User by ID*\n\n" +
+            "Search cancelled.\n\n" +
+            "Use the button below to return to menu.",
+            { parse_mode: "Markdown", ...backKeyboard }
+        );
+    });
+
     // View Reports
     bot.action("ADMIN_VIEW_REPORTS", async (ctx) => {
         // Re-validate admin permissions
@@ -454,15 +505,46 @@ export function initAdminActions(bot: ExtraTelegraf) {
             return;
         }
 
+        // Build list with report reasons
+        let reportList = "📋 Reported Users\n\n";
+        reportList += `Total Reported Users: ${reportedUsers.length}\n\n`;
+        
         const reportButtons = [];
-
-        for (const { userId, count } of reportedUsers) {
-            reportButtons.push([
-                Markup.button.callback(
-                    `⚠️ User ${userId} (${count} reports)`,
-                    `ADMIN_USER_${userId}`
-                )
-            ]);
+        
+        // Show first 10 users with their report reasons
+        const displayUsers = reportedUsers.slice(0, 10);
+        
+        for (const { userId, count } of displayUsers) {
+            const user = await getUser(userId);
+            const reason = user?.reportReason || "No reason specified";
+            const reportedBy = user?.reportingPartner || "Unknown";
+            
+            reportList += `👤 \`${userId}\`\n`;
+            reportList += `   📊 Reports: ${count}\n`;
+            reportList += `   📝 Reason: ${reason}\n`;
+            reportList += `   👁️ Reported by: ${reportedBy}\n\n`;
+            
+            // Check if user is already banned
+            const userBanned = await isBanned(userId);
+            if (!userBanned) {
+                reportButtons.push([
+                    Markup.button.callback(
+                        `🚫 Ban ${userId}`,
+                        `ADMIN_BAN_USER_${userId}`
+                    ),
+                    Markup.button.callback(
+                        `👁️ View ${userId}`,
+                        `ADMIN_USER_${userId}`
+                    )
+                ]);
+            } else {
+                reportButtons.push([
+                    Markup.button.callback(
+                        `✅ Already Banned ${userId}`,
+                        `ADMIN_USER_${userId}`
+                    )
+                ]);
+            }
         }
 
         const keyboard = Markup.inlineKeyboard([
@@ -472,7 +554,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
         await safeEditMessageText(
             ctx,
-            `📋 *Reported Users*\n\nTotal Reported Users: ${reportedUsers.length}\n\nSelect a user to view details:`,
+            reportList + "Select an action:",
             { parse_mode: "Markdown", ...keyboard }
         );
     });
@@ -622,23 +704,41 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await showUsersPage(ctx, 0);
     });
 
-    // Edit user name
-    bot.action(/ADMIN_EDIT_NAME_(\d+)/, async (ctx) => {
+    // Edit user gender
+    bot.action(/ADMIN_EDIT_GENDER_(\d+)/, async (ctx) => {
         await safeAnswerCbQuery(ctx);
         const userId = parseInt(ctx.match[1]);
         
+        const user = await getUser(userId);
+        const currentGender = user?.gender || "Not set";
+        
         const keyboard = Markup.inlineKeyboard([
+            [Markup.button.callback("👨 Male", `ADMIN_SET_GENDER_MALE_${userId}`)],
+            [Markup.button.callback("👩 Female", `ADMIN_SET_GENDER_FEMALE_${userId}`)],
             [Markup.button.callback("🔙 Back", `ADMIN_USER_${userId}`)]
         ]);
         
         await safeEditMessageText(
             ctx,
-            `<b>📝 Edit Name</b>\n\nUser ID: <code>${userId}</code>\n\n` +
-            `To change the user's name, use:\n` +
-            `/setname ${userId} NewName\n\n` +
-            `Use the button below to go back.`,
+            `<b>👫 Edit Gender</b>\n\nUser ID: <code>${userId}</code>\nCurrent Gender: <b>${currentGender}</b>\n\nSelect new gender:`,
             { parse_mode: "HTML", ...keyboard }
         );
+    });
+
+    // Set user gender to male
+    bot.action(/ADMIN_SET_GENDER_MALE_(\d+)/, async (ctx) => {
+        await safeAnswerCbQuery(ctx, "Gender updated to Male ✅");
+        const userId = parseInt(ctx.match[1]);
+        await updateUser(userId, { gender: "male" });
+        await showUserDetails(ctx, userId);
+    });
+
+    // Set user gender to female
+    bot.action(/ADMIN_SET_GENDER_FEMALE_(\d+)/, async (ctx) => {
+        await safeAnswerCbQuery(ctx, "Gender updated to Female ✅");
+        const userId = parseInt(ctx.match[1]);
+        await updateUser(userId, { gender: "female" });
+        await showUserDetails(ctx, userId);
     });
 
     // Reset user chats
@@ -718,7 +818,7 @@ async function showUsersPage(ctx: any, page: number) {
     }
 }
 
-async function showUserDetails(ctx: any, userId: number) {
+export async function showUserDetails(ctx: any, userId: number) {
     const user = await getUser(userId);
     if (!user) {
         // Use try-catch with fallback to prevent UI freeze
@@ -815,7 +915,7 @@ async function showUserDetails(ctx: any, userId: number) {
     const keyboard = Markup.inlineKeyboard([
         actionButtons,
         premiumButtons,
-        [Markup.button.callback("✏️ Edit Name", `ADMIN_EDIT_NAME_${userId}`)],
+        [Markup.button.callback("👫 Edit Gender", `ADMIN_EDIT_GENDER_${userId}`)],
         [Markup.button.callback("🔄 Reset Chats", `ADMIN_RESET_CHATS_${userId}`)],
         [Markup.button.callback("🔄 Reset Reports", `ADMIN_RESET_REPORTS_${userId}`)],
         [Markup.button.callback("🗑️ Delete User", `ADMIN_DELETE_USER_${userId}`)],
