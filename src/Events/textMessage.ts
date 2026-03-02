@@ -93,7 +93,7 @@ export default {
     }
 
     /* ================================
-       ADMIN SEARCH USER BY ID HANDLER
+       ADMIN SEARCH USER BY ID HANDLER (WITH VALIDATION)
       ================================= */
 
     // Check if admin is waiting to search by user ID
@@ -104,15 +104,37 @@ export default {
         waitingForUserId.delete(ctx.from.id);
         
         const userIdText = text?.trim();
+        
+        // Validate input - must be only digits
         if (!userIdText) {
-            return ctx.reply("❌ Please enter a valid User ID.", 
+            return ctx.reply(
+                "❌ Please enter a User ID.\n\nUsage: Enter a numeric Telegram user ID.", 
                 { parse_mode: "Markdown", ...Markup.removeKeyboard() }
             );
         }
         
-        const userId = parseInt(userIdText);
-        if (isNaN(userId)) {
-            return ctx.reply("❌ Invalid User ID. Please enter a numeric ID.",
+        // Validate using regex - only numbers allowed, reasonable length
+        const userIdRegex = /^\d+$/;
+        if (!userIdRegex.test(userIdText)) {
+            return ctx.reply(
+                "❌ Invalid User ID!\n\nOnly numeric IDs are allowed.\n\nExample: `123456789`",
+                { parse_mode: "Markdown", ...Markup.removeKeyboard() }
+            );
+        }
+        
+        // Check for unreasonably long input (max 15 digits for Telegram IDs)
+        if (userIdText.length > 15) {
+            return ctx.reply(
+                "❌ User ID too long!\n\nPlease enter a valid Telegram user ID.",
+                { parse_mode: "Markdown", ...Markup.removeKeyboard() }
+            );
+        }
+        
+        // Safely parse the user ID
+        const userId = parseInt(userIdText, 10);
+        if (isNaN(userId) || userId <= 0) {
+            return ctx.reply(
+                "❌ Invalid User ID. Please enter a positive number.",
                 { parse_mode: "Markdown", ...Markup.removeKeyboard() }
             );
         }

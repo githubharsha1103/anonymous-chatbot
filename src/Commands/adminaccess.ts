@@ -2,7 +2,7 @@ import { Context } from "telegraf";
 import { ExtraTelegraf, bot } from "..";
 import { Command } from "../Utils/commandHandler";
 import { Markup } from "telegraf";
-import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts } from "../storage/db";
+import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts, getGroupedReports } from "../storage/db";
 
 const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
 
@@ -469,7 +469,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         );
     });
 
-    // View Reports
+    // View Reports (SCALABLE - uses new Report collection)
     bot.action("ADMIN_VIEW_REPORTS", async (ctx) => {
         // Re-validate admin permissions
         if (!validateAdmin(ctx)) {
@@ -479,22 +479,8 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
         await safeAnswerCbQuery(ctx);
 
-        const allUsers = await getAllUsers();
-
-        // Performance: fetch all report counts in parallel
-        const reportPromises = allUsers.map(id => getReportCount(parseInt(id)));
-        const reportCounts = await Promise.all(reportPromises);
-
-        // Filter users with reports > 0 and sort by highest reports
-        const reportedUsers: { userId: number; count: number }[] = [];
-        for (let i = 0; i < allUsers.length; i++) {
-            if (reportCounts[i] > 0) {
-                reportedUsers.push({ userId: parseInt(allUsers[i]), count: reportCounts[i] });
-            }
-        }
-
-        // Sort by highest report count first
-        reportedUsers.sort((a, b) => b.count - a.count);
+        // Use new scalable getGroupedReports instead of looping through all users
+        const reportedUsers = await getGroupedReports(10);
 
         if (reportedUsers.length === 0) {
             await safeEditMessageText(
@@ -506,23 +492,18 @@ export function initAdminActions(bot: ExtraTelegraf) {
         }
 
         // Build list with report reasons
-        let reportList = "📋 Reported Users\n\n";
+        let reportList = "📋 Reported Users (Top 10)\n\n";
         reportList += `Total Reported Users: ${reportedUsers.length}\n\n`;
         
         const reportButtons = [];
         
-        // Show first 10 users with their report reasons
-        const displayUsers = reportedUsers.slice(0, 10);
-        
-        for (const { userId, count } of displayUsers) {
-            const user = await getUser(userId);
-            const reason = user?.reportReason || "No reason specified";
-            const reportedBy = user?.reportingPartner || "Unknown";
+        for (const { userId, count, latestReason, reporters } of reportedUsers) {
+            const reporterList = reporters.slice(0, 3).join(", ") || "Various";
             
             reportList += `👤 \`${userId}\`\n`;
             reportList += `   📊 Reports: ${count}\n`;
-            reportList += `   📝 Reason: ${reason}\n`;
-            reportList += `   👁️ Reported by: ${reportedBy}\n\n`;
+            reportList += `   📝 Reason: ${latestReason || "No reason"}\n`;
+            reportList += `   👁️ Reported by: ${reporterList}\n\n`;
             
             // Check if user is already banned
             const userBanned = await isBanned(userId);
@@ -661,14 +642,70 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await showUserDetails(ctx, userId);
     });
 
-    // Ban user from details
+    // Ban user from details - Also terminates active chats
     bot.action(/ADMIN_BAN_USER_(\d+)/, async (ctx) => {
         await safeAnswerCbQuery(ctx);
         const userId = parseInt(ctx.match[1]);
         const reason = "Banned by admin";
+        
+        // Check if user is in an active chat and terminate it
+        const partnerId = await terminateUserChat(ctx, bot, userId);
+        
+        // Ban the user
         await banUser(userId);
+        
+        // Show feedback about chat termination if applicable
+        if (partnerId) {
+            await safeAnswerCbQuery(ctx, `User banned. Partner ${partnerId} removed from chat. ✅`);
+        }
+        
         await showUserDetails(ctx, userId);
     });
+
+    // Helper function to terminate user's active chat
+    async function terminateUserChat(ctx: any, botInstance: ExtraTelegraf, userId: number): Promise<number | null> {
+        const runningChats = botInstance.runningChats;
+        
+        // Check if user is in active chat
+        const userIndex = runningChats.indexOf(userId);
+        if (userIndex === -1) {
+            return null; // User is not in an active chat
+        }
+        
+        // Find partner (if user is at even index, partner is at odd index, and vice versa)
+        const partnerId = userIndex % 2 === 0 ? runningChats[userIndex + 1] : runningChats[userIndex - 1];
+        
+        if (!partnerId) {
+            return null;
+        }
+        
+        console.log(`[BAN] - Terminating chat between ${userId} and ${partnerId}`);
+        
+        // Remove both users from runningChats
+        botInstance.runningChats = runningChats.filter(id => id !== userId && id !== partnerId);
+        
+        // Clear message maps
+        botInstance.messageMap.delete(userId);
+        botInstance.messageMap.delete(partnerId);
+        botInstance.messageCountMap.delete(userId);
+        botInstance.messageCountMap.delete(partnerId);
+        
+        // Reset chat start times for both users
+        await updateUser(userId, { chatStartTime: null });
+        await updateUser(partnerId, { chatStartTime: null });
+        
+        // Notify partner that chat ended
+        try {
+            await ctx.telegram.sendMessage(
+                partnerId,
+                "🚫 Your chat partner has been removed from the platform.\n\n/next - Find new partner"
+            );
+        } catch (error) {
+            console.log(`[BAN] - Could not notify partner ${partnerId}:`, error);
+        }
+        
+        return partnerId;
+    }
 
     // Unban user from details
     bot.action(/ADMIN_UNBAN_USER_(\d+)/, async (ctx) => {

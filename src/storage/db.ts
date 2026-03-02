@@ -76,6 +76,11 @@ async function connectToDatabase(): Promise<Db> {
     await db.collection<User>("users").createIndex({ referralCode: 1 });
     await db.collection<User>("users").createIndex({ referredBy: 1 });
     
+    // Reports collection indexes for scalable report system
+    await db.collection<Report>("reports").createIndex({ reportedUser: 1 }, { name: "report_user_idx" });
+    await db.collection<Report>("reports").createIndex({ reportedBy: 1 }, { name: "report_reporter_idx" });
+    await db.collection<Report>("reports").createIndex({ createdAt: -1 }, { name: "report_date_idx" });
+    
     // Performance indexes for admin commands and partner matching
     await db.collection<User>("users").createIndex(
       { lastActive: -1, banned: 1 },
@@ -361,8 +366,175 @@ export async function getAllUsers(): Promise<string[]> {
 }
 
 export async function getReportCount(id: number): Promise<number> {
+  // First try new scalable report storage
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getReportsCollection();
+      const count = await collection.countDocuments({ reportedUser: id });
+      return count;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB getReportCount error:", error);
+    }
+  }
+  
+  // Fallback to legacy user field
   const user = await getUser(id);
   return user.reports || 0;
+}
+
+// ==================== REPORT SYSTEM (SCALABLE) ====================
+
+// New Report interface for scalable report storage
+export interface Report {
+  _id?: ObjectId;
+  reportedUser: number;
+  reportedBy: number;
+  reason: string;
+  createdAt: number;
+}
+
+// Get reports collection
+async function getReportsCollection(): Promise<Collection<Report>> {
+  const database = await connectToDatabase();
+  return database.collection<Report>("reports");
+}
+
+// Create a new report (scalable)
+export async function createReport(
+  reportedUserId: number,
+  reportedByUserId: number,
+  reason: string
+): Promise<void> {
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getReportsCollection();
+      await collection.insertOne({
+        reportedUser: reportedUserId,
+        reportedBy: reportedByUserId,
+        reason: reason,
+        createdAt: Date.now()
+      });
+      
+      // Also update legacy field for backward compatibility
+      await incrementReportCount(reportedUserId);
+      return;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB createReport error:", error);
+    }
+  }
+  
+  // JSON/file fallback - update user fields for backward compatibility
+  const fs = require("fs");
+  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+  
+  // Store report in user's reports array
+  if (!dbObj[reportedUserId]) {
+    dbObj[reportedUserId] = {};
+  }
+  if (!dbObj[reportedUserId].reportHistory) {
+    dbObj[reportedUserId].reportHistory = [];
+  }
+  dbObj[reportedUserId].reportHistory.push({
+    reportedBy: reportedByUserId,
+    reason: reason,
+    createdAt: Date.now()
+  });
+  
+  // Update legacy fields
+  const currentReports = dbObj[reportedUserId]?.reports || 0;
+  dbObj[reportedUserId].reports = currentReports + 1;
+  dbObj[reportedUserId].reportReason = reason; // Keep for backward compatibility
+  dbObj[reportedUserId].reportingPartner = reportedByUserId;
+  
+  fs.writeFileSync(JSON_FILE, JSON.stringify(dbObj, null, 2));
+}
+
+// Get all reports grouped by user (for admin view - scalable)
+export async function getGroupedReports(limit: number = 10): Promise<{ userId: number; count: number; latestReason: string; reporters: number[] }[]> {
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getReportsCollection();
+      const pipeline = [
+        { $sort: { createdAt: -1 } },
+        {
+          $group: {
+            _id: "$reportedUser",
+            count: { $sum: 1 },
+            latestReason: { $first: "$reason" },
+            reporters: { $push: "$reportedBy" }
+          }
+        },
+        { $sort: { count: -1 } },
+        { $limit: limit },
+        {
+          $project: {
+            userId: "$_id",
+            count: 1,
+            latestReason: 1,
+            reporters: 1
+          }
+        }
+      ];
+      
+      const results = await collection.aggregate(pipeline).toArray();
+      return results.map(r => ({
+        userId: r.userId,
+        count: r.count,
+        latestReason: r.latestReason,
+        reporters: r.reporters || []
+      }));
+    } catch (error) {
+      console.error("[ERROR] - MongoDB getGroupedReports error:", error);
+    }
+  }
+  
+  // Fallback: iterate through users (less efficient but works)
+  const allUsers = await getAllUsers();
+  const userReports: { userId: number; count: number; latestReason: string; reporters: number[] }[] = [];
+  
+  for (const id of allUsers) {
+    const userId = parseInt(id);
+    const reports = await getReportCount(userId);
+    if (reports > 0) {
+      const user = await getUser(userId);
+      userReports.push({
+        userId,
+        count: reports,
+        latestReason: user.reportReason || "No reason",
+        reporters: []
+      });
+    }
+  }
+  
+  // Sort by count descending and limit
+  userReports.sort((a, b) => b.count - a.count);
+  return userReports.slice(0, limit);
+}
+
+// Get full report history for a specific user
+export async function getUserReports(userId: number): Promise<Report[]> {
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getReportsCollection();
+      const reports = await collection
+        .find({ reportedUser: userId })
+        .sort({ createdAt: -1 })
+        .toArray();
+      return reports;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB getUserReports error:", error);
+    }
+  }
+  
+  // Fallback: read from user data
+  const user = await getUser(userId);
+  const history = (user as any).reportHistory || [];
+  return history.map((r: any) => ({
+    reportedUser: userId,
+    reportedBy: r.reportedBy,
+    reason: r.reason,
+    createdAt: r.createdAt
+  }));
 }
 
 // Atomically increment user's report count to prevent race conditions
