@@ -100,32 +100,29 @@ export default {
     if (waitingForUserId.has(ctx.from.id)) {
         console.log(`[SEARCH_BY_ID] - Admin ${ctx.from.id} is searching for user...`);
         
-        // Remove from waiting list immediately
-        waitingForUserId.delete(ctx.from.id);
-        
         const userIdText = text?.trim();
         
         // Validate input - must be only digits
         if (!userIdText) {
             return ctx.reply(
-                "❌ Please enter a User ID.\n\nUsage: Enter a numeric Telegram user ID.", 
+                "❌ Invalid User ID. Please enter a numeric ID.",
                 { parse_mode: "Markdown", ...Markup.removeKeyboard() }
             );
         }
         
-        // Validate using regex - only numbers allowed, reasonable length
+        // Validate using regex - only numbers allowed
         const userIdRegex = /^\d+$/;
         if (!userIdRegex.test(userIdText)) {
             return ctx.reply(
-                "❌ Invalid User ID!\n\nOnly numeric IDs are allowed.\n\nExample: `123456789`",
+                "❌ Invalid User ID. Please enter a numeric ID.",
                 { parse_mode: "Markdown", ...Markup.removeKeyboard() }
             );
         }
         
-        // Check for unreasonably long input (max 15 digits for Telegram IDs)
+        // Check for max length (15 digits for Telegram IDs)
         if (userIdText.length > 15) {
             return ctx.reply(
-                "❌ User ID too long!\n\nPlease enter a valid Telegram user ID.",
+                "❌ Invalid User ID. Please enter a numeric ID.",
                 { parse_mode: "Markdown", ...Markup.removeKeyboard() }
             );
         }
@@ -134,7 +131,7 @@ export default {
         const userId = parseInt(userIdText, 10);
         if (isNaN(userId) || userId <= 0) {
             return ctx.reply(
-                "❌ Invalid User ID. Please enter a positive number.",
+                "❌ Invalid User ID. Please enter a numeric ID.",
                 { parse_mode: "Markdown", ...Markup.removeKeyboard() }
             );
         }
@@ -142,14 +139,17 @@ export default {
         // Get user data to check if exists
         const user = await getUser(userId);
         
+        // Remove from waiting list AFTER successful validation
+        waitingForUserId.delete(ctx.from.id);
+        
         if (!user || user.isNew) {
             return ctx.reply(
-                `🔍 *Search Result*\n\n❌ User with ID \`${userId}\` not found.\n\nThe user may not exist or has never started the bot.`,
+                "User not found.",
                 { parse_mode: "Markdown", ...Markup.removeKeyboard() }
             );
         }
         
-        // User exists - show full details with action buttons (same as clicking from user list)
+        // User exists - show full details with action buttons
         return showUserDetails(ctx, userId);
     }
 

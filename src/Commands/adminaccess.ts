@@ -2,7 +2,7 @@ import { Context } from "telegraf";
 import { ExtraTelegraf, bot } from "..";
 import { Command } from "../Utils/commandHandler";
 import { Markup } from "telegraf";
-import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts, getGroupedReports } from "../storage/db";
+import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts, getGroupedReports, getAllReferralStats } from "../storage/db";
 
 const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
 
@@ -562,15 +562,8 @@ export function initAdminActions(bot: ExtraTelegraf) {
     bot.action("ADMIN_REFERRALS", async (ctx) => {
         await safeAnswerCbQuery(ctx);
         
-        const allUsers = await getAllUsers();
-        let totalReferrals = 0;
-        let usersWithReferrals = 0;
-        
-        for (const id of allUsers) {
-            const count = await getReferralCount(parseInt(id));
-            totalReferrals += count;
-            if (count > 0) usersWithReferrals++;
-        }
+        // Use optimized single-query function instead of looping
+        const { totalReferrals, usersWithReferrals } = await getAllReferralStats();
         
         const keyboard = Markup.inlineKeyboard([
             [Markup.button.callback("🔄 Verify & Fix Counts", "ADMIN_VERIFY_REFERRALS")],
@@ -863,7 +856,7 @@ export async function showUserDetails(ctx: any, userId: number) {
         try {
             await ctx.editMessageText(
                 "User not found.",
-                { parse_mode: "Markdown", ...backKeyboard }
+                { parse_mode: "HTML", ...backKeyboard }
             );
         } catch (error: any) {
             // Check for "message not modified" - ignore it
@@ -874,7 +867,7 @@ export async function showUserDetails(ctx: any, userId: number) {
             try {
                 await ctx.reply(
                     "User not found.",
-                    { parse_mode: "Markdown", ...backKeyboard }
+                    { parse_mode: "HTML", ...backKeyboard }
                 );
                 return; // Exit after successful fallback
             } catch (replyError: any) {
@@ -961,7 +954,7 @@ export async function showUserDetails(ctx: any, userId: number) {
     ]);
 
     try {
-        await ctx.editMessageText(details, { parse_mode: "Markdown", ...keyboard });
+        await ctx.editMessageText(details, { parse_mode: "HTML", ...keyboard });
     } catch (error: any) {
         // Check for "message not modified" - ignore it
         if (error.description && error.description.includes("message is not modified")) {
@@ -969,7 +962,7 @@ export async function showUserDetails(ctx: any, userId: number) {
         }
         // Fallback to reply for other errors
         try {
-            await ctx.reply(details, { parse_mode: "Markdown", ...keyboard });
+            await ctx.reply(details, { parse_mode: "HTML", ...keyboard });
             return; // Exit after successful fallback
         } catch (replyError: any) {
             console.error("[showUserDetails] Failed to reply:", replyError.message);

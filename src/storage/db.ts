@@ -389,10 +389,38 @@ export async function readBans(): Promise<number[]> {
     }
   }
   
-  // JSON fallback
+  // JSON fallback - with array->object migration support
   const fs = require("fs");
-  if (!fs.existsSync(BANS_FILE)) fs.writeFileSync(BANS_FILE, "[]");
-  return JSON.parse(fs.readFileSync(BANS_FILE, "utf8"));
+  
+  // Initialize with object format if doesn't exist
+  if (!fs.existsSync(BANS_FILE)) {
+    fs.writeFileSync(BANS_FILE, "{}");
+    return [];
+  }
+  
+  let bans = JSON.parse(fs.readFileSync(BANS_FILE, "utf8"));
+  
+  // Handle legacy array format migration
+  if (Array.isArray(bans)) {
+    console.log("[readBans] Migrating from array to object format...");
+    const banObject: Record<string, { reason?: string; bannedAt?: number; bannedBy?: number }> = {};
+    
+    for (const userId of bans) {
+      banObject[userId.toString()] = {
+        reason: "Migrated from legacy format",
+        bannedAt: Date.now(),
+        bannedBy: 0
+      };
+    }
+    
+    // Save in new object format
+    fs.writeFileSync(BANS_FILE, JSON.stringify(banObject, null, 2));
+    console.log(`[readBans] Migrated ${bans.length} bans to object format`);
+    return bans; // Return array for backward compatibility during migration
+  }
+  
+  // Return array of ban IDs from object format
+  return Object.keys(bans).map(key => parseInt(key, 10));
 }
 
 // ==================== USER MANAGEMENT ====================
@@ -950,6 +978,56 @@ export async function incrementReferralCount(userId: number): Promise<number> {
   const newCount = currentCount + 1;
   await updateUser(userId, { referralCount: newCount });
   return newCount;
+}
+
+// Get all referral statistics in ONE query (optimized for admin panel)
+export async function getAllReferralStats(): Promise<{ totalReferrals: number; usersWithReferrals: number }> {
+    if (useMongoDB && !isFallbackMode) {
+        try {
+            const collection = await getUsersCollection();
+            
+            // Single aggregation query to get both metrics
+            const result = await collection.aggregate([
+                {
+                    $match: { referralCount: { $gt: 0 } }
+                },
+                {
+                    $group: {
+                        _id: null,
+                        totalReferrals: { $sum: "$referralCount" },
+                        usersWithReferrals: { $sum: 1 }
+                    }
+                }
+            ]).toArray();
+            
+            if (result.length > 0) {
+                return {
+                    totalReferrals: result[0].totalReferrals || 0,
+                    usersWithReferrals: result[0].usersWithReferrals || 0
+                };
+            }
+            
+            return { totalReferrals: 0, usersWithReferrals: 0 };
+        } catch (error) {
+            console.error("[ERROR] - MongoDB getAllReferralStats error:", error);
+        }
+    }
+    
+    // JSON fallback - optimized (single pass through users)
+    const allUsers = await getAllUsers();
+    let totalReferrals = 0;
+    let usersWithReferrals = 0;
+    
+    for (const id of allUsers) {
+        const user = await getUser(parseInt(id));
+        const referralCount = user?.referralCount || 0;
+        if (referralCount > 0) {
+            totalReferrals += referralCount;
+            usersWithReferrals++;
+        }
+    }
+    
+    return { totalReferrals, usersWithReferrals };
 }
 
 // Find user by their referral code
