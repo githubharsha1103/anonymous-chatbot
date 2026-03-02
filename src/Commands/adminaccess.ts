@@ -89,7 +89,22 @@ export default {
         }
 
         await updateUser(userId, { isAdminAuthenticated: true });
-        return ctx.reply(
+        
+        // Check if this is a private chat
+        const isPrivateChat = ctx.from.id === ctx.chat?.id;
+        
+        if (!isPrivateChat) {
+            // Tell user to check their private chat with the bot
+            await ctx.reply(
+                "🔐 I've sent the admin panel to your private chat with me.\n" +
+                "Please check @" + bot.botInfo?.username + " in a private conversation.",
+                { parse_mode: "Markdown" }
+            );
+        }
+        
+        // Always send admin panel to private chat
+        return ctx.telegram.sendMessage(
+            userId,
             "🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:",
             { parse_mode: "Markdown", ...mainKeyboard }
         );
