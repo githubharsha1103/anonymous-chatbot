@@ -155,7 +155,7 @@ export function initReferralActions(bot: Telegraf<Context>) {
         const userId = ctx.from?.id;
         if (!userId) return false;
         
-        const botInstance = require("../../index").bot;
+        const botInstance = require("../index").bot;
         if (botInstance.isActionOnCooldown(userId, action)) {
             return true;
         }
