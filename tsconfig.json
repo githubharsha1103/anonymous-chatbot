@@ -3,6 +3,7 @@
     "target": "es2016",
     "module": "CommonJS",
     "moduleResolution": "node",
+    "rootDir": "./src",
     "outDir": "./dist",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
@@ -23,10 +24,10 @@
     "types": ["node"]
   },
   "exclude": [
-    "./dist"
+    "./dist",
+    "./__tests__"
   ],
   "include": [
-    "./src/**/*.ts",
-    "./__tests__/**/*.ts"
+    "./src/**/*.ts"
   ]
 }

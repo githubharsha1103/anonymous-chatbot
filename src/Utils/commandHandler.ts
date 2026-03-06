@@ -12,7 +12,7 @@ export interface Command {
 }
 export async function loadCommands() {
   try {
-    const commandsDir = path.join(process.cwd(), "dist/src/Commands");
+    const commandsDir = path.join(process.cwd(), "dist/Commands");
     const Files: string[] = [];
     
     // Recursively get all .js files in Commands directory

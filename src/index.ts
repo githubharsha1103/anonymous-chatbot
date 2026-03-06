@@ -455,7 +455,7 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   
   // Menu endpoint
   app.get("/menu", (req: Request, res: Response) => {
-    res.sendFile(path.join(__dirname, "../../public/menu.html"));
+    res.sendFile(path.join(__dirname, "../public/menu.html"));
   });
   
   // API endpoint to check admin status
