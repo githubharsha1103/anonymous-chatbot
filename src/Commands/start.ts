@@ -1,28 +1,14 @@
-import { Context, Telegraf, Markup } from "telegraf";
+import { Context, Telegraf } from "telegraf";
 import { Command } from "../Utils/commandHandler";
 import { ExtraTelegraf } from "..";
 import { getUser, updateUser, updateLastActive, processReferral } from "../storage/db";
-
-// Import centralized keyboards
-import {
-    welcomeKeyboard,
-    setupGenderKeyboard,
-    setupAgeKeyboard,
-    setupStateKeyboard,
-    mainMenuKeyboard,
-    groupJoinKeyboard
-} from "../keyboards/mainMenu";
+import { Markup } from "telegraf";
 
 // Setup step constants
 export const SETUP_STEP_GENDER = "gender";
 export const SETUP_STEP_AGE = "age";
 export const SETUP_STEP_STATE = "state";
 export const SETUP_STEP_DONE = "done";
-
-// Age manual input keyboard (local only - not in central file)
-const ageManualKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_AGE")]
-]);
 
 export default {
     name: "start",
@@ -77,14 +63,20 @@ export default {
             await updateUser(userId, updateData);
             (bot as ExtraTelegraf).incrementUserCount();
             
-            // New user - show welcome with Get Started button
+            // New user - show welcome message with WebApp button
+            const webAppUrl = process.env.WEBAPP_URL ? process.env.WEBAPP_URL + "/menu" : "https://your-domain.com/menu";
             await ctx.reply(
                 "🌟 <b>Welcome to Anonymous Chat!</b> 🌟\n\n" +
                 "✨ Connect with strangers anonymously\n" +
                 "🔒 Your privacy is protected\n" +
                 "💬 Chat freely and safely\n\n" +
                 "Tap <b>Get Started</b> to begin!",
-                { parse_mode: "HTML", ...welcomeKeyboard }
+                { 
+                    parse_mode: "HTML" as const,
+                    reply_markup: Markup.inlineKeyboard([
+                        Markup.button.webApp("📱 Open Menu", webAppUrl)
+                    ]) as any
+                }
             );
             return;
         }
@@ -97,41 +89,44 @@ export default {
         const setupStep = (user as any).setupStep;
         
         if (setupStep === SETUP_STEP_AGE) {
-            // User needs to enter age - show age range buttons (NO BACK - must complete setup)
+            // User needs to enter age
             await ctx.reply(
                 "📝 <b>Step 2 of 3</b>\n\n" +
                 "🎂 <b>Select your age range:</b>\n" +
                 "(This helps us match you with people in similar age groups)",
-                { parse_mode: "HTML", ...setupAgeKeyboard }
+                { parse_mode: "HTML" }
             );
             return;
         }
         
         if (setupStep === SETUP_STEP_STATE) {
-            // User needs to select state (NO BACK - must complete setup)
+            // User needs to select state
             await ctx.reply(
                 "📝 <b>Step 3 of 3</b>\n\n" +
                 "📍 <b>Select your location:</b>\n" +
                 "(Helps match you with nearby people)",
-                { parse_mode: "HTML", ...setupStateKeyboard }
+                { parse_mode: "HTML" }
             );
             return;
         }
         
-        // Existing user with complete profile - show main menu
+        // Existing user with complete profile - show main menu with WebApp button
         // Group join is now optional - show invite link but allow access
         const groupInviteLink = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
+        const webAppUrl = process.env.WEBAPP_URL ? process.env.WEBAPP_URL + "/menu" : "https://your-domain.com/menu";
         await ctx.reply(
             "🌟 <b>Welcome back!</b> 🌟\n\n" +
             "This bot helps you chat anonymously with people worldwide.\n\n" +
             "📢 <b>Join our community group!</b>\n" +
             "Meet more people and stay updated!\n" +
             "👉 " + groupInviteLink + "\n\n" +
-            "Use the menu below to navigate:",
-            { parse_mode: "HTML", ...mainMenuKeyboard }
+            "Use the commands below to navigate:",
+            { 
+                parse_mode: "HTML" as const,
+                reply_markup: Markup.inlineKeyboard([
+                    Markup.button.webApp("📱 Open Menu", webAppUrl)
+                ]) as any
+            }
         );
     }
 } as Command;
-
-// Export keyboards for action handlers
-export { mainMenuKeyboard, setupGenderKeyboard, setupAgeKeyboard, setupStateKeyboard, ageManualKeyboard };

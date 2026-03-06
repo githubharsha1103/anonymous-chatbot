@@ -2,23 +2,10 @@ import { Context } from "telegraf";
 import { ExtraTelegraf, bot } from "..";
 import { Command } from "../Utils/commandHandler";
 import { Markup } from "telegraf";
-import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts, getGroupedReports, getAllReferralStats } from "../storage/db";
+import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts, getGroupedReports, getAllReferralStats, tempBanUser, getUserLatestReportReason } from "../storage/db";
+import { isAdmin, isAdminByUsername, isAdminContext, unauthorizedResponse } from "../Utils/adminAuth";
 
-const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
-
-function isAdmin(id: number) {
-    return ADMINS.some(admin => {
-        if (/^\d+$/.test(admin)) {
-            return admin === id.toString();
-        }
-        return false;
-    });
-}
-
-function isAdminByUsername(username: string | undefined) {
-    if (!username) return false;
-    return ADMINS.some(admin => admin.startsWith("@") && admin.toLowerCase() === `@${username.toLowerCase()}`);
-}
+// Removed local isAdmin/isAdminByUsername - now using shared utility from adminAuth.ts
 
 // Helper function to format duration
 function formatDuration(ms: number): string {
@@ -133,11 +120,9 @@ export default {
 } as Command;
 
 export function initAdminActions(bot: ExtraTelegraf) {
-    // Helper function to validate admin permissions
+    // Helper function to validate admin permissions (using shared utility)
     function validateAdmin(ctx: any): boolean {
-        const adminId = ctx.from?.id;
-        if (!adminId) return false;
-        return isAdmin(adminId) || isAdminByUsername(ctx.from?.username);
+        return isAdminContext(ctx);
     }
 
     // Safe editMessageText that handles all errors with fallback to reply
@@ -484,6 +469,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Cancel broadcast
     bot.action("ADMIN_BROADCAST_CANCEL", async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx);
         
         const adminId = ctx.from?.id;
@@ -501,6 +491,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Cancel search by ID
     bot.action("ADMIN_SEARCH_BY_ID_CANCEL", async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx);
         
         const adminId = ctx.from?.id;
@@ -555,10 +550,21 @@ export function initAdminActions(bot: ExtraTelegraf) {
             // Check if user is already banned
             const userBanned = await isBanned(userId);
             if (!userBanned) {
+                // User not banned - show all action buttons
                 reportButtons.push([
                     Markup.button.callback(
                         `🚫 Ban ${userId}`,
                         `ADMIN_BAN_USER_${userId}`
+                    ),
+                    Markup.button.callback(
+                        `⏱️ Temp Ban ${userId}`,
+                        `ADMIN_TEMP_BAN_SELECT_${userId}`
+                    )
+                ]);
+                reportButtons.push([
+                    Markup.button.callback(
+                        `⚠️ Warn ${userId}`,
+                        `ADMIN_WARN_USER_${userId}`
                     ),
                     Markup.button.callback(
                         `👁️ View ${userId}`,
@@ -589,6 +595,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Re-engagement campaign
     bot.action("ADMIN_REENGAGE", async (ctx) => {
+        // Re-validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx);
         
         // Check admin authentication
@@ -600,9 +611,9 @@ export function initAdminActions(bot: ExtraTelegraf) {
             return ctx.reply("🚫 You are not authorized to access this command.");
         }
         
-        // Import and execute reengagement command
+        // Import and execute reengagement command with useEdit=true for transition effect
         const reengagementCommand = require("./reengagement").default;
-        await reengagementCommand.execute(ctx, bot);
+        await reengagementCommand.execute(ctx, bot, true);
     });
 
     // Referral management
@@ -684,6 +695,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Ban user from details - Also terminates active chats
     bot.action(/ADMIN_BAN_USER_(\d+)/, async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx);
         const userId = parseInt(ctx.match[1]);
         const adminId = ctx.from?.id || 0;
@@ -701,6 +717,178 @@ export function initAdminActions(bot: ExtraTelegraf) {
         }
         
         await showUserDetails(ctx, userId);
+    });
+
+    // Show temporary ban duration selection
+    bot.action(/ADMIN_TEMP_BAN_SELECT_(\d+)/, async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+        
+        // Create keyboard with dynamic userId in callback data
+        const tempBanDurations = Markup.inlineKeyboard([
+            [Markup.button.callback("⏱️ 1 Hour", `ADMIN_TEMP_BAN_1_${userId}`)],
+            [Markup.button.callback("⏱️ 6 Hours", `ADMIN_TEMP_BAN_6_${userId}`)],
+            [Markup.button.callback("⏱️ 24 Hours", `ADMIN_TEMP_BAN_24_${userId}`)],
+            [Markup.button.callback("⏱️ 7 Days", `ADMIN_TEMP_BAN_168_${userId}`)],
+            [Markup.button.callback("🔙 Back", "ADMIN_VIEW_REPORTS")]
+        ]);
+        
+        await safeEditMessageText(
+            ctx,
+            `⏱️ *Select Temporary Ban Duration*\n\n` +
+            `User ID: \`${userId}\`\n\n` +
+            `Choose how long to ban this user:`,
+            { parse_mode: "Markdown", ...tempBanDurations }
+        );
+    });
+
+    // Helper function to execute temporary ban with duration
+    async function executeTempBan(ctx: any, userId: number, durationHours: number) {
+        const adminId = ctx.from?.id || 0;
+        const durationMs = durationHours * 60 * 60 * 1000;
+        const reason = `Temporarily banned for ${durationHours} hour(s)`;
+        
+        // Check if user is in an active chat and terminate it
+        const partnerId = await terminateUserChat(ctx, bot, userId);
+        
+        // Temporarily ban the user
+        await tempBanUser(userId, durationMs, reason, adminId);
+        
+        // Calculate unban time
+        const unbanTime = new Date(Date.now() + durationMs);
+        const unbanTimeStr = unbanTime.toLocaleString();
+        
+        const message = `⏱️ *Temporary Ban Applied*\n\n` +
+            `User \`${userId}\` has been temporarily banned.\n\n` +
+            `📅 Unban date: ${unbanTimeStr}\n` +
+            `⏰ Duration: ${durationHours} hour(s)\n\n` +
+            `${partnerId ? `✅ Chat with partner ${partnerId} terminated.` : ""}\n\n` +
+            `Use the button below to return to reports.`;
+        
+        await safeEditMessageText(
+            ctx,
+            message,
+            { parse_mode: "Markdown", ...backKeyboard }
+        );
+    }
+
+    // Temporary ban action handlers (1 hour)
+    bot.action(/ADMIN_TEMP_BAN_1_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+        await executeTempBan(ctx, userId, 1);
+    });
+
+    // Temporary ban action handlers (6 hours)
+    bot.action(/ADMIN_TEMP_BAN_6_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+        await executeTempBan(ctx, userId, 6);
+    });
+
+    // Temporary ban action handlers (24 hours)
+    bot.action(/ADMIN_TEMP_BAN_24_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+        await executeTempBan(ctx, userId, 24);
+    });
+
+    // Temporary ban action handlers (7 days = 168 hours)
+    bot.action(/ADMIN_TEMP_BAN_168_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+        await executeTempBan(ctx, userId, 168);
+    });
+
+    // Map report reason codes to human-readable warning messages
+    function getWarningMessage(reason: string | null): string {
+        const reasonMap: Record<string, string> = {
+            "REPORT_IMPERSONATING": "You are impersonating someone else. This behavior is not allowed on our platform.",
+            "REPORT_SEXUAL": "You have been reported for sharing inappropriate/sexual content. This is a violation of our community guidelines.",
+            "REPORT_FRAUD": "You have been reported for fraud or suspicious activity. This is a serious violation that may result in permanent ban.",
+            "REPORT_INSULTING": "You have been reported for insulting or harassing other users. Please treat others with respect.",
+            "REPORT_IMPERSONATING_report": "You are impersonating someone else. This behavior is not allowed on our platform.",
+            "REPORT_SEXUAL_report": "You have been reported for sharing inappropriate/sexual content. This is a violation of our community guidelines.",
+            "REPORT_FRAUD_report": "You have been reported for fraud or suspicious activity. This is a serious violation that may result in permanent ban.",
+            "REPORT_INSULTING_report": "You have been reported for insulting or harassing other users. Please treat others with respect.",
+            "Impersonating": "You are impersonating someone else. This behavior is not allowed on our platform.",
+            "Sexual content": "You have been reported for sharing inappropriate/sexual content. This is a violation of our community guidelines.",
+            "Fraud": "You have been reported for fraud or suspicious activity. This is a serious violation that may result in permanent ban.",
+            "Insulting": "You have been reported for insulting or harassing other users. Please treat others with respect."
+        };
+        
+        return reasonMap[reason || ""] || "You have been reported for violating our community guidelines. Please review and follow our rules to avoid further action.";
+    }
+
+    // Send warning message to reported user
+    bot.action(/ADMIN_WARN_USER_(\d+)/, async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+        
+        // Get user's latest report reason
+        const reportReason = await getUserLatestReportReason(userId);
+        
+        // Get the appropriate warning message based on reason
+        const warningMessage = getWarningMessage(reportReason);
+        
+        const fullMessage = `⚠️ *Warning*\n\n${warningMessage}\n\n` +
+            `This is an automated warning based on reports received about your behavior.\n\n` +
+            `If you continue to violate our guidelines, further action may be taken including a temporary or permanent ban.`;
+        
+        // Try to send the warning message to the user
+        try {
+            await ctx.telegram.sendMessage(
+                userId,
+                fullMessage,
+                { parse_mode: "Markdown" }
+            );
+            
+            await safeEditMessageText(
+                ctx,
+                `✅ *Warning Sent*\n\n` +
+                `Warning message has been sent to user \`${userId}\`.\n\n` +
+                `📝 Reason: ${reportReason || "General violation"}\n\n` +
+                `Use the button below to return to reports.`,
+                { parse_mode: "Markdown", ...backKeyboard }
+            );
+        } catch (error: any) {
+            // User might have blocked the bot
+            await safeEditMessageText(
+                ctx,
+                `⚠️ *Warning Could Not Be Sent*\n\n` +
+                `Could not send warning to user \`${userId}\`. \n` +
+                `The user may have blocked the bot.\n\n` +
+                `📝 Reason that would have been sent: ${reportReason || "General violation"}\n\n` +
+                `Use the button below to return to reports.`,
+                { parse_mode: "Markdown", ...backKeyboard }
+            );
+        }
     });
 
     // Helper function to terminate user's active chat
@@ -750,6 +938,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Unban user from details
     bot.action(/ADMIN_UNBAN_USER_(\d+)/, async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx);
         const userId = parseInt(ctx.match[1]);
         await unbanUser(userId);
@@ -758,6 +951,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Grant premium access
     bot.action(/ADMIN_GRANT_PREMIUM_(\d+)/, async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx, "Premium granted ✅");
         const userId = parseInt(ctx.match[1]);
         await updateUser(userId, { premium: true });
@@ -766,6 +964,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Revoke premium access
     bot.action(/ADMIN_REVOKE_PREMIUM_(\d+)/, async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx, "Premium revoked ❌");
         const userId = parseInt(ctx.match[1]);
         await updateUser(userId, { premium: false });
@@ -774,6 +977,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Delete user
     bot.action(/ADMIN_DELETE_USER_(\d+)/, async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx, "User deleted ❌");
         const userId = parseInt(ctx.match[1]);
         await deleteUser(userId, "admin_action");
@@ -784,6 +992,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Edit user gender
     bot.action(/ADMIN_EDIT_GENDER_(\d+)/, async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx);
         const userId = parseInt(ctx.match[1]);
         
@@ -805,6 +1018,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Set user gender to male
     bot.action(/ADMIN_SET_GENDER_MALE_(\d+)/, async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx, "Gender updated to Male ✅");
         const userId = parseInt(ctx.match[1]);
         await updateUser(userId, { gender: "male" });
@@ -813,6 +1031,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Set user gender to female
     bot.action(/ADMIN_SET_GENDER_FEMALE_(\d+)/, async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx, "Gender updated to Female ✅");
         const userId = parseInt(ctx.match[1]);
         await updateUser(userId, { gender: "female" });
@@ -821,6 +1044,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Reset user chats
     bot.action(/ADMIN_RESET_CHATS_(\d+)/, async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx, "Chats reset ✅");
         const userId = parseInt(ctx.match[1]);
         await updateUser(userId, { daily: 0 });
@@ -829,6 +1057,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Reset user reports
     bot.action(/ADMIN_RESET_REPORTS_(\d+)/, async (ctx) => {
+        // Validate admin permissions
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx, "Reports reset ✅");
         const userId = parseInt(ctx.match[1]);
         await updateUser(userId, { reportCount: 0, reportingPartner: null, reportReason: null });

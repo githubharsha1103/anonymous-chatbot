@@ -3,39 +3,42 @@ import { Command } from "../Utils/commandHandler";
 import { ExtraTelegraf } from "..";
 import { getInactiveUsers, getUserStats } from "../storage/db";
 import { broadcastWithRateLimit, sendMessageWithRetry } from "../Utils/telegramErrorHandler";
+import { isAdmin, isAdminByUsername, isAdminContext } from "../Utils/adminAuth";
+
+// Removed local isAdmin/isAdminByUsername - now using shared utility from adminAuth.ts
 
 const backKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
 ]);
 
-// Admin checking functions (same as adminaccess.ts)
-const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
-
-function isAdmin(id: number) {
-    return ADMINS.some(admin => {
-        if (/^\d+$/.test(admin)) {
-            return admin === id.toString();
-        }
-        return false;
-    });
-}
-
-function isAdminByUsername(username: string | undefined) {
-    if (!username) return false;
-    return ADMINS.some(admin => admin.startsWith("@") && admin.toLowerCase() === `@${username.toLowerCase()}`);
-}
-
 function checkAdmin(ctx: Context): boolean {
-    const userId = ctx.from?.id;
-    const username = ctx.from?.username;
-    if (!userId) return false;
-    return isAdmin(userId) || isAdminByUsername(username);
+    return isAdminContext(ctx);
+}
+
+// Helper function for safe editMessageText
+export async function safeEditMessageText(ctx: any, text: string, extra?: any) {
+    try {
+        await ctx.editMessageText(text, extra);
+    } catch (error: any) {
+        // Check for "message not modified" - this is not an error
+        if (error.description && error.description.includes("message is not modified")) {
+            return;
+        }
+        // For all other errors, try to reply instead to prevent UI freeze
+        console.log("[Reengagement safeEditMessageText] Falling back to reply:", error.description || error.message);
+        try {
+            await ctx.reply(text, extra);
+            return; // Exit after successful fallback
+        } catch (replyError: any) {
+            console.error("[Reengagement safeEditMessageText] Failed to reply:", replyError.message);
+        }
+    }
 }
 
 export default {
     name: "reengagement",
     description: "Re-engagement campaign for inactive users",
-    execute: async (ctx: Context, bot: ExtraTelegraf) => {
+    execute: async (ctx: Context, bot: ExtraTelegraf, useEdit: boolean = false) => {
         const adminId = ctx.from?.id;
         
         if (!adminId) return ctx.reply("Error: Could not identify user.");
@@ -65,7 +68,12 @@ Select inactive users to notify:`;
             [Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
         ]);
 
-        await ctx.reply(text, { parse_mode: "HTML", ...keyboard });
+        if (useEdit) {
+            // When called from admin panel, use editMessageText for transition effect
+            await safeEditMessageText(ctx, text, { parse_mode: "HTML", ...keyboard });
+        } else {
+            await ctx.reply(text, { parse_mode: "HTML", ...keyboard });
+        }
     }
 } as Command;
 
@@ -95,27 +103,6 @@ async function safeAnswerCbQuery(ctx: any, text?: string) {
         }
     } catch {
         // Ignore errors
-    }
-}
-
-// Helper function for safe editMessageText
-// This prevents UI freeze when message can't be edited
-async function safeEditMessageText(ctx: any, text: string, extra?: any) {
-    try {
-        await ctx.editMessageText(text, extra);
-    } catch (error: any) {
-        // Check for "message not modified" - this is not an error
-        if (error.description && error.description.includes("message is not modified")) {
-            return;
-        }
-        // For all other errors, try to reply instead to prevent UI freeze
-        console.log("[Reengagement safeEditMessageText] Falling back to reply:", error.description || error.message);
-        try {
-            await ctx.reply(text, extra);
-            return; // Exit after successful fallback
-        } catch (replyError: any) {
-            console.error("[Reengagement safeEditMessageText] Failed to reply:", replyError.message);
-        }
     }
 }
 

@@ -1,21 +1,7 @@
-import { Context, Markup } from "telegraf";
+import { Context } from "telegraf";
 import { ExtraTelegraf } from "..";
 import { sendMessageWithRetry, cleanupBlockedUser, cleanupUserMaps } from "../Utils/telegramErrorHandler";
 import { updateUser, getUser, incUserTotalChats } from "../storage/db";
-
-// Rating keyboard with emojis and next button
-const ratingKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("😊 Good", "RATE_GOOD"), Markup.button.callback("😐 Okay", "RATE_OKAY"), Markup.button.callback("😞 Bad", "RATE_BAD")],
-    [Markup.button.callback("🔍 Find New Partner", "START_SEARCH")],
-    [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
-]);
-
-// Main menu keyboard after chat ends
-const mainMenuKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🔍 Find New Partner", "START_SEARCH")],
-    [Markup.button.callback("⚙️ Settings", "OPEN_SETTINGS")],
-    [Markup.button.callback("❓ Help", "START_HELP")]
-]);
 
 // Helper function to format duration
 function formatDuration(ms: number): string {
@@ -97,21 +83,21 @@ export default {
             }
 
             // Common exit message for both users
-const exitMessage = 
+            const exitMessage = 
 `🚫 Partner left the chat
 
 💬 Chat Duration: ${durationText}
 💭 Messages Exchanged: ${messageCount}
 
-━━━━━━━━━━━━━━━━━
-How was your chat experience?`;
+How was your chat experience?
 
-            // Use sendMessageWithRetry to handle blocked partners
+Use /next to find a new partner.`;
+
+            // Use sendMessageWithRetry to handle blocked partners (without keyboard)
             const notifySent = partner ? await sendMessageWithRetry(
                 bot,
                 partner,
-                exitMessage,
-                ratingKeyboard
+                exitMessage
             ) : false;
 
             // If message failed to send, still clean up
@@ -119,10 +105,10 @@ How was your chat experience?`;
                 cleanupBlockedUser(bot, partner);
             }
 
-            // Send exit message with rating and buttons to user who ended chat
+            // Send exit message to user who ended chat (without keyboard)
             return ctx.reply(
                 exitMessage,
-                { parse_mode: "HTML", ...ratingKeyboard }
+                { parse_mode: "HTML" }
             );
 
         } finally {

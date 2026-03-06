@@ -6,45 +6,6 @@ import { updateUser, getUser, getAllUsers, deleteUser, isBanned, getReportCount,
 import { isBotBlockedError, cleanupBlockedUser, isNotEnoughRightsError, isRateLimitError, getRetryDelay, broadcastWithRateLimit } from "../Utils/telegramErrorHandler";
 import { waitingForBroadcast, waitingForUserId } from "../Commands/adminaccess";
 import { showUserDetails } from "../Commands/adminaccess";
-import { Markup } from "telegraf";
-
-// Setup step constants (must match start.ts)
-const SETUP_STEP_AGE = "age";
-const SETUP_STEP_STATE = "state";
-
-// Setup keyboards
-const setupStateKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
-    [Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
-    [Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
-    [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
-]);
-
-const backKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🔙 Back", "OPEN_SETTINGS")]
-]);
-
-const cancelKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("⬅️ Cancel", "SETUP_CANCEL")]
-]);
-
-const mainMenuKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🔍 Find Partner", "START_SEARCH")],
-    [Markup.button.callback("⚙️ Settings", "OPEN_SETTINGS")],
-    [Markup.button.callback("🎁 Referrals", "OPEN_REFERRAL")],
-    [Markup.button.callback("❓ Help", "START_HELP")]
-]);
-
-// Chat active keyboard - shown during conversation
-const chatActiveKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🚪 Leave", "END_CHAT")],
-    [Markup.button.callback("🚨 Report", "OPEN_REPORT")]
-]);
-
-// Waiting keyboard - shown while searching
-const waitingKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🔄 Cancel", "CANCEL_SEARCH")]
-]);
 
 export default {
   type: "message",
@@ -98,16 +59,15 @@ export default {
         // Note: We no longer delete users who failed to receive broadcast
         // Users remain in the system even if they blocked the bot or are deactivated
         
-        // Clear any inline keyboards by using removeKeyboard
         return ctx.reply(
             `📢 *Broadcast Result*\n\n✅ Sent: ${success}\n❌ Failed: ${failed}\n\nTotal Users: ${users.length}`,
-            { parse_mode: "Markdown", ...Markup.removeKeyboard() }
+            { parse_mode: "Markdown" }
         );
     }
 
     /* ================================
        ADMIN SEARCH USER BY ID HANDLER (WITH VALIDATION)
-      ================================= */
+     ================================= */
 
     // Check if admin is waiting to search by user ID
     if (waitingForUserId.has(ctx.from.id)) {
@@ -119,7 +79,7 @@ export default {
         if (!userIdText) {
             return ctx.reply(
                 "❌ Invalid User ID. Please enter a numeric ID.",
-                { parse_mode: "Markdown", ...Markup.removeKeyboard() }
+                { parse_mode: "Markdown" }
             );
         }
         
@@ -128,7 +88,7 @@ export default {
         if (!userIdRegex.test(userIdText)) {
             return ctx.reply(
                 "❌ Invalid User ID. Please enter a numeric ID.",
-                { parse_mode: "Markdown", ...Markup.removeKeyboard() }
+                { parse_mode: "Markdown" }
             );
         }
         
@@ -136,7 +96,7 @@ export default {
         if (userIdText.length > 15) {
             return ctx.reply(
                 "❌ Invalid User ID. Please enter a numeric ID.",
-                { parse_mode: "Markdown", ...Markup.removeKeyboard() }
+                { parse_mode: "Markdown" }
             );
         }
         
@@ -145,7 +105,7 @@ export default {
         if (isNaN(userId) || userId <= 0) {
             return ctx.reply(
                 "❌ Invalid User ID. Please enter a numeric ID.",
-                { parse_mode: "Markdown", ...Markup.removeKeyboard() }
+                { parse_mode: "Markdown" }
             );
         }
         
@@ -158,7 +118,7 @@ export default {
         if (!user || user.isNew) {
             return ctx.reply(
                 "User not found.",
-                { parse_mode: "Markdown", ...Markup.removeKeyboard() }
+                { parse_mode: "Markdown" }
             );
         }
         
@@ -175,8 +135,7 @@ export default {
       // Check if user is in waiting queue
       if (bot.waitingQueue.some((w: any) => w.id === ctx.from.id)) {
         return ctx.reply(
-          "⏳ Waiting for a partner...",
-          waitingKeyboard
+          "⏳ Waiting for a partner...\n\nUse /end to cancel."
         );
       }
 
@@ -207,17 +166,17 @@ export default {
           
           if (age < 13 || age > 80) {
             return ctx.reply("🎂 *Age must be between 13 and 80*\n\nPlease try again:", 
-              { parse_mode: "Markdown", ...cancelKeyboard });
+              { parse_mode: "Markdown" });
           }
           
           await updateUser(ctx.from.id, { age: String(age) });
           
-          // After manual age input, ask for state with back button
+          // After manual age input, ask for state
           await ctx.reply(
             "📝 *Step 3 of 3*\n\n" +
             "📍 *Select your location:*\n" +
             "(Helps match you with nearby people)",
-            { parse_mode: "Markdown", ...setupStateKeyboard }
+            { parse_mode: "Markdown" }
           );
           return;
         }
@@ -241,7 +200,7 @@ export default {
               `✨ *Profile Complete!* ✨\n\n` +
               `Your profile has been set up successfully!\n\n` +
               `🎉 Ready to start chatting? Use /search to find a partner!`,
-              { parse_mode: "Markdown", ...mainMenuKeyboard }
+              { parse_mode: "Markdown" }
             );
             return;
           }
@@ -443,14 +402,8 @@ export default {
         bot.messageMap.delete(ctx.from.id);
         bot.messageMap.delete(partner);
         
-        // Report keyboard
-        const reportKeyboard = Markup.inlineKeyboard([
-            [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
-        ]);
-        
         return ctx.reply(
-          "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
-          reportKeyboard
+          "🚫 Partner left the chat\n\n/next - Find new partner"
         );
       }
       
@@ -465,14 +418,8 @@ export default {
         bot.messageMap.delete(ctx.from.id);
         bot.messageMap.delete(partner);
         
-        // Report keyboard
-        const reportKeyboard = Markup.inlineKeyboard([
-            [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
-        ]);
-        
         return ctx.reply(
-          "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
-          reportKeyboard
+          "🚫 Partner left the chat\n\n/next - Find new partner"
         );
       }
       
@@ -499,13 +446,8 @@ export default {
             bot.messageMap.delete(ctx.from.id);
             bot.messageMap.delete(partner);
             
-            const reportKeyboard = Markup.inlineKeyboard([
-                [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
-            ]);
-            
             return ctx.reply(
-              "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
-              reportKeyboard
+              "🚫 Partner left the chat\n\n/next - Find new partner"
             );
           }
           

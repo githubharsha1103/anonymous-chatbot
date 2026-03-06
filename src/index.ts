@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
+import path from 'path';
 import { Context, Telegraf } from "telegraf";
 import http from 'http';
 
@@ -230,11 +231,14 @@ bot.catch((err: any, ctx) => {
 // process-wide error handlers to avoid silent crashes
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
+  // Optionally perform cleanup or graceful shutdown
 });
 
 process.on('uncaughtException', err => {
   console.error('[FATAL] Uncaught Exception:', err);
-  // optionally exit or restart
+  // Perform cleanup before exit
+  console.log('[FATAL] Shutting down due to uncaught exception...');
+  process.exit(1);
 });
 
 // Add global error handling middleware for Telegraf BEFORE loading handlers
@@ -420,6 +424,170 @@ if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
   
   // Use Telegraf's built-in webhook callback (handles parsing correctly)
   app.use(bot.webhookCallback(WEBHOOK_PATH));
+  
+  // Set up the bot's menu button (the button in chat input area)
+  // This makes the WebApp accessible from the bot's menu button
+  // After deploying, configure BotFather: Bot Settings → Menu Button → Configure
+  // Then set the URL to: https://your-domain.com/menu
+  const setupMenuButton = async () => {
+    const webAppUrl = process.env.WEBAPP_URL;
+    if (webAppUrl) {
+      try {
+        await bot.telegram.setChatMenuButton({
+          menuButton: {
+            type: "web_app",
+            text: "Menu",
+            web_app: { url: webAppUrl }
+          }
+        });
+        console.log(`[INFO] - Menu button configured with URL: ${webAppUrl}`);
+      } catch (error) {
+        console.error("[ERROR] - Failed to set menu button:", error);
+      }
+    } else {
+      console.log("[INFO] - WEBAPP_URL not set. Set it in .env to enable menu button.");
+    }
+  };
+  setupMenuButton();
+  
+  // Serve static files from public directory
+  app.use(express.static("public"));
+  
+  // Menu endpoint
+  app.get("/menu", (req: Request, res: Response) => {
+    res.sendFile(path.join(__dirname, "../public/menu.html"));
+  });
+  
+  // API endpoint to check admin status
+  app.post("/api/check-admin", express.json(), (req: Request, res: Response) => {
+    const { userId } = req.body;
+    if (!userId) {
+      return res.json({ isAdmin: false });
+    }
+    const adminStatus = isAdmin(Number(userId));
+    res.json({ isAdmin: adminStatus });
+  });
+  
+  // WebApp data handler - handles button clicks from the menu
+  bot.on("web_app_data", async (ctx) => {
+    const userId = ctx.from?.id;
+    const action = ctx.message?.web_app_data?.data;
+    
+    if (!action || !userId) return;
+    
+    console.log(`[WebApp] - User ${userId} sent action: ${action}`);
+    
+    switch (action) {
+      case "chat":
+        // Call search command
+        try {
+          const searchCommand = require("./Commands/search").default;
+          await searchCommand.execute(ctx, bot);
+        } catch (err) {
+          console.error("[WebApp] Error in chat:", err);
+        }
+        break;
+        
+      case "settings":
+        // Call settings command
+        try {
+          const settingsCommand = require("./Commands/settings").default;
+          await settingsCommand.execute(ctx, bot);
+        } catch (err) {
+          console.error("[WebApp] Error in settings:", err);
+        }
+        break;
+        
+      case "premium":
+        // Show premium info
+        await ctx.reply(
+          "💎 *Premium Features*\n\n" +
+          "• Set gender preference\n" +
+          "• See partner's gender\n" +
+          "• Unlimited daily chats\n" +
+          "• And more!\n\n" +
+          "📞 Contact @demonhunter1511 to purchase\n" +
+          "🎁 Or use /settings → Referrals to earn free!",
+          { parse_mode: "Markdown" }
+        );
+        break;
+        
+      case "help":
+        // Call help command
+        try {
+          const helpCommand = require("./Commands/help").default;
+          await helpCommand.execute(ctx, bot);
+        } catch (err) {
+          console.error("[WebApp] Error in help:", err);
+        }
+        break;
+        
+      case "about":
+        await ctx.reply(
+          "ℹ️ *About Anonymous Chat*\n\n" +
+          "Version: 1.0.0\n" +
+          "Connect with strangers anonymously worldwide.\n\n" +
+          "Your privacy is protected.",
+          { parse_mode: "Markdown" }
+        );
+        break;
+        
+      // Admin actions - verify admin first
+      case "admin_broadcast":
+        if (!isAdmin(userId)) {
+          await ctx.reply("🚫 Unauthorized");
+          return;
+        }
+        // Initiate broadcast - ask for message
+        const { waitingForBroadcast } = require("./Commands/adminaccess");
+        waitingForBroadcast.add(userId);
+        await ctx.reply("📢 *Broadcast Mode*\n\nSend the message you want to broadcast to all users:", { parse_mode: "Markdown" });
+        break;
+        
+      case "admin_stats":
+        if (!isAdmin(userId)) {
+          await ctx.reply("🚫 Unauthorized");
+          return;
+        }
+        // Show stats
+        const { getAllUsers, getTotalChats } = require("./storage/db");
+        const users = await getAllUsers();
+        const totalChats = await getTotalChats();
+        await ctx.reply(
+          "📊 *Bot Statistics*\n\n" +
+          `👥 Total Users: ${users.length}\n` +
+          `💬 Total Chats: ${totalChats}\n` +
+          `📅 Active Today: ${users.filter((u: any) => u.lastActive > Date.now() - 86400000).length}`,
+          { parse_mode: "Markdown" }
+        );
+        break;
+        
+      case "admin_reports":
+        if (!isAdmin(userId)) {
+          await ctx.reply("🚫 Unauthorized");
+          return;
+        }
+        await ctx.reply("🚨 *Reports*\n\nUse /admin to access the admin panel for reports.", { parse_mode: "Markdown" });
+        break;
+        
+      case "admin_panel":
+        if (!isAdmin(userId)) {
+          await ctx.reply("🚫 Unauthorized");
+          return;
+        }
+        // Call adminaccess command
+        try {
+          const adminCommand = require("./Commands/adminaccess").default;
+          await adminCommand.execute(ctx, bot);
+        } catch (err) {
+          console.error("[WebApp] Error in admin_panel:", err);
+        }
+        break;
+        
+      default:
+        console.log(`[WebApp] Unknown action: ${action}`);
+    }
+  });
   
   // Health check endpoint - simplified version that doesn't make API calls
   app.get("/health", (req: Request, res: Response) => {

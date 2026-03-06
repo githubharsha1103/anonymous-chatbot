@@ -5,6 +5,7 @@ import { Context, Telegraf } from "telegraf";
 import { Markup } from "telegraf";
 import { updateUser, getUser, getReferralCount, banUser, isBanned, incrementReportCount, createReport } from "../storage/db";
 import { handleTelegramError } from "./telegramErrorHandler";
+import { isAdmin, unauthorizedResponse, ADMINS } from "./adminAuth";
 
 // Because it doesn't know that ctx has a match property. by default, Context<Update> doesn't include match, but telegraf adds it dynamically when using regex triggers.
 export interface ActionContext extends Context {
@@ -71,51 +72,22 @@ export async function loadActions() {
     }
 }
 
-// Inline keyboard helpers
-const genderKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("👨 Male", "GENDER_MALE")],
-    [Markup.button.callback("👩 Female", "GENDER_FEMALE")],
-    [Markup.button.callback("🔙 Back", "OPEN_SETTINGS")]
-]);
-
-const stateKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("Telangana", "STATE_TELANGANA")],
-    [Markup.button.callback("Andhra Pradesh", "STATE_AP")],
-    [Markup.button.callback("🔙 Back", "OPEN_SETTINGS")]
-]);
-
-const backKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🔙 Back", "OPEN_SETTINGS")]
-]);
-
-const preferenceKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("👨 Male", "PREF_MALE")],
-    [Markup.button.callback("👩 Female", "PREF_FEMALE")],
-    [Markup.button.callback("🔙 Back", "OPEN_SETTINGS")]
-]);
-
 const premiumMessage = 
 "⭐ *Premium Feature*\n\n" +
 "This feature is available only for Premium users.\n\n" +
 "📞 Contact admin @demonhunter1511 to purchase Premium\n" +
 "🎁 Or use /settings → Referrals to earn free Premium!";
 
-
-const mainMenuKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🔍 Search", "START_SEARCH")],
-    [Markup.button.callback("⚙️ Settings", "OPEN_SETTINGS")],
-    [Markup.button.callback("❓ Help", "START_HELP")]
-]);
+// Empty keyboards (no buttons)
+const genderKeyboard: any = { reply_markup: { inline_keyboard: [] } };
+const stateKeyboard: any = { reply_markup: { inline_keyboard: [] } };
+const backKeyboard: any = { reply_markup: { inline_keyboard: [] } };
+const preferenceKeyboard: any = { reply_markup: { inline_keyboard: [] } };
+const mainMenuKeyboard: any = { reply_markup: { inline_keyboard: [] } };
 
 // Group verification settings
 const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID || "-1001234567890";
 const GROUP_INVITE_LINK = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
-
-// Keyboard for group join verification
-const groupJoinKeyboard = Markup.inlineKeyboard([
-    [Markup.button.url("📢 Join Our Group", GROUP_INVITE_LINK)],
-    [Markup.button.callback("✅ I've Joined", "VERIFY_GROUP_JOIN")]
-]);
 
 // Check if user is a member of the group
 async function isUserGroupMember(userId: number): Promise<boolean> {
@@ -647,12 +619,6 @@ const confirmKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("✅ Confirm Report", "REPORT_CONFIRM")],
     [Markup.button.callback("🔙 Cancel", "REPORT_CANCEL")]
 ]);
-
-const ADMINS = process.env.ADMIN_IDS?.split(",") || [];
-
-function isAdmin(id: number) {
-    return ADMINS.includes(id.toString());
-}
 
 // Show report reasons
 bot.action("OPEN_REPORT", async (ctx) => {

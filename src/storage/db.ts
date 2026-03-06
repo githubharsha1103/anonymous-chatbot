@@ -340,6 +340,7 @@ export interface Ban {
   reason: string;
   bannedAt: number;
   bannedBy: number;
+  banExpiresAt?: number; // For temporary bans (timestamp when ban expires)
 }
 
 export async function banUser(id: number, reason: string = "Banned by admin", adminId: number = 0): Promise<void> {
@@ -416,7 +417,118 @@ export async function unbanUser(id: number): Promise<void> {
   await writeJson(BANS_FILE, bans);
 }
 
+// Temporary ban function
+export async function tempBanUser(id: number, durationMs: number, reason: string = "Temporarily banned", adminId: number = 0): Promise<void> {
+  const banExpiresAt = Date.now() + durationMs;
+  
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const database = await connectToDatabase();
+      const bansCollection = database.collection<Ban>("bans");
+      
+      await bansCollection.updateOne(
+        { telegramId: id },
+        { 
+          $set: { 
+            telegramId: id, 
+            reason: reason,
+            bannedAt: Date.now(),
+            bannedBy: adminId,
+            banExpiresAt: banExpiresAt
+          } 
+        },
+        { upsert: true }
+      );
+      return;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB tempBanUser error:", error);
+    }
+  }
+  
+  // JSON fallback
+  let bans: any = await readJson(BANS_FILE);
+  
+  if (Array.isArray(bans)) {
+    const oldBans = bans;
+    bans = {};
+    for (const bid of oldBans) {
+      bans[bid] = { reason: "Migrated", bannedAt: Date.now(), bannedBy: 0 };
+    }
+  }
+  
+  bans[id] = {
+    reason: reason,
+    bannedAt: Date.now(),
+    bannedBy: adminId,
+    banExpiresAt: banExpiresAt
+  };
+  await writeJson(BANS_FILE, bans);
+}
+
+// Check if a temporary ban has expired and auto-unban
+export async function checkAndRemoveExpiredBan(id: number): Promise<boolean> {
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const database = await connectToDatabase();
+      const bansCollection = database.collection<Ban>("bans");
+      const ban = await bansCollection.findOne({ telegramId: id });
+      
+      if (ban && ban.banExpiresAt && ban.banExpiresAt < Date.now()) {
+        // Ban has expired, remove it
+        await bansCollection.deleteOne({ telegramId: id });
+        return true; // Was expired and removed
+      }
+      return false;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB checkAndRemoveExpiredBan error:", error);
+      return false;
+    }
+  }
+  
+  // JSON fallback
+  const bans: any = await readJson(BANS_FILE);
+  if (bans[id] && bans[id].banExpiresAt && bans[id].banExpiresAt < Date.now()) {
+    delete bans[id];
+    await writeJson(BANS_FILE, bans);
+    return true;
+  }
+  return false;
+}
+
+// Get user's latest report reason
+export async function getUserLatestReportReason(userId: number): Promise<string | null> {
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getReportsCollection();
+      const latestReport = await collection
+        .find({ reportedUser: userId })
+        .sort({ createdAt: -1 })
+        .limit(1)
+        .toArray();
+      
+      if (latestReport && latestReport.length > 0) {
+        return latestReport[0].reason;
+      }
+      return null;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB getUserLatestReportReason error:", error);
+    }
+  }
+  
+  // JSON fallback - check user's report history
+  const user = await getUser(userId);
+  const history = (user as any).reportHistory || [];
+  if (history.length > 0) {
+    const latestReport = history[history.length - 1];
+    return latestReport?.reason || null;
+  }
+  return (user as any).reportReason || null;
+}
+
 export async function isBanned(id: number): Promise<boolean> {
+  // First check and remove expired temporary bans
+  await checkAndRemoveExpiredBan(id);
+  
   if (useMongoDB && !isFallbackMode) {
     try {
       const database = await connectToDatabase();
