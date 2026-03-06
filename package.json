@@ -14,10 +14,11 @@
   "scripts": {
     "test": "jest --runInBand --config jest.config.js",
     "lint": "eslint . --ext .ts",
-    "start": "node dist/index.js",
+    "start": "npm install --production && node dist/index.js",
     "clean": "rimraf dist",
-    "build": "npm run clean && npx tsc",
-    "init-db": "npx ts-node initDb.ts"
+    "build": "npm run clean && npm install --production && npx tsc",
+    "init-db": "npx ts-node initDb.ts",
+    "postinstall": "npm install --production"
   },
   "dependencies": {
     "dotenv": "^17.3.1",
