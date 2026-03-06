@@ -76,11 +76,7 @@ export function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): void {
     console.log(`[CLEANUP] - User ${userId} removed from waiting queue`);
   }
 
-  // Clear waiting if it was this user
-  if (bot.waiting === userId) {
-    bot.waiting = null;
-    cleanedUp = true;
-  }
+  // (no waiting property any more)
 
   // Remove from running chats using Map
   if (bot.runningChats.has(userId)) {
@@ -292,7 +288,7 @@ export async function safeSendMessage(
   return new Promise((resolve) => {
     messageQueue.push({ chatId, text, extra, resolve });
     processMessageQueue();
-    resolve(true); // Return immediately, actual result handled by queue
+    // resolution will happen inside processMessageQueue when send succeeds/fails
   });
 }
 

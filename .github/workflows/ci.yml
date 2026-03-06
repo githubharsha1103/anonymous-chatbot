@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint || true  # don't fail if eslint not configured yet
+      - name: Compile TypeScript
+        run: npm run build
+      - name: Run unit tests
+        run: npm test

@@ -39,9 +39,23 @@ interface WaitingUser {
   isPremium: boolean;
 }
 
-// Function to redirect user to complete setup
-async function redirectToSetup(ctx: Context) {
-    if (!ctx.from) return;
+// (old non-exported helper removed - only the exported version below is needed)
+// Function to check if user is group member (re-verifies on each search for security)
+async function isUserGroupMember(bot: ExtraTelegraf, userId: number): Promise<boolean> {
+    try {
+        const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID || "-1001234567890";
+        // Use GROUP_CHAT_ID directly - Telegram API requires numeric chat ID
+        const chatMember = await bot.telegram.getChatMember(GROUP_CHAT_ID, userId);
+        const validStatuses = ['creator', 'administrator', 'member', 'restricted'];
+        return validStatuses.includes(chatMember.status);
+    } catch (error) {
+        console.error(`[GroupCheck] - Error checking group membership for user ${userId}:`, error);
+        return false;
+    }
+}
+
+export async function redirectToSetup(ctx: Context) {
+    if (!ctx.from) return null;
     
     const user = await getUser(ctx.from.id);
     
@@ -76,20 +90,6 @@ async function redirectToSetup(ctx: Context) {
     return null; // Setup is complete
 }
 
-// Function to check if user is group member (re-verifies on each search for security)
-async function isUserGroupMember(bot: ExtraTelegraf, userId: number): Promise<boolean> {
-    try {
-        const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID || "-1001234567890";
-        // Use GROUP_CHAT_ID directly - Telegram API requires numeric chat ID
-        const chatMember = await bot.telegram.getChatMember(GROUP_CHAT_ID, userId);
-        const validStatuses = ['creator', 'administrator', 'member', 'restricted'];
-        return validStatuses.includes(chatMember.status);
-    } catch (error) {
-        console.error(`[GroupCheck] - Error checking group membership for user ${userId}:`, error);
-        return false;
-    }
-}
-
 export default {
   name: "search",
   description: "Search for a chat",
@@ -109,9 +109,10 @@ export default {
     
     // Enforce queue size limit by removing oldest if approaching limit
     const MAX_QUEUE_SOFT_LIMIT = 9500; // Start removing at 95% capacity
-    while (bot.waitingQueue.length > MAX_QUEUE_SOFT_LIMIT) {
-      bot.waitingQueue.shift(); // Remove oldest user
-      console.log(`[QUEUE] - Queue size limit enforced, removed oldest user`);
+    if (bot.waitingQueue.length > MAX_QUEUE_SOFT_LIMIT) {
+      const removeCount = bot.waitingQueue.length - MAX_QUEUE_SOFT_LIMIT;
+      bot.waitingQueue = bot.waitingQueue.slice(removeCount);
+      console.log(`[QUEUE] - Queue size limit enforced, removed ${removeCount} oldest users`);
     }
     
     // Check if user has completed setup (gender, age, state)
@@ -163,20 +164,19 @@ export default {
 
       // Find a compatible match from the queue
       // Bidirectional matching: both users must be compatible
-      // We fetch fresh user data from DB to ensure preferences are up-to-date
+      // We use data cached in the queue entry to avoid excessive DB calls.
       let matchIndex = -1;
-      
       for (let i = 0; i < bot.waitingQueue.length; i++) {
         const w = bot.waitingQueue[i] as WaitingUser;
         
-        // Fetch fresh user data for the waiting user
-        const waitingUserData = await getUser(w.id);
+        // Use stored gender/preference to evaluate compatibility
+        const waitingGender = w.gender || "any";
+        const waitingPref = w.preference || "any";
         
         // Check if waiting user's gender matches current user's preference
-        const genderMatches = !matchPreference || (waitingUserData.gender || "any") === matchPreference;
+        const genderMatches = !matchPreference || waitingGender === matchPreference;
         
         // Check if current user's gender matches waiting user's preference
-        const waitingPref = waitingUserData.preference || "any";
         const preferenceMatches = waitingPref === "any" || waitingPref === gender;
         
         if (genderMatches && preferenceMatches) {
@@ -187,7 +187,6 @@ export default {
 
       if (matchIndex !== -1) {
         const match = bot.waitingQueue[matchIndex] as WaitingUser;
-        const matchUser = await getUser(match.id);
         bot.waitingQueue.splice(matchIndex, 1);
 
         bot.runningChats.set(match.id, userId);
@@ -206,10 +205,8 @@ export default {
         bot.messageCountMap.set(userId, 0);
         bot.messageCountMap.set(match.id, 0);
 
-        // Clear waiting if it was this user
-        if (bot.waiting === match.id) {
-          bot.waiting = null;
-        }
+        // fetch match user's profile for display
+        const matchUser = await getUser(match.id);
 
         // Increment chat count
         bot.incrementChatCount();
@@ -288,7 +285,6 @@ export default {
 
       // No match found, add to queue
       bot.waitingQueue.push({ id: userId, preference, gender, isPremium } as WaitingUser);
-      bot.waiting = userId;
       return ctx.reply("⏳ Waiting for a partner...");
     } finally {
       // Always release the mutex

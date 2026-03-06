@@ -1,4 +1,5 @@
-import { glob } from "glob";
+import * as fs from "fs";
+import * as path from "path";
 import { bot } from "../index";
 import { Context, Telegraf } from "telegraf";
 import { Markup } from "telegraf";
@@ -18,11 +19,27 @@ export interface Action {
 
 export async function loadActions() {
     try {
-        const Files = await glob(`${process.cwd()}/dist/Commands/**/*.js`);
+        const commandsDir = path.join(process.cwd(), "dist/Commands");
+        const Files: string[] = [];
+        
+        // Recursively get all .js files in Commands directory
+        function getAllFiles(dir: string): void {
+            if (!fs.existsSync(dir)) return;
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    getAllFiles(fullPath);
+                } else if (entry.isFile() && entry.name.endsWith('.js')) {
+                    Files.push(fullPath);
+                }
+            }
+        }
+        getAllFiles(commandsDir);
 
-        for (let file of Files) {
+        for (const file of Files) {
             // Ensure absolute path for require
-            const absolutePath = require("path").resolve(file);
+            const absolutePath = path.resolve(file);
             const actionFile = require(absolutePath).default;
             
             // Skip if not a valid action (command files don't have 'execute' as async action handler)

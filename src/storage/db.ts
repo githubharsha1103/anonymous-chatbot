@@ -15,6 +15,63 @@ const MONGO_OPTIONS = {
   w: "majority" as const
 };
 
+// ---------- JSON FILE CONCURRENCY LOCK ----------
+// Many fallback operations use the filesystem. to avoid
+// race conditions we serialize access with a simple mutex.
+
+class JsonMutex {
+  private locked = false;
+  private queue: (() => void)[] = [];
+
+  async acquire(): Promise<void> {
+    return new Promise(resolve => {
+      if (!this.locked) {
+        this.locked = true;
+        resolve();
+      } else {
+        this.queue.push(resolve);
+      }
+    });
+  }
+
+  release(): void {
+    if (this.queue.length > 0) {
+      const next = this.queue.shift();
+      if (next) next();
+    } else {
+      this.locked = false;
+    }
+  }
+}
+
+const jsonMutex = new JsonMutex();
+
+import fs from "fs";
+
+async function readJson(path: string): Promise<any> {
+  await jsonMutex.acquire();
+  try {
+    if (!fs.existsSync(path)) {
+      fs.writeFileSync(path, "{}");
+    }
+    return JSON.parse(fs.readFileSync(path, "utf8"));
+  } finally {
+    jsonMutex.release();
+  }
+}
+
+async function writeJson(path: string, data: any): Promise<void> {
+  await jsonMutex.acquire();
+  try {
+    fs.writeFileSync(path, JSON.stringify(data, null, 2));
+  } finally {
+    jsonMutex.release();
+  }
+}
+
+// --------------------------------------------------
+
+
 let client: MongoClient | null = null;
 let db: Db | null = null;
 
@@ -179,10 +236,8 @@ export async function getUser(id: number): Promise<UserWithNew> {
     }
   }
   
-  // JSON fallback
-  const fs = require("fs");
-  if (!fs.existsSync(JSON_FILE)) fs.writeFileSync(JSON_FILE, "{}");
-  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+  // JSON fallback (thread-safe via mutex helpers)
+  const dbObj = await readJson(JSON_FILE);
   
   if (!dbObj[id]) {
     dbObj[id] = {
@@ -201,7 +256,7 @@ export async function getUser(id: number): Promise<UserWithNew> {
       reports: 0,
       banned: false
     };
-    fs.writeFileSync(JSON_FILE, JSON.stringify(dbObj, null, 2));
+    await writeJson(JSON_FILE, dbObj);
     return { ...dbObj[id], isNew: true };
   }
   return dbObj[id];
@@ -224,10 +279,9 @@ export async function updateUser(id: number, data: Partial<User>): Promise<void>
   }
   
   // JSON fallback
-  const fs = require("fs");
-  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+  const dbObj = await readJson(JSON_FILE);
   dbObj[id] = { ...(dbObj[id] || {}), ...data };
-  fs.writeFileSync(JSON_FILE, JSON.stringify(dbObj, null, 2));
+  await writeJson(JSON_FILE, dbObj);
 }
 
 export async function incDaily(id: number): Promise<boolean> {
@@ -314,26 +368,24 @@ export async function banUser(id: number, reason: string = "Banned by admin", ad
     }
   }
   
-  // JSON fallback - store as object with metadata
-  const fs = require("fs");
-  if (!fs.existsSync(BANS_FILE)) fs.writeFileSync(BANS_FILE, "{}");
-  let bans = JSON.parse(fs.readFileSync(BANS_FILE, "utf8"));
-  
+  // JSON fallback - store as object with metadata (locked)
+  let bans: any = await readJson(BANS_FILE);
+
   // Convert array to object format if needed (migration)
   if (Array.isArray(bans)) {
     const oldBans = bans;
     bans = {};
-    for (const id of oldBans) {
-      bans[id] = { reason: "Migrated", bannedAt: Date.now(), bannedBy: 0 };
+    for (const bid of oldBans) {
+      bans[bid] = { reason: "Migrated", bannedAt: Date.now(), bannedBy: 0 };
     }
   }
-  
+
   bans[id] = {
     reason: reason,
     bannedAt: Date.now(),
     bannedBy: adminId
   };
-  fs.writeFileSync(BANS_FILE, JSON.stringify(bans, null, 2));
+  await writeJson(BANS_FILE, bans);
 }
 
 export async function unbanUser(id: number): Promise<void> {
@@ -349,10 +401,8 @@ export async function unbanUser(id: number): Promise<void> {
     }
   }
   
-  // JSON fallback
-  const fs = require("fs");
-  if (!fs.existsSync(BANS_FILE)) fs.writeFileSync(BANS_FILE, "{}");
-  let bans = JSON.parse(fs.readFileSync(BANS_FILE, "utf8"));
+  // JSON fallback (locked)
+  let bans: any = await readJson(BANS_FILE);
   
   // Handle both array and object formats
   if (Array.isArray(bans)) {
@@ -363,7 +413,7 @@ export async function unbanUser(id: number): Promise<void> {
   } else if (bans[id]) {
     delete bans[id];
   }
-  fs.writeFileSync(BANS_FILE, JSON.stringify(bans, null, 2));
+  await writeJson(BANS_FILE, bans);
 }
 
 export async function isBanned(id: number): Promise<boolean> {
@@ -380,9 +430,7 @@ export async function isBanned(id: number): Promise<boolean> {
   }
   
   // JSON fallback
-  const fs = require("fs");
-  if (!fs.existsSync(BANS_FILE)) fs.writeFileSync(BANS_FILE, "{}");
-  const bans = JSON.parse(fs.readFileSync(BANS_FILE, "utf8"));
+  const bans: any = await readJson(BANS_FILE);
   
   // Handle both array and object formats
   if (Array.isArray(bans)) {
@@ -404,16 +452,15 @@ export async function readBans(): Promise<number[]> {
     }
   }
   
-  // JSON fallback - with array->object migration support
-  const fs = require("fs");
-  
+  // JSON fallback - with array->object migration support (locked)
   // Initialize with object format if doesn't exist
-  if (!fs.existsSync(BANS_FILE)) {
-    fs.writeFileSync(BANS_FILE, "{}");
+  let bans: any = await readJson(BANS_FILE);
+
+  // If file was just created, readJson already wrote '{}'
+  if (!bans) {
     return [];
   }
-  
-  let bans = JSON.parse(fs.readFileSync(BANS_FILE, "utf8"));
+
   
   // Handle legacy array format migration
   if (Array.isArray(bans)) {
@@ -452,11 +499,10 @@ export async function getAllUsers(): Promise<string[]> {
     }
   }
   
-  // JSON fallback
-  const fs = require("fs");
-  if (!fs.existsSync(JSON_FILE)) fs.writeFileSync(JSON_FILE, "{}");
-  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+  // JSON fallback (locked)
+  const dbObj = await readJson(JSON_FILE);
   return Object.keys(dbObj);
+
 }
 
 export async function getReportCount(id: number): Promise<number> {
@@ -475,25 +521,22 @@ export async function getReportCount(id: number): Promise<number> {
     }
   }
   
-  // Also check JSON fallback for reports
+  // Also check JSON fallback for reports (locked)
   try {
-    const fs = require("fs");
-    if (fs.existsSync(JSON_FILE)) {
-      const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
-      const userData = dbObj[id];
+    const dbObj = await readJson(JSON_FILE);
+    const userData = dbObj[id];
+    
+    if (userData) {
+      // Check legacy reports field
+      const jsonCount = userData.reports || 0;
       
-      if (userData) {
-        // Check legacy reports field
-        const jsonCount = userData.reports || 0;
-        
-        // Also check reportHistory
-        let historyCount = 0;
-        if (userData.reportHistory && Array.isArray(userData.reportHistory)) {
-          historyCount = userData.reportHistory.length;
-        }
-        
-        return count + jsonCount + historyCount;
+      // Also check reportHistory
+      let historyCount = 0;
+      if (userData.reportHistory && Array.isArray(userData.reportHistory)) {
+        historyCount = userData.reportHistory.length;
       }
+      
+      return count + jsonCount + historyCount;
     }
   } catch (error) {
     console.error("[ERROR] - Reading report count from JSON:", error);
@@ -543,9 +586,8 @@ export async function createReport(
     }
   }
   
-  // JSON/file fallback - update user fields for backward compatibility
-  const fs = require("fs");
-  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+  // JSON/file fallback - update user fields for backward compatibility (locked)
+  const dbObj: any = await readJson(JSON_FILE);
   
   // Store report in user's reports array
   if (!dbObj[reportedUserId]) {
@@ -566,7 +608,7 @@ export async function createReport(
   dbObj[reportedUserId].reportReason = reason; // Keep for backward compatibility
   dbObj[reportedUserId].reportingPartner = reportedByUserId;
   
-  fs.writeFileSync(JSON_FILE, JSON.stringify(dbObj, null, 2));
+  await writeJson(JSON_FILE, dbObj);
 }
 
 // Get all reports grouped by user (for admin view - scalable)
@@ -655,17 +697,15 @@ async function getReportsFromJson(): Promise<{ userId: number; count: number; la
   const userReports: { userId: number; count: number; latestReason: string; reporters: number[] }[] = [];
   
   try {
-    const fs = require("fs");
-    if (!fs.existsSync(JSON_FILE)) {
+    const dbObj = await readJson(JSON_FILE);
+    if (!dbObj) {
       return userReports;
     }
-    
-    const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
-    
+
     for (const [idStr, userData] of Object.entries(dbObj)) {
       const userId = parseInt(idStr);
       const data = userData as any;
-      
+
       // Check for legacy reports field
       if (data.reports && data.reports > 0) {
         userReports.push({
@@ -675,12 +715,12 @@ async function getReportsFromJson(): Promise<{ userId: number; count: number; la
           reporters: data.reportingPartner ? [data.reportingPartner] : []
         });
       }
-      
+
       // Also check for reportHistory (newer format)
       if (data.reportHistory && Array.isArray(data.reportHistory)) {
         // Check if we already added this user from legacy reports
         const existingIndex = userReports.findIndex(r => r.userId === userId);
-        
+
         if (existingIndex >= 0) {
           // Add history reports to existing count
           userReports[existingIndex].count += data.reportHistory.length;
@@ -699,10 +739,10 @@ async function getReportsFromJson(): Promise<{ userId: number; count: number; la
           const reporters = data.reportHistory
             .map((r: any) => r.reportedBy)
             .filter((r: any) => r);
-          
+
           // Get latest reason
           const latestReport = data.reportHistory[data.reportHistory.length - 1];
-          
+
           userReports.push({
             userId,
             count: data.reportHistory.length,
@@ -761,12 +801,11 @@ export async function incrementReportCount(userId: number): Promise<number> {
     }
   }
   
-  // JSON/file fallback with read-modify-write
-  const fs = require("fs");
-  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+  // JSON/file fallback with read-modify-write (locked)
+  const dbObj: any = await readJson(JSON_FILE);
   const currentReports = dbObj[userId]?.reports || 0;
   dbObj[userId] = { ...(dbObj[userId] || {}), reports: currentReports + 1 };
-  fs.writeFileSync(JSON_FILE, JSON.stringify(dbObj, null, 2));
+  await writeJson(JSON_FILE, dbObj);
   return currentReports + 1;
 }
 
@@ -786,10 +825,8 @@ export async function getBanReason(id: number): Promise<string | null> {
     }
   }
   
-  // JSON fallback - check object format
-  const fs = require("fs");
-  if (!fs.existsSync(BANS_FILE)) fs.writeFileSync(BANS_FILE, "{}");
-  const bans = JSON.parse(fs.readFileSync(BANS_FILE, "utf8"));
+  // JSON fallback - check object format (locked)
+  const bans: any = await readJson(BANS_FILE);
   
   // Handle both array (legacy) and object (new) formats
   if (Array.isArray(bans)) {
@@ -813,12 +850,11 @@ export async function deleteUser(id: number, reason?: string): Promise<boolean> 
     }
   }
   
-  // JSON fallback
-  const fs = require("fs");
-  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+  // JSON fallback (locked)
+  const dbObj: any = await readJson(JSON_FILE);
   if (dbObj[id]) {
     delete dbObj[id];
-    fs.writeFileSync(JSON_FILE, JSON.stringify(dbObj, null, 2));
+    await writeJson(JSON_FILE, dbObj);
     return true;
   }
   return false;
@@ -846,11 +882,9 @@ export async function getTotalChats(): Promise<number> {
     }
   }
   
-  // JSON fallback - read from file
-  const fs = require("fs");
+  // JSON fallback - read from file (locked)
   const statsFile = "src/storage/stats.json";
-  if (!fs.existsSync(statsFile)) return 0;
-  const stats = JSON.parse(fs.readFileSync(statsFile, "utf8"));
+  const stats: any = await readJson(statsFile);
   return stats.totalChats || 0;
 }
 
@@ -872,15 +906,11 @@ export async function incrementTotalChats(): Promise<void> {
     }
   }
   
-  // JSON fallback - update file
-  const fs = require("fs");
+  // JSON fallback - update file (locked)
   const statsFile = "src/storage/stats.json";
-  let stats = { totalChats: 0 };
-  if (fs.existsSync(statsFile)) {
-    stats = JSON.parse(fs.readFileSync(statsFile, "utf8"));
-  }
+  const stats: any = await readJson(statsFile);
   stats.totalChats = (stats.totalChats || 0) + 1;
-  fs.writeFileSync(statsFile, JSON.stringify(stats, null, 2));
+  await writeJson(statsFile, stats);
 }
 
 // Reset daily chat count for all users (call at midnight)
@@ -899,11 +929,9 @@ export async function resetDailyCounts(): Promise<number> {
     }
   }
   
-  // JSON fallback
-  const fs = require("fs");
-  if (!fs.existsSync(JSON_FILE)) return 0;
-  
-  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
+  // JSON fallback (locked)
+  const dbObj: any = await readJson(JSON_FILE);
+  if (!dbObj) return 0;
   let count = 0;
   
   for (const id in dbObj) {
@@ -913,7 +941,7 @@ export async function resetDailyCounts(): Promise<number> {
     }
   }
   
-  fs.writeFileSync(JSON_FILE, JSON.stringify(dbObj, null, 2));
+  await writeJson(JSON_FILE, dbObj);
   console.log(`[DAILY] - Reset daily counts for ${count} non-premium users (JSON)`);
   return count;
 }
@@ -984,11 +1012,9 @@ export async function getInactiveUsers(daysInactive: number): Promise<string[]> 
     }
   }
   
-  // JSON fallback
-  const fs = require("fs");
-  if (!fs.existsSync(JSON_FILE)) return [];
-  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
-  
+  // JSON fallback (locked)
+  const dbObj: any = await readJson(JSON_FILE);
+  if (!dbObj) return [];
   const inactiveIds: string[] = [];
   for (const [id, userData] of Object.entries(dbObj)) {
     const user = userData as any;
@@ -1007,12 +1033,27 @@ export async function getUserStats(): Promise<{
   inactive7Days: number;
   inactive30Days: number;
 }> {
-  const allUsers = await getAllUsers();
   const now = Date.now();
   const oneDayAgo = now - (1 * 24 * 60 * 60 * 1000);
   const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
   const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
-  
+
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getUsersCollection();
+      const total = await collection.countDocuments({});
+      const activeToday = await collection.countDocuments({ lastActive: { $gte: oneDayAgo } });
+      const inactive7Days = await collection.countDocuments({ lastActive: { $lt: sevenDaysAgo } });
+      const inactive30Days = await collection.countDocuments({ lastActive: { $lt: thirtyDaysAgo } });
+      return { total, activeToday, inactive7Days, inactive30Days };
+    } catch (error) {
+      console.error("[ERROR] - MongoDB getUserStats error:", error);
+      // fall through to JSON fallback if query fails
+    }
+  }
+
+  // JSON fallback - iterate manually
+  const allUsers = await getAllUsers();
   let activeToday = 0;
   let inactive7Days = 0;
   let inactive30Days = 0;
@@ -1054,22 +1095,17 @@ const REFERRAL_TIERS = [
 
 // Calculate premium days earned based on referral count
 function calculatePremiumDays(referralCount: number): number {
+    // Sum premium days from all tiers the user has reached.
+    // e.g. if tiers are 3->1d, 7->3d, 15->7d and you have 20 referrals,
+    // you earn 1+3+7 = 11 days total.
     let totalDays = 0;
-    let previousCount = 0;
-    
     for (const tier of REFERRAL_TIERS) {
         if (referralCount >= tier.count) {
-            // Calculate incremental days for this tier
-            const incrementalCount = tier.count - previousCount;
-            // Simplified: each tier gives its full premium days when reached
-            totalDays = tier.premiumDays;
-            previousCount = tier.count;
-        } else if (referralCount > previousCount) {
-            // Partially completed tier - no partial rewards in this model
+            totalDays += tier.premiumDays;
+        } else {
             break;
         }
     }
-    
     return totalDays;
 }
 
@@ -1227,11 +1263,9 @@ export async function getUserByReferralCode(referralCode: string): Promise<numbe
     }
   }
   
-  // JSON fallback
-  const fs = require("fs");
-  if (!fs.existsSync(JSON_FILE)) return null;
-  const dbObj = JSON.parse(fs.readFileSync(JSON_FILE, "utf8"));
-  
+  // JSON fallback (locked)
+  const dbObj: any = await readJson(JSON_FILE);
+  if (!dbObj) return null;
   for (const [id, userData] of Object.entries(dbObj)) {
     const user = userData as any;
     if (user.referralCode === referralCode) {

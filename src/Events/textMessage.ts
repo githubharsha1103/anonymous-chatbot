@@ -173,7 +173,7 @@ export default {
 
     if (!bot.runningChats.has(ctx.from.id)) {
       // Check if user is in waiting queue
-      if (bot.waiting === ctx.from.id) {
+      if (bot.waitingQueue.some((w: any) => w.id === ctx.from.id)) {
         return ctx.reply(
           "⏳ Waiting for a partner...",
           waitingKeyboard

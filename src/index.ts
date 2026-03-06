@@ -3,6 +3,21 @@ import express, { Request, Response } from 'express';
 import { Context, Telegraf } from "telegraf";
 import http from 'http';
 
+// validate required environment settings early to fail fast
+const requiredEnv = ["BOT_TOKEN", "ADMIN_IDS", "GROUP_CHAT_ID"];
+for (const key of requiredEnv) {
+  if (!process.env[key]) {
+    console.error(`[FATAL] Missing environment variable ${key}`);
+    process.exit(1);
+  }
+}
+
+// Optional MongoDB URI
+if (!process.env.MONGODB_URI) {
+  console.warn("[WARN] MONGODB_URI not set; running in JSON fallback mode only. This may degrade performance and reliability.");
+}
+
+
 import { 
   setGender,
   getGender,
@@ -48,7 +63,6 @@ class Mutex {
 }
 
 export class ExtraTelegraf extends Telegraf<Context> {
-  waiting: number | null = null;
   waitingQueue: { id: number; preference: string; gender: string; isPremium: boolean }[] = [];
   
   // Running chats: Map<userId, partnerId> - much more efficient than array
@@ -211,6 +225,16 @@ bot.catch((err: any, ctx) => {
     if (ctx.callbackQuery) {
         ctx.answerCbQuery().catch(() => {});
     }
+});
+
+// process-wide error handlers to avoid silent crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', err => {
+  console.error('[FATAL] Uncaught Exception:', err);
+  // optionally exit or restart
 });
 
 // Add global error handling middleware for Telegraf BEFORE loading handlers
@@ -466,12 +490,14 @@ function cleanupStaleData() {
 // Run cleanup every 5 minutes
 setInterval(cleanupStaleData, 300000);
 
-/* ---------------- HOURLY RATE LIMIT MAP CLEANUP ---------------- */
-// Prevent memory growth in rate limit map by clearing it hourly
+/* ---------------- HOURLY RATE LIMIT & COOLDOWN MAP CLEANUP ---------------- */
+// Prevent memory growth in rate limit and action cooldown maps by clearing them hourly
 setInterval(() => {
   const sizeBefore = bot.rateLimitMap.size;
   bot.rateLimitMap.clear();
-  console.log(`[CLEANUP] - Rate limit map cleared (was ${sizeBefore} entries)`);
+  const actionSize = bot.actionCooldownMap.size;
+  bot.actionCooldownMap.clear();
+  console.log(`[CLEANUP] - Rate limit map cleared (was ${sizeBefore} entries); action cooldown map cleared (was ${actionSize} entries)`);
 }, 3600000); // every hour
 
 /* ---------------- QUEUE SIZE PROTECTION ---------------- */
@@ -479,8 +505,9 @@ setInterval(() => {
 function enforceQueueSizeLimit(): void {
   const MAX_QUEUE_SIZE = 10000;
   
-  while (bot.waitingQueue.length > MAX_QUEUE_SIZE) {
-    bot.waitingQueue.shift(); // Remove oldest user
+  if (bot.waitingQueue.length > MAX_QUEUE_SIZE) {
+    // keep only the last MAX_QUEUE_SIZE entries
+    bot.waitingQueue = bot.waitingQueue.slice(-MAX_QUEUE_SIZE);
   }
   
   if (bot.waitingQueue.length > MAX_QUEUE_SIZE * 0.8) {
@@ -507,9 +534,6 @@ function filterQueueUsersInChats(): void {
   }
   
   // Also clear waiting if that user is in an active chat
-  if (bot.waiting && bot.runningChats.has(bot.waiting)) {
-    bot.waiting = null;
-  }
 }
 
 // Run queue safety filter every 30 seconds
@@ -556,7 +580,6 @@ console.log("Bot restarted. Active chats cleared.");
 // Clear any stale data on startup
 bot.runningChats.clear();
 bot.waitingQueue = [];
-bot.waiting = null;
 bot.messageMap.clear();
 bot.messageCountMap.clear();
 

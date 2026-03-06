@@ -1,4 +1,5 @@
-import { glob } from "glob";
+import * as fs from "fs";
+import * as path from "path";
 import { bot } from "../index";
 import { Context, Telegraf } from "telegraf";
 import { handleTelegramError } from "./telegramErrorHandler";
@@ -12,11 +13,27 @@ export interface Event {
 
 export async function loadEvents() {
   try {
-    const Files = await glob(`${process.cwd()}/dist/Events/**/*.js`);
+    const eventsDir = path.join(process.cwd(), "dist/Events");
+    const Files: string[] = [];
+    
+    // Recursively get all .js files in Events directory
+    function getAllFiles(dir: string): void {
+      if (!fs.existsSync(dir)) return;
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          getAllFiles(fullPath);
+        } else if (entry.isFile() && entry.name.endsWith('.js')) {
+          Files.push(fullPath);
+        }
+      }
+    }
+    getAllFiles(eventsDir);
 
-    for (let file of Files) {
+    for (const file of Files) {
       // Ensure absolute path for require
-      const absolutePath = require("path").resolve(file);
+      const absolutePath = path.resolve(file);
       const eventFile = require(absolutePath).default as Event;
       const event = eventFile;
 
@@ -45,4 +62,3 @@ export async function loadEvents() {
     console.error(`[EventHandler] -`, err);
   }
 }
-

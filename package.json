@@ -12,25 +12,27 @@
   "type": "commonjs",
   "main": "dist/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "jest --runInBand --config jest.config.js",
+    "lint": "eslint . --ext .ts",
     "start": "npx tsc && node dist/index.js",
     "clean": "rimraf dist",
     "build": "npm run clean && npx tsc",
     "init-db": "npx ts-node initDb.ts"
   },
   "dependencies": {
-    "dotenv": "^16.4.7",
-    "express": "^5.2.1",
-    "glob": "^11.0.1",
-    "mongodb": "^6.21.0",
-    "telegraf": "^4.16.3"
+    "telegraf": "^4.16.3",
+    "mongodb": "^7.1.0",
+    "dotenv": "^17.3.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/glob": "^8.1.0",
+    "@types/jest": "^29.5.3",
     "@types/node": "^22.19.7",
     "axios": "^1.13.4",
+    "jest": "^29.5.0",
     "rimraf": "^5.0.10",
+    "ts-jest": "^29.1.0",
     "typescript": "^5.9.3"
   }
 }

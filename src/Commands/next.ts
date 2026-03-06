@@ -30,9 +30,10 @@ export default {
     
     // Enforce queue size limit by removing oldest if approaching limit
     const MAX_QUEUE_SOFT_LIMIT = 9500; // Start removing at 95% capacity
-    while (bot.waitingQueue.length > MAX_QUEUE_SOFT_LIMIT) {
-      bot.waitingQueue.shift(); // Remove oldest user
-      console.log(`[QUEUE] - Queue size limit enforced, removed oldest user`);
+    if (bot.waitingQueue.length > MAX_QUEUE_SOFT_LIMIT) {
+      const removeCount = bot.waitingQueue.length - MAX_QUEUE_SOFT_LIMIT;
+      bot.waitingQueue = bot.waitingQueue.slice(removeCount);
+      console.log(`[QUEUE] - Queue size limit enforced, removed ${removeCount} oldest users`);
     }
 
     // Acquire mutex to prevent race conditions
@@ -125,22 +126,17 @@ export default {
 
       // Find a compatible match
       // Bidirectional matching: both users must be compatible
-      // We fetch fresh user data from DB to ensure preferences are up-to-date
+      // Use stored queue entry data to avoid database roundtrips
       let matchIndex = -1;
       
       for (let i = 0; i < bot.waitingQueue.length; i++) {
         const w = bot.waitingQueue[i] as WaitingUser;
-        
-        // Fetch fresh user data for the waiting user
-        const waitingUserData = await getUser(w.id);
-        
-        // Check if waiting user's gender matches current user's preference
-        const genderMatches = !matchPreference || (waitingUserData.gender || "any") === matchPreference;
-        
-        // Check if current user's gender matches waiting user's preference
-        const waitingPref = waitingUserData.preference || "any";
+        const waitingGender = w.gender || "any";
+        const waitingPref = w.preference || "any";
+
+        const genderMatches = !matchPreference || waitingGender === matchPreference;
         const preferenceMatches = waitingPref === "any" || waitingPref === gender;
-        
+
         if (genderMatches && preferenceMatches) {
           matchIndex = i;
           break;
@@ -149,7 +145,6 @@ export default {
 
       if (matchIndex !== -1) {
         const match = bot.waitingQueue[matchIndex] as WaitingUser;
-        const matchUser = await getUser(match.id);
         bot.waitingQueue.splice(matchIndex, 1);
 
         bot.runningChats.set(match.id, userId);
@@ -158,15 +153,9 @@ export default {
         // Store last partner and chat start time
         await updateUser(userId, { lastPartner: match.id, chatStartTime: Date.now() });
         await updateUser(match.id, { lastPartner: userId, chatStartTime: Date.now() });
-
-        // Initialize message count for both users
-        bot.messageCountMap.set(userId, 0);
-        bot.messageCountMap.set(match.id, 0);
-
-        if (bot.waiting === match.id) {
-          bot.waiting = null;
-        }
-
+        
+        // load matched user profile for display
+        const matchUser = await getUser(match.id);
         // Increment chat count for new chat
         bot.incrementChatCount();
         
@@ -243,7 +232,6 @@ export default {
 
       // No match, add to queue
       bot.waitingQueue.push({ id: userId, preference, gender: gender || "any", isPremium } as WaitingUser);
-      bot.waiting = userId;
       return ctx.reply("⏳ Waiting for a partner...");
     } finally {
       bot.chatMutex.release();
