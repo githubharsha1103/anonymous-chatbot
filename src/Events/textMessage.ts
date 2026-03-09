@@ -8,7 +8,7 @@ import { waitingForBroadcast, waitingForUserId } from "../Commands/adminaccess";
 import { showUserDetails } from "../Commands/adminaccess";
 
 // Pre-compiled regex for URL detection (performance optimization)
-const urlRegex = /(https?:\/\/)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi;
+const urlRegex = /(https?:\/\/)?(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_.+~#?&//=]*)/i;
 
 export default {
   type: "message",
@@ -136,7 +136,7 @@ export default {
 
     if (!bot.runningChats.has(ctx.from.id)) {
       // Check if user is in waiting queue
-      if (bot.waitingQueue.some((w: any) => w.id === ctx.from.id)) {
+      if (bot.queueSet.has(ctx.from.id)) {
         return ctx.reply(
           "⏳ Waiting for a partner...\n\nUse /end to cancel."
         );
@@ -322,8 +322,9 @@ export default {
           } else {
             sent = await withTimeout(ctx.copyMessage(partner));
           }
-        } catch (error: any) {
-          console.error("[CHAT] - Message forwarding failed:", error?.message || error);
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error("[CHAT] - Message forwarding failed:", errorMessage);
           return; // Exit gracefully on timeout
         }
       } else {
@@ -332,8 +333,9 @@ export default {
         
         try {
           sent = await withTimeout(ctx.copyMessage(partner));
-        } catch (error: any) {
-          console.error("[CHAT] - Message forwarding failed:", error?.message || error);
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error("[CHAT] - Message forwarding failed:", errorMessage);
           return; // Exit gracefully on timeout
         }
       }
@@ -392,7 +394,7 @@ export default {
           bot.spectatingChats.delete(adminId);
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Check if the partner blocked the bot
       if (isBotBlockedError(error)) {
         console.log(`[CHAT] - Partner ${partner} blocked the bot, ending chat`);
@@ -439,7 +441,7 @@ export default {
           await sendTypingIndicator();
           await withTimeout(ctx.copyMessage(partner));
           return;
-        } catch (retryError: any) {
+        } catch (retryError: unknown) {
           // If retry also fails, check if it's a block/not enough rights error
           if (isBotBlockedError(retryError) || isNotEnoughRightsError(retryError)) {
             cleanupBlockedUser(bot, partner);
@@ -453,12 +455,14 @@ export default {
             );
           }
           
-          console.error(`[CHAT] - Retry failed:`, retryError?.message || retryError);
+          const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
+          console.error(`[CHAT] - Retry failed:`, retryMessage);
         }
       }
       
       // Log other errors but don't crash the chat
-      console.error(`[CHAT ERROR] -`, error?.message || error);
+      const genericMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[CHAT ERROR] -`, genericMessage);
     }
   }
 } as Event;

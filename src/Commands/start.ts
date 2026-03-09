@@ -9,19 +9,30 @@ export const SETUP_STEP_AGE = "age";
 export const SETUP_STEP_STATE = "state";
 export const SETUP_STEP_DONE = "done";
 
+type StartContext = Context & {
+    startPayload?: string;
+    update: Context["update"] & {
+        message?: { text?: string };
+    };
+};
+
 export default {
     name: "start",
     description: "Start the bot",
     execute: async (ctx: Context, bot: Telegraf<Context>) => {
-        const userId = ctx.from?.id as number;
+        if (!ctx.from) {
+            await ctx.reply("⚠️ Could not identify your account. Please try /start again.");
+            return;
+        }
+        const userId = ctx.from.id;
         
         // Save user's username if available
         const username = ctx.from?.username || ctx.from?.first_name || "Unknown";
         
         // CRITICAL: Check for referral code FIRST, before any user creation
         // Use ctx.startPayload (Telegraf's built-in) or fallback to message text parsing
-        const startPayload = (ctx as any).startPayload;
-        const messageText = (ctx.update as any)?.message?.text;
+        const startPayload = (ctx as StartContext).startPayload;
+        const messageText = (ctx as StartContext).update?.message?.text;
         const startParam = startPayload || (messageText?.split(" ")[1] || null);
         
         console.log(`[START] - User ${userId} (${username}) starting`);
@@ -53,7 +64,7 @@ export default {
             
             // Now create the user with all required fields
             // referredBy is set by processReferral, not here
-            const updateData: any = { 
+            const updateData = { 
                 createdAt: Date.now(), 
                 lastActive: Date.now(),
                 name: username
@@ -70,7 +81,12 @@ export default {
                 "💬 Chat freely and safely\n\n" +
                 "Tap <b>Get Started</b> to begin!",
                 { 
-                    parse_mode: "HTML" as const
+                    parse_mode: "HTML" as const,
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: "🌟 Get Started", callback_data: "SETUP_BACK_GENDER" }]
+                        ]
+                    }
                 }
             );
             return;
@@ -81,7 +97,7 @@ export default {
         await updateLastActive(userId);
 
         // Check if user is in the middle of setup
-        const setupStep = (user as any).setupStep;
+        const setupStep = user.setupStep;
         
         if (setupStep === SETUP_STEP_AGE) {
             // User needs to enter age

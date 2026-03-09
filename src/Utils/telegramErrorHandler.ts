@@ -12,17 +12,22 @@ export interface TelegramError extends Error {
   };
   on?: {
     method: string;
-    payload: any;
+    payload: Record<string, unknown>;
   };
 }
+
+type TelegramSendExtra = {
+  parse_mode?: "Markdown" | "HTML";
+} & NonNullable<Parameters<ExtraTelegraf["telegram"]["sendMessage"]>[2]>;
 
 /**
  * Check if an error is a "bot blocked by user" error (403)
  */
-export function isBotBlockedError(error: any): error is TelegramError {
+export function isBotBlockedError(error: unknown): error is TelegramError {
+  const e = error as TelegramError;
   return (
-    error?.response?.error_code === 403 &&
-    error?.response?.description?.includes("bot was blocked by the user")
+    e?.response?.error_code === 403 &&
+    e?.response?.description?.includes("bot was blocked by the user")
   );
 }
 
@@ -30,30 +35,33 @@ export function isBotBlockedError(error: any): error is TelegramError {
  * Check if an error is a "not enough rights" error (400)
  * This happens when user restricted bot, bot was removed from chat, or no rights to send messages
  */
-export function isNotEnoughRightsError(error: any): boolean {
+export function isNotEnoughRightsError(error: unknown): boolean {
+  const e = error as TelegramError;
   return (
-    error?.response?.error_code === 400 &&
-    (error?.response?.description?.includes("not enough rights") ||
-     error?.response?.description?.includes("chat not found") ||
-     error?.response?.description?.includes("user is deactivated"))
+    e?.response?.error_code === 400 &&
+    (e?.response?.description?.includes("not enough rights") ||
+     e?.response?.description?.includes("chat not found") ||
+     e?.response?.description?.includes("user is deactivated"))
   );
 }
 
 /**
  * Check if an error is a rate limit error (429)
  */
-export function isRateLimitError(error: any): boolean {
+export function isRateLimitError(error: unknown): boolean {
+  const e = error as TelegramError;
   return (
-    error?.response?.error_code === 429 ||
-    error?.response?.description?.includes("Too Many Requests")
+    e?.response?.error_code === 429 ||
+    !!e?.response?.description?.includes("Too Many Requests")
   );
 }
 
 /**
  * Get retry delay from rate limit error (in seconds)
  */
-export function getRetryDelay(error: any): number {
-  const match = error?.response?.description?.match(/retry after (\d+)/);
+export function getRetryDelay(error: unknown): number {
+  const e = error as TelegramError;
+  const match = e?.response?.description?.match(/retry after (\d+)/);
   if (match) {
     return parseInt(match[1], 10);
   }
@@ -211,13 +219,15 @@ export function cleanupUserMaps(bot: ExtraTelegraf, userId: number, partnerId: n
  */
 export async function handleTelegramError(
   bot: ExtraTelegraf,
-  error: any,
+  error: unknown,
   userId?: number,
   _partnerId?: number
 ): Promise<boolean> {
+  const errorLike = error as TelegramError;
   if (isBotBlockedError(error)) {
-    const blockedUserId = userId || error.on?.payload?.chat_id;
-    if (blockedUserId) {
+    const chatId = errorLike.on?.payload?.chat_id;
+    const blockedUserId = userId || (typeof chatId === "number" ? chatId : undefined);
+    if (typeof blockedUserId === "number") {
       await cleanupBlockedUserAsync(bot, blockedUserId);
     }
     console.log(`[HANDLED] - Bot blocked by user ${blockedUserId}`);
@@ -225,8 +235,9 @@ export async function handleTelegramError(
   }
   
   if (isNotEnoughRightsError(error)) {
-    const affectedUserId = userId || error.on?.payload?.chat_id;
-    if (affectedUserId) {
+    const chatId = errorLike.on?.payload?.chat_id;
+    const affectedUserId = userId || (typeof chatId === "number" ? chatId : undefined);
+    if (typeof affectedUserId === "number") {
       await cleanupBlockedUserAsync(bot, affectedUserId);
     }
     console.log(`[HANDLED] - Not enough rights error for user ${affectedUserId}`);
@@ -234,7 +245,7 @@ export async function handleTelegramError(
   }
   
   // Log other errors but don't crash
-  const errorDetails = error.message || error.response?.description || JSON.stringify(error) || 'Unknown error';
+  const errorDetails = errorLike.message || errorLike.response?.description || JSON.stringify(error) || "Unknown error";
   console.error(`[TELEGRAM ERROR] -`, errorDetails);
   return false;
 }
@@ -242,7 +253,7 @@ export async function handleTelegramError(
 /**
  * Rate limiter to prevent Too Many Requests errors
  */
-const messageQueue: { chatId: number; text: string; extra?: any; resolve: (value: boolean) => void }[] = [];
+const messageQueue: { chatId: number; text: string; extra?: TelegramSendExtra; resolve: (value: boolean) => void }[] = [];
 let isProcessingQueue = false;
 const MIN_DELAY_MS = 1000; // Minimum 1 second between messages
 
@@ -276,7 +287,7 @@ async function processMessageQueue(): Promise<void> {
       const bot = require("../index").bot;
       await bot.telegram.sendMessage(item.chatId, item.text, item.extra);
       item.resolve(true);
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (isBotBlockedError(error)) {
         cleanupBlockedUserAsync(require("../index").bot, item.chatId);
         item.resolve(false);
@@ -293,7 +304,8 @@ async function processMessageQueue(): Promise<void> {
         // Wait for the retry delay
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
-        console.error(`[SEND ERROR] -`, error.message || error);
+        const e = error as { message?: string };
+        console.error(`[SEND ERROR] -`, e.message || error);
         item.resolve(false);
       }
     }
@@ -309,7 +321,7 @@ export async function safeSendMessage(
   bot: ExtraTelegraf,
   chatId: number,
   text: string,
-  extra?: any
+  extra?: TelegramSendExtra
 ): Promise<boolean> {
   return new Promise((resolve) => {
     messageQueue.push({ chatId, text, extra, resolve });
@@ -325,7 +337,7 @@ export async function sendMessageWithRetry(
   bot: ExtraTelegraf,
   chatId: number | null,
   text: string,
-  extra?: any,
+  extra?: TelegramSendExtra,
   maxRetries: number = 5,
   timeoutMs: number = 15000
 ): Promise<boolean> {
@@ -335,7 +347,7 @@ export async function sendMessageWithRetry(
     return false;
   }
   
-  let lastError: any;
+  let lastError: unknown;
   
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
@@ -346,31 +358,32 @@ export async function sendMessageWithRetry(
       );
       await Promise.race([promise, timeoutPromise]);
       return true;
-    } catch (error: any) {
+    } catch (error: unknown) {
       lastError = error;
+      const e = error as TelegramError & { code?: string; message?: string };
       
       // Handle network errors (ECONNRESET, ETIMEDOUT, fetch failures, empty reason, etc.)
       const isNetworkError = 
-        error.message?.includes('ECONNRESET') || 
-        error.message?.includes('ETIMEDOUT') ||
-        error.message?.includes('ECONNREFUSED') ||
-        error.message?.includes('ENOTFOUND') ||
-        error.message?.includes('EAI_AGAIN') ||
-        error.message?.includes('network') ||
-        error.message?.includes('fetch') ||
-        error.message?.includes('socket hang up') ||
-        error.message?.includes('reason:') ||
-        error.code === 'ECONNREFUSED' ||
-        error.code === 'ECONNRESET' ||
-        error.code === 'ETIMEDOUT' ||
-        error.code === 'ENOTFOUND' ||
-        error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+        e.message?.includes('ECONNRESET') || 
+        e.message?.includes('ETIMEDOUT') ||
+        e.message?.includes('ECONNREFUSED') ||
+        e.message?.includes('ENOTFOUND') ||
+        e.message?.includes('EAI_AGAIN') ||
+        e.message?.includes('network') ||
+        e.message?.includes('fetch') ||
+        e.message?.includes('socket hang up') ||
+        e.message?.includes('reason:') ||
+        e.code === 'ECONNREFUSED' ||
+        e.code === 'ECONNRESET' ||
+        e.code === 'ETIMEDOUT' ||
+        e.code === 'ENOTFOUND' ||
+        e.code === 'UND_ERR_CONNECT_TIMEOUT' ||
         // Catch fetch failures with empty reason (the specific error from logs)
-        (error.message && error.message.includes('failed') && !error.response?.error_code);
+        (e.message && e.message.includes('failed') && !e.response?.error_code);
       
       if (isNetworkError) {
         const backoff = Math.min(2000 * Math.pow(2, attempt), 10000); // Exponential backoff, max 10s
-        console.log(`[NETWORK ERROR] - Network issue on attempt ${attempt + 1}/${maxRetries} (${error.message || 'unknown'}), retrying in ${backoff}ms...`);
+        console.log(`[NETWORK ERROR] - Network issue on attempt ${attempt + 1}/${maxRetries} (${e.message || 'unknown'}), retrying in ${backoff}ms...`);
         await new Promise(resolve => setTimeout(resolve, backoff));
         continue;
       }
@@ -393,11 +406,12 @@ export async function sendMessageWithRetry(
       }
       
       // For other errors, log and continue
-      console.error(`[SEND ERROR] - Attempt ${attempt + 1}/${maxRetries}:`, error.message || error);
+      console.error(`[SEND ERROR] - Attempt ${attempt + 1}/${maxRetries}:`, e.message || e);
     }
   }
   
-  console.error(`[SEND ERROR] - Failed after ${maxRetries} attempts:`, lastError?.message || lastError);
+  const finalError = lastError as { message?: string } | undefined;
+  console.error(`[SEND ERROR] - Failed after ${maxRetries} attempts:`, finalError?.message || lastError);
   return false;
 }
 
@@ -418,7 +432,7 @@ export async function broadcastWithRateLimit(
   text: string,
   extra?: {
     parse_mode?: "Markdown" | "HTML";
-    reply_markup?: any;
+    reply_markup?: TelegramSendExtra["reply_markup"];
     onProgress?: (success: number, failed: number) => void;
   }
 ): Promise<{ success: number; failed: number; failedUserIds: number[] }> {
@@ -486,7 +500,7 @@ async function sendMessageSafe(
   bot: ExtraTelegraf,
   userId: number,
   text: string,
-  extra?: any
+  extra?: TelegramSendExtra
 ): Promise<{ success: boolean; userId?: number }> {
   const MAX_RETRIES = 2;
   
@@ -494,18 +508,19 @@ async function sendMessageSafe(
     try {
       await bot.telegram.sendMessage(userId, text, extra);
       return { success: true, userId };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const e = error as TelegramError & { response?: { parameters?: { retry_after?: number } } };
       // Check for rate limit - wait and retry
-      if (error?.response?.error_code === 429) {
-        const retryAfter = error?.response?.parameters?.retry_after || 5;
+      if (e?.response?.error_code === 429) {
+        const retryAfter = e?.response?.parameters?.retry_after || 5;
         console.log(`[BROADCAST] - Rate limited! Waiting ${retryAfter}s...`);
         await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
         continue;
       }
       
       // Check for retryable errors
-      const isRetryable = error?.response?.error_code === 403 || 
-                          error?.response?.error_code === 400;
+      const isRetryable = e?.response?.error_code === 403 || 
+                          e?.response?.error_code === 400;
       
       if (isRetryable && attempt < MAX_RETRIES - 1) {
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -528,10 +543,7 @@ async function broadcastSequential(
   bot: ExtraTelegraf,
   userIds: number[],
   text: string,
-  extra?: {
-    parse_mode?: "Markdown" | "HTML";
-    reply_markup?: any;
-  }
+  extra?: TelegramSendExtra
 ): Promise<{ success: number; failed: number; failedUserIds: number[] }> {
   const failedUserIds: number[] = [];
   let success = 0;
@@ -549,10 +561,11 @@ async function broadcastSequential(
         await bot.telegram.sendMessage(userId, text, extra);
         success++;
         sent = true;
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const e = error as TelegramError & { response?: { parameters?: { retry_after?: number } } };
         // Check for 429 rate limit
-        if (error?.response?.error_code === 429) {
-          const retryAfter = error?.response?.parameters?.retry_after || 5;
+        if (e?.response?.error_code === 429) {
+          const retryAfter = e?.response?.parameters?.retry_after || 5;
           console.log(`[BROADCAST] - Rate limited! Waiting ${retryAfter}s...`);
           await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
           retries++;
@@ -560,8 +573,8 @@ async function broadcastSequential(
         }
         
         // Check for other retryable errors (bot blocked, user deactivated)
-        const isRetryable = error?.response?.error_code === 403 || 
-                          error?.response?.error_code === 400;
+        const isRetryable = e?.response?.error_code === 403 || 
+                          e?.response?.error_code === 400;
         
         if (isRetryable && retries < MAX_RETRIES - 1) {
           retries++;

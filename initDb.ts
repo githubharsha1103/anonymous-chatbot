@@ -43,7 +43,7 @@ async function initializeDatabase() {
     console.log("✓ Created unique index on telegramId for bans");
     
     // Create stats collection
-    const statsCollection = db.collection("stats");
+    db.collection("stats");
     console.log("✓ Stats collection accessed/created");
     
     // Check current user count

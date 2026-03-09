@@ -20,8 +20,8 @@ export default {
         if (!ctx.from) return;
 
         const user = await getUser(ctx.from.id);
-        let partnerId: number | null = null;
-        let message = "Select a reason to report:";
+        let partnerId: number | null;
+        let message: string;
 
         // If user is in a chat, report current partner
         if (bot.runningChats.has(ctx.from.id)) {

@@ -62,7 +62,9 @@ export function createWebServer(bot: ExtraTelegraf): express.Application {
       mongoConnected = await pingDatabase();
     }
     
-    const healthy = dbStatus.healthy && mongoConnected;
+    const healthy = dbStatus.mode === 'mongodb'
+      ? (dbStatus.healthy && mongoConnected)
+      : dbStatus.healthy;
     res.json({
       status: healthy ? "OK" : "DEGRADED",
       database: {
@@ -134,8 +136,9 @@ export async function startWebServer(
         // Set new webhook
         await bot.telegram.setWebhook(webhookUrl);
         console.log("[INFO] - Webhook set successfully");
-      } catch (err: any) {
-        console.error("[ERROR] - Failed to set webhook:", err.message);
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        console.error("[ERROR] - Failed to set webhook:", errorMessage);
         // Don't exit - bot can still work in polling mode if webhook fails
       }
       

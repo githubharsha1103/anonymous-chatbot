@@ -7,7 +7,17 @@
  * Username-based admin checks have been removed as they can be spoofed.
  */
 
-const ADMINS = process.env.ADMIN_IDS?.split(",").filter(id => id && !id.startsWith("@")) || [];
+const ADMINS = (process.env.ADMIN_IDS || "")
+    .split(",")
+    .map(id => id.trim())
+    .filter(id => /^\d+$/.test(id));
+const ADMIN_SET = new Set(ADMINS);
+
+interface AdminContextLike {
+    from?: { id?: number };
+    callbackQuery?: { id?: string };
+    answerCbQuery?: (text?: string) => Promise<unknown>;
+}
 
 // Export ADMINS for use in other modules
 export { ADMINS };
@@ -19,7 +29,7 @@ export { ADMINS };
 export function isAdmin(id: number): boolean {
     // Ensure id is a valid number
     if (!id || isNaN(id)) return false;
-    return ADMINS.includes(id.toString());
+    return ADMIN_SET.has(id.toString());
 }
 
 /**
@@ -34,7 +44,7 @@ export function validateAdmin(id: number, _username?: string): boolean {
  * Helper to extract admin validation check for Telegraf context
  * Only uses numeric ID - username is ignored for security
  */
-export function isAdminContext(ctx: any): boolean {
+export function isAdminContext(ctx: AdminContextLike): boolean {
     const userId = ctx.from?.id;
     if (!userId) return false;
     // Only trust numeric ID, ignore username completely
@@ -44,9 +54,9 @@ export function isAdminContext(ctx: any): boolean {
 /**
  * Create an unauthorized response for Telegraf callback queries
  */
-export async function unauthorizedResponse(ctx: any, message: string = "Unauthorized"): Promise<void> {
+export async function unauthorizedResponse(ctx: AdminContextLike, message: string = "Unauthorized"): Promise<void> {
     try {
-        if (ctx.callbackQuery?.id) {
+        if (ctx.callbackQuery?.id && ctx.answerCbQuery) {
             await ctx.answerCbQuery(message);
         }
     } catch {

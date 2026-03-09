@@ -87,6 +87,14 @@ export default {
       return ctx.reply("⏳ Please wait a moment before searching again.");
     }
 
+    // Keep queue Set and array synchronized for reliable queue checks/matching
+    if (bot.queueSet.size !== bot.waitingQueue.length) {
+      bot.queueSet.clear();
+      for (const queued of bot.waitingQueue) {
+        bot.queueSet.add(queued.id);
+      }
+    }
+
     // Check queue size limit
     if (bot.isQueueFull()) {
       return ctx.reply("🚫 Queue is full. Please try again later.");
@@ -98,6 +106,10 @@ export default {
       const removeCount = bot.waitingQueue.length - MAX_QUEUE_SOFT_LIMIT;
       // Remove oldest entries (from the beginning of the array)
       bot.waitingQueue = bot.waitingQueue.slice(removeCount);
+      bot.queueSet.clear();
+      for (const queued of bot.waitingQueue) {
+        bot.queueSet.add(queued.id);
+      }
       console.log(`[QUEUE] - Queue size limit enforced, removed ${removeCount} oldest users`);
     }
     
@@ -142,7 +154,7 @@ export default {
       }
 
       // Check if already in queue
-      if (bot.waitingQueue.some(w => w.id === userId)) {
+      if (bot.isInQueue(userId)) {
         return ctx.reply("You are already in the queue!");
       }
 
@@ -159,6 +171,7 @@ export default {
       let matchIndex = -1;
       for (let i = 0; i < bot.waitingQueue.length; i++) {
         const w = bot.waitingQueue[i] as WaitingUser;
+        if (!bot.queueSet.has(w.id)) continue;
         
         // Use stored gender/preference to evaluate compatibility
         const waitingGender = w.gender || "any";
@@ -179,6 +192,7 @@ export default {
       if (matchIndex !== -1) {
         const match = bot.waitingQueue[matchIndex] as WaitingUser;
         bot.waitingQueue.splice(matchIndex, 1);
+        bot.queueSet.delete(match.id);
 
         bot.runningChats.set(match.id, userId);
         bot.runningChats.set(userId, match.id);
@@ -202,8 +216,9 @@ export default {
         // Increment chat count
         bot.incrementChatCount();
         
-        // Increment daily chat count for non-premium user
+        // Increment daily chat count for both matched users (non-premium only)
         await incDaily(userId);
+        await incDaily(match.id);
 
         // Build partner info message - hide gender for non-premium users
         // Premium users can see partner's gender only if partner has set it
@@ -256,12 +271,14 @@ export default {
           const partnerStillThere = bot.runningChats.has(match.id);
           
           if (partnerStillThere) {
-            // Partner is still there - maybe network issue, try to notify and let them continue waiting
-            // Don't end the chat completely, just notify the current user
-            await sendMessageWithRetry(bot, match.id, "⚠️ Connection issue. Please wait...", { parse_mode: "Markdown" });
+            // Partner is still there - treat this as a failed match and cleanly end chat state first
+            await endChatDueToError(bot, userId, match.id);
             
             // Add current user back to queue to find another partner
-            bot.waitingQueue.push({ id: userId, preference, gender, isPremium } as WaitingUser);
+            const requeued = bot.addToQueueAtomic({ id: userId, preference, gender, isPremium });
+            if (!requeued) {
+              return ctx.reply("⚠️ Temporary connection issue. Please try /search again.");
+            }
             
             return ctx.reply("⚠️ Temporary connection issue with partner. You've been added back to the queue...\n⏳ Waiting for a new partner...");
           } else {
@@ -275,7 +292,10 @@ export default {
       }
 
       // No match found, add to queue
-      bot.waitingQueue.push({ id: userId, preference, gender, isPremium } as WaitingUser);
+      const added = bot.addToQueueAtomic({ id: userId, preference, gender, isPremium });
+      if (!added) {
+        return ctx.reply("You are already in the queue!");
+      }
       return ctx.reply("⏳ Waiting for a partner...");
     } finally {
       // Always release the mutex

@@ -3,12 +3,14 @@ import * as path from "path";
 import { bot } from "../index";
 import { Context, Telegraf } from "telegraf";
 import { handleTelegramError } from "./telegramErrorHandler";
+import { isAdmin } from "./adminAuth";
 
 export interface Command {
   name: string;
   description?: string;
-  execute: (ctx: Context, bot: Telegraf<Context>) => Promise<any>;
+  execute: (ctx: Context, bot: Telegraf<Context>) => Promise<unknown>;
   disabled?: boolean;
+  adminOnly?: boolean;
 }
 export async function loadCommands() {
   try {
@@ -43,6 +45,14 @@ export async function loadCommands() {
       const commandName = command.name;
       try {
         bot.command(commandName, async (ctx: Context) => {
+          if (command.adminOnly) {
+            const userId = ctx.from?.id;
+            if (!userId || !isAdmin(userId)) {
+              await ctx.reply("🚫 You are not authorized to use this command.");
+              return;
+            }
+          }
+
           try {
             await command.execute(ctx, bot)
           } catch (error) {

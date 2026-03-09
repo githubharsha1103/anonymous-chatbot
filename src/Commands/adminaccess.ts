@@ -2,8 +2,9 @@ import { Context } from "telegraf";
 import { ExtraTelegraf } from "..";
 import { Command } from "../Utils/commandHandler";
 import { Markup } from "telegraf";
-import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts, getGroupedReports, getAllReferralStats, tempBanUser, getUserLatestReportReason } from "../storage/db";
+import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts, getGroupedReports, getAllReferralStats, tempBanUser, getUserLatestReportReason, resetUserReports } from "../storage/db";
 import { isAdmin, isAdminContext, unauthorizedResponse } from "../Utils/adminAuth";
+import { getErrorMessage } from "../Utils/telegramUi";
 
 // Removed local isAdmin/isAdminByUsername - now using shared utility from adminAuth.ts
 
@@ -53,13 +54,23 @@ export const waitingForBroadcast: Set<number> = new Set();
 // Track admins waiting for user ID search input
 export const waitingForUserId: Set<number> = new Set();
 
-async function safeAnswerCbQuery(ctx: any, text?: string) {
+function clearAdminInputState(adminId: number) {
+    waitingForBroadcast.delete(adminId);
+    waitingForUserId.delete(adminId);
+}
+
+type CallbackContext = Context & {
+    callbackQuery?: { id?: string };
+    answerCbQuery?: (text?: string) => Promise<unknown>;
+};
+
+async function safeAnswerCbQuery(ctx: CallbackContext, text?: string) {
     try {
         if (ctx.callbackQuery?.id) {
-            await ctx.answerCbQuery(text);
+            await ctx.answerCbQuery?.(text);
         }
-    } catch (error: any) {
-        console.error("[ADMIN ERROR] - answerCbQuery failed:", error?.message || error);
+    } catch (error: unknown) {
+        console.error("[ADMIN ERROR] - answerCbQuery failed:", getErrorMessage(error));
     }
 }
 
@@ -103,9 +114,10 @@ export default {
                 "🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:",
                 { parse_mode: "Markdown", ...mainKeyboard }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const errorMessage = getErrorMessage(error);
             // Handle case where admin hasn't started a conversation with bot
-            if (error.description?.includes("chat not found") || error.description?.includes("bot was blocked by the user")) {
+            if (errorMessage.includes("chat not found") || errorMessage.includes("bot was blocked by the user")) {
                 console.log("[ADMIN] Admin hasn't started conversation with bot yet");
                 return ctx.reply(
                     "⚠️ Please start a private chat with me first before using admin panel.\n" +
@@ -121,28 +133,29 @@ export default {
 
 export function initAdminActions(bot: ExtraTelegraf) {
     // Helper function to validate admin permissions (using shared utility)
-    function validateAdmin(ctx: any): boolean {
+    function validateAdmin(ctx: Context): boolean {
         return isAdminContext(ctx);
     }
 
     // Safe editMessageText that handles all errors with fallback to reply
     // This prevents UI freeze when message can't be edited (too old, deleted, etc.)
-    async function safeEditMessageText(ctx: any, text: string, extra?: any) {
+    async function safeEditMessageText(ctx: Context, text: string, extra?: unknown) {
         try {
-            await ctx.editMessageText(text, extra);
-        } catch (error: any) {
+            await ctx.editMessageText(text, extra as Parameters<Context["editMessageText"]>[1]);
+        } catch (error: unknown) {
             // Check for "message not modified" - this is not an error
-            if (error.description && error.description.includes("message is not modified")) {
+            const errorMessage = getErrorMessage(error);
+            if (errorMessage.includes("message is not modified")) {
                 return; // Message already has same content
             }
             
             // For all other errors (message too old, not found, etc.), try to reply instead
-            console.log("[adminaccess safeEditMessageText] Falling back to reply:", error.description || error.message);
+            console.log("[adminaccess safeEditMessageText] Falling back to reply:", errorMessage);
             try {
-                await ctx.reply(text, extra);
+                await ctx.reply(text, extra as Parameters<Context["reply"]>[1]);
                 return; // Exit after successful fallback
-            } catch (replyError: any) {
-                console.error("[adminaccess safeEditMessageText] Failed to reply:", replyError.message);
+            } catch (replyError: unknown) {
+                console.error("[adminaccess safeEditMessageText] Failed to reply:", getErrorMessage(replyError));
             }
         }
     }
@@ -158,6 +171,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         console.log("[ADMIN] - ADMIN_BACK action triggered for user:", ctx.from?.id);
         try {
+            clearAdminInputState(adminId);
             await safeAnswerCbQuery(ctx);
             console.log("[ADMIN] - Answered callback query");
             await safeEditMessageText(
@@ -197,6 +211,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         if (!adminId) return;
         
         // Set waiting flag
+        waitingForBroadcast.delete(adminId);
         waitingForUserId.add(adminId);
         console.log(`[ADMIN] - Admin ${adminId} started search by ID, waitingForUserId.size = ${waitingForUserId.size}`);
         
@@ -341,7 +356,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         const totalMessages = user1Messages + user2Messages;
         
         // Format user info with gender and username
-        const formatUserInfo = (userData: any, userId: number) => {
+        const formatUserInfo = (userData: { name?: string | null; gender?: string | null; age?: string | null; state?: string | null }, userId: number) => {
             const name = userData.name || "Unknown";
             const gender = userData.gender ? (userData.gender.charAt(0).toUpperCase() + userData.gender.slice(1)) : "Not set";
             const age = userData.age || "Not set";
@@ -369,6 +384,10 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Terminate a chat (admin action)
     bot.action(/ADMIN_TERMINATE_(\d+)_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx);
         
         const user1 = parseInt(ctx.match[1]);
@@ -429,6 +448,10 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Exit spectator mode
     bot.action("ADMIN_EXIT_SPECTATE", async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx);
         
         const adminId = ctx.from?.id;
@@ -456,6 +479,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         if (!adminId) return;
         
         // Set waiting flag
+        waitingForUserId.delete(adminId);
         waitingForBroadcast.add(adminId);
         console.log(`[ADMIN] - Admin ${adminId} started broadcast, waitingForBroadcast.size = ${waitingForBroadcast.size}`);
         
@@ -618,6 +642,10 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Referral management
     bot.action("ADMIN_REFERRALS", async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx);
         
         // Use optimized single-query function instead of looping
@@ -639,6 +667,10 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Verify and fix referral counts
     bot.action("ADMIN_VERIFY_REFERRALS", async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx, "Verifying referral counts...");
         
         const { accurate, discrepancies } = await verifyReferralCounts();
@@ -668,8 +700,13 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Logout
     bot.action("ADMIN_LOGOUT", async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx);
         if (!ctx.from) return;
+        clearAdminInputState(ctx.from.id);
         await updateUser(ctx.from.id, { isAdminAuthenticated: false });
         await safeEditMessageText(ctx,
             "🔐 *Admin Panel*\n\nYou have been logged out.",
@@ -679,15 +716,31 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Pagination actions
     bot.action(/ADMIN_USERS_PAGE_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx);
         if (!ctx.from) return;
         const page = parseInt(ctx.match[1]);
+        if (isNaN(page)) {
+            await safeEditMessageText(
+                ctx,
+                "⚠️ Invalid page number.",
+                { parse_mode: "Markdown", ...backKeyboard }
+            );
+            return;
+        }
         userPages.set(ctx.from.id, page);
         await showUsersPage(ctx, page);
     });
 
     // View user details
     bot.action(/ADMIN_USER_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
         await safeAnswerCbQuery(ctx);
         const userId = parseInt(ctx.match[1]);
         await showUserDetails(ctx, userId);
@@ -748,7 +801,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
     });
 
     // Helper function to execute temporary ban with duration
-    async function executeTempBan(ctx: any, userId: number, durationHours: number) {
+    async function executeTempBan(ctx: Context, userId: number, durationHours: number) {
         const adminId = ctx.from?.id || 0;
         const durationMs = durationHours * 60 * 60 * 1000;
         const reason = `Temporarily banned for ${durationHours} hour(s)`;
@@ -892,7 +945,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
     });
 
     // Helper function to terminate user's active chat
-    async function terminateUserChat(ctx: any, botInstance: ExtraTelegraf, userId: number): Promise<number | null> {
+    async function terminateUserChat(ctx: Context, botInstance: ExtraTelegraf, userId: number): Promise<number | null> {
         const runningChats = botInstance.runningChats;
         
         // Check if user is in active chat using Map.has()
@@ -1064,15 +1117,17 @@ export function initAdminActions(bot: ExtraTelegraf) {
         }
         await safeAnswerCbQuery(ctx, "Reports reset ✅");
         const userId = parseInt(ctx.match[1]);
-        await updateUser(userId, { reportCount: 0, reportingPartner: null, reportReason: null });
+        await resetUserReports(userId);
         await showUserDetails(ctx, userId);
     });
 }
 
-async function showUsersPage(ctx: any, page: number) {
+async function showUsersPage(ctx: Context, page: number) {
     const allUsers = await getAllUsers();
     const usersPerPage = 10;
-    const totalPages = Math.ceil(allUsers.length / usersPerPage);
+    const totalPages = Math.max(1, Math.ceil(allUsers.length / usersPerPage));
+    const safePage = Math.min(Math.max(0, page), totalPages - 1);
+    page = safePage;
     const start = page * usersPerPage;
     const end = Math.min(start + usersPerPage, allUsers.length);
     const pageUsers = allUsers.slice(start, end);
@@ -1086,7 +1141,9 @@ async function showUsersPage(ctx: any, page: number) {
         if (!name || name === "Unknown") {
             try {
                 const chat = await ctx.telegram.getChat(userId);
-                name = chat.username || chat.first_name || "Unknown";
+                const username = "username" in chat ? chat.username : undefined;
+                const firstName = "first_name" in chat ? chat.first_name : undefined;
+                name = username || firstName || "Unknown";
             } catch {
                 name = "Unknown";
             }
@@ -1110,26 +1167,29 @@ async function showUsersPage(ctx: any, page: number) {
         [Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
     ]);
     
-    const text = `👥 *All Users* (${allUsers.length})\n\nPage ${page + 1}/${totalPages}\n\nClick on a user to view details.`;
+    const text = allUsers.length === 0
+        ? "*All Users* (0)\n\nNo users found.\n\nUse the button below to return to menu."
+        : `*All Users* (${allUsers.length})\n\nPage ${page + 1}/${totalPages}\n\nClick on a user to view details.`;
     // Use try-catch with fallback to prevent UI freeze
     try {
         await ctx.editMessageText(text, { parse_mode: "Markdown", ...keyboard });
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const errorMessage = getErrorMessage(error);
         // Check for "message not modified" - ignore it
-        if (error.description && error.description.includes("message is not modified")) {
+        if (errorMessage.includes("message is not modified")) {
             return;
         }
         // Fallback to reply for other errors
         try {
             await ctx.reply(text, { parse_mode: "Markdown", ...keyboard });
             return; // Exit after successful fallback
-        } catch (replyError: any) {
-            console.error("[showUsersPage] Failed to reply:", replyError.message);
+        } catch (replyError: unknown) {
+            console.error("[showUsersPage] Failed to reply:", getErrorMessage(replyError));
         }
     }
 }
 
-export async function showUserDetails(ctx: any, userId: number) {
+export async function showUserDetails(ctx: Context, userId: number) {
     const user = await getUser(userId);
     if (!user) {
         // Use try-catch with fallback to prevent UI freeze
@@ -1138,9 +1198,10 @@ export async function showUserDetails(ctx: any, userId: number) {
                 "User not found.",
                 { parse_mode: "HTML", ...backKeyboard }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const errorMessage = getErrorMessage(error);
             // Check for "message not modified" - ignore it
-            if (error.description && error.description.includes("message is not modified")) {
+            if (errorMessage.includes("message is not modified")) {
                 return;
             }
             // Fallback to reply for other errors
@@ -1150,8 +1211,8 @@ export async function showUserDetails(ctx: any, userId: number) {
                     { parse_mode: "HTML", ...backKeyboard }
                 );
                 return; // Exit after successful fallback
-            } catch (replyError: any) {
-                console.error("[showUserDetails] Failed to reply:", replyError.message);
+            } catch (replyError: unknown) {
+                console.error("[showUserDetails] Failed to reply:", getErrorMessage(replyError));
             }
         }
         return;
@@ -1162,7 +1223,9 @@ export async function showUserDetails(ctx: any, userId: number) {
     if (!name || name === "Not set" || name === "Unknown") {
         try {
             const chat = await ctx.telegram.getChat(userId);
-            name = chat.username || chat.first_name || "Not set";
+            const username = "username" in chat ? chat.username : undefined;
+            const firstName = "first_name" in chat ? chat.first_name : undefined;
+            name = username || firstName || "Not set";
         } catch {
             name = "Not set";
         }
@@ -1235,17 +1298,19 @@ export async function showUserDetails(ctx: any, userId: number) {
 
     try {
         await ctx.editMessageText(details, { parse_mode: "HTML", ...keyboard });
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const errorMessage = getErrorMessage(error);
         // Check for "message not modified" - ignore it
-        if (error.description && error.description.includes("message is not modified")) {
+        if (errorMessage.includes("message is not modified")) {
             return;
         }
         // Fallback to reply for other errors
         try {
             await ctx.reply(details, { parse_mode: "HTML", ...keyboard });
             return; // Exit after successful fallback
-        } catch (replyError: any) {
-            console.error("[showUserDetails] Failed to reply:", replyError.message);
+        } catch (replyError: unknown) {
+            console.error("[showUserDetails] Failed to reply:", getErrorMessage(replyError));
         }
     }
 }
+

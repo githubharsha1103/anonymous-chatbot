@@ -3,11 +3,12 @@ import * as path from "path";
 import { bot } from "../index";
 import { Context, Telegraf } from "telegraf";
 import { handleTelegramError } from "./telegramErrorHandler";
+import { UpdateType } from "telegraf/typings/telegram-types";
 
 
 export interface Event {
-  type: any;
-  execute: (ctx: Context, bot: Telegraf<Context>) => Promise<any>;
+  type: UpdateType | UpdateType[];
+  execute: (ctx: Context, bot: Telegraf<Context>) => Promise<unknown>;
   disabled?: boolean;
 }
 

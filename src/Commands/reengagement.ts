@@ -4,6 +4,7 @@ import { ExtraTelegraf } from "..";
 import { getInactiveUsers, getUserStats } from "../storage/db";
 import { broadcastWithRateLimit } from "../Utils/telegramErrorHandler";
 import { isAdminContext } from "../Utils/adminAuth";
+import { safeAnswerCbQuery, safeEditMessageText } from "../Utils/telegramUi";
 
 // Removed local isAdmin/isAdminByUsername - now using shared utility from adminAuth.ts
 
@@ -13,26 +14,6 @@ const backKeyboard = Markup.inlineKeyboard([
 
 function checkAdmin(ctx: Context): boolean {
     return isAdminContext(ctx);
-}
-
-// Helper function for safe editMessageText
-export async function safeEditMessageText(ctx: any, text: string, extra?: any) {
-    try {
-        await ctx.editMessageText(text, extra);
-    } catch (error: any) {
-        // Check for "message not modified" - this is not an error
-        if (error.description && error.description.includes("message is not modified")) {
-            return;
-        }
-        // For all other errors, try to reply instead to prevent UI freeze
-        console.log("[Reengagement safeEditMessageText] Falling back to reply:", error.description || error.message);
-        try {
-            await ctx.reply(text, extra);
-            return; // Exit after successful fallback
-        } catch (replyError: any) {
-            console.error("[Reengagement safeEditMessageText] Failed to reply:", replyError.message);
-        }
-    }
 }
 
 export default {
@@ -94,17 +75,6 @@ const reengageMessages = {
         "🔥 Don't miss out on new conversations!"
     ]
 };
-
-// Helper function for safe answer callback query
-async function safeAnswerCbQuery(ctx: any, text?: string) {
-    try {
-        if (ctx.callbackQuery?.id) {
-            await ctx.answerCbQuery(text);
-        }
-    } catch {
-        // Ignore errors
-    }
-}
 
 export function initReengagementActions(bot: ExtraTelegraf) {
     // Handle 7-day inactive notification
@@ -263,3 +233,4 @@ ${message}
         );
     });
 }
+

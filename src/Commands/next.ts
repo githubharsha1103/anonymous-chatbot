@@ -22,6 +22,14 @@ export default {
     if (bot.isRateLimited(userId)) {
       return ctx.reply("⏳ Please wait a moment before trying again.");
     }
+
+    // Keep queue Set and array synchronized for reliable queue checks/matching
+    if (bot.queueSet.size !== bot.waitingQueue.length) {
+      bot.queueSet.clear();
+      for (const queued of bot.waitingQueue) {
+        bot.queueSet.add(queued.id);
+      }
+    }
     
     // Check queue size limit
     if (bot.isQueueFull()) {
@@ -34,12 +42,16 @@ export default {
       const removeCount = bot.waitingQueue.length - MAX_QUEUE_SOFT_LIMIT;
       // Remove oldest entries (from the beginning of the array)
       bot.waitingQueue = bot.waitingQueue.slice(removeCount);
+      bot.queueSet.clear();
+      for (const queued of bot.waitingQueue) {
+        bot.queueSet.add(queued.id);
+      }
       console.log(`[QUEUE] - Queue size limit enforced, removed ${removeCount} oldest users`);
     }
 
-    // Acquire mutex to prevent race conditions
+    // Acquire matchmaking mutex to prevent race conditions with /search
     try {
-        await bot.chatMutex.acquire();
+        await bot.matchMutex.acquire();
     } catch (error) {
         // Distinguish between timeout and other errors
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -101,7 +113,7 @@ export default {
           return ctx.reply("🚫 Partner left the chat");
         }
 
-        return ctx.reply(
+        await ctx.reply(
           "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
           reportKeyboard
         );
@@ -178,8 +190,9 @@ export default {
         // Increment chat count for new chat
         bot.incrementChatCount();
         
-        // Increment daily chat count for non-premium user
+        // Increment daily chat count for both matched users (non-premium only)
         await incDaily(userId);
+        await incDaily(match.id);
 
         // Build partner info message - hide gender for non-premium users
         // Premium users can see partner's gender only if partner has set it
@@ -231,12 +244,15 @@ export default {
           const partnerStillThere = bot.runningChats.has(match.id);
           
           if (partnerStillThere) {
-            // Partner is still there - maybe network issue, try to notify and let them continue waiting
-            await sendMessageWithRetry(bot, match.id, "⚠️ Connection issue. Please wait...", { parse_mode: "Markdown" });
+            // Partner is still there - treat this as a failed match and cleanly end chat state first
+            await endChatDueToError(bot, userId, match.id);
             
             // Add current user back to queue to find another partner
             const currentGender = await getGender(userId);
-            bot.waitingQueue.push({ id: userId, preference, gender: currentGender || "any", isPremium } as any);
+            const requeued = bot.addToQueueAtomic({ id: userId, preference, gender: currentGender || "any", isPremium });
+            if (!requeued) {
+              return ctx.reply("⚠️ Temporary connection issue. Please try /next again.");
+            }
             
             return ctx.reply("⚠️ Temporary connection issue with partner. You've been added back to the queue...\n⏳ Waiting for a new partner...");
           } else {
@@ -253,15 +269,11 @@ export default {
       // The mutex is already held from the try block above
       const added = bot.addToQueueAtomic({ id: userId, preference, gender: gender || "any", isPremium });
       if (!added) {
-        // Fallback if not added (e.g., already in queue)
-        if (!bot.queueSet.has(userId)) {
-          bot.waitingQueue.push({ id: userId, preference, gender: gender || "any", isPremium } as WaitingUser);
-          bot.queueSet.add(userId);
-        }
+        return ctx.reply("You are already in the queue!");
       }
       return ctx.reply("⏳ Waiting for a partner...");
     } finally {
-      bot.chatMutex.release();
+      bot.matchMutex.release();
     }
   }
 };

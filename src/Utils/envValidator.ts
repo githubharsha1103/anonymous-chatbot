@@ -66,6 +66,10 @@ export function validateEnvironment(): void {
     console.warn("[WARN] - MONGODB_URI not set; running in JSON fallback mode only.");
     console.warn("[WARN] - This may degrade performance and reliability for production use.");
   }
+
+  validateAdminIds();
+  validateGroupChatId();
+  validateWebhookUrl();
 }
 
 /**
@@ -74,3 +78,43 @@ export function validateEnvironment(): void {
 export const isProduction = (): boolean => {
   return !!(process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL);
 };
+
+function validateAdminIds(): void {
+  const raw = process.env.ADMIN_IDS || "";
+  const ids = raw.split(",").map(v => v.trim()).filter(Boolean);
+  if (ids.length === 0) {
+    console.error("[FATAL] ADMIN_IDS must contain at least one numeric Telegram user ID.");
+    process.exit(1);
+  }
+  const invalid = ids.filter(id => !/^\d+$/.test(id));
+  if (invalid.length > 0) {
+    console.error(`[FATAL] ADMIN_IDS contains invalid values: ${invalid.join(", ")}. Use comma-separated numeric IDs only.`);
+    process.exit(1);
+  }
+}
+
+function validateGroupChatId(): void {
+  const groupChatId = process.env.GROUP_CHAT_ID || "";
+  // Telegram supergroup IDs are typically negative numeric values (e.g. -100123...)
+  if (!/^-?\d+$/.test(groupChatId)) {
+    console.error("[FATAL] GROUP_CHAT_ID must be a numeric chat ID (example: -1001234567890).");
+    process.exit(1);
+  }
+}
+
+function validateWebhookUrl(): void {
+  const webhookUrl = process.env.WEBHOOK_URL;
+  if (!webhookUrl) {
+    return;
+  }
+  try {
+    const parsed = new URL(webhookUrl);
+    if (parsed.protocol !== "https:") {
+      console.error("[FATAL] WEBHOOK_URL must use HTTPS.");
+      process.exit(1);
+    }
+  } catch {
+    console.error("[FATAL] WEBHOOK_URL is not a valid URL.");
+    process.exit(1);
+  }
+}

@@ -4,13 +4,16 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
 const DB_NAME = process.env.DB_NAME || "telugu_anomybot";
 
 // MongoDB connection options for better SSL/TLS compatibility
+const isSrvConnection = MONGODB_URI.startsWith("mongodb+srv://");
 const MONGO_OPTIONS = {
   maxPoolSize: 5,
   minPoolSize: 1,
   serverSelectionTimeoutMS: 10000,
   socketTimeoutMS: 45000,
-  tls: true,
-  tlsAllowInvalidCertificates: false,
+  ...(isSrvConnection ? {
+    tls: true,
+    tlsAllowInvalidCertificates: false
+  } : {}),
   retryWrites: true,
   w: "majority" as const
 };
@@ -46,24 +49,27 @@ class JsonMutex {
 
 const jsonMutex = new JsonMutex();
 
-import fs from "fs";
+import { access, readFile, writeFile } from "fs/promises";
 
-async function readJson(path: string): Promise<any> {
+async function readJson<T = Record<string, unknown>>(path: string): Promise<T> {
   await jsonMutex.acquire();
   try {
-    if (!fs.existsSync(path)) {
-      fs.writeFileSync(path, "{}");
+    try {
+      await access(path);
+    } catch {
+      await writeFile(path, "{}", "utf8");
     }
-    return JSON.parse(fs.readFileSync(path, "utf8"));
+    const raw = await readFile(path, "utf8");
+    return JSON.parse(raw);
   } finally {
     jsonMutex.release();
   }
 }
 
-async function writeJson(path: string, data: any): Promise<void> {
+async function writeJson<T>(path: string, data: T): Promise<void> {
   await jsonMutex.acquire();
   try {
-    fs.writeFileSync(path, JSON.stringify(data, null, 2));
+    await writeFile(path, JSON.stringify(data, null, 2), "utf8");
   } finally {
     jsonMutex.release();
   }
@@ -118,6 +124,16 @@ interface UserWithNew extends User {
   isNew?: boolean;
 }
 
+interface LegacyReportEntry {
+  reportedBy: number;
+  reason: string;
+  createdAt: number;
+}
+
+type JsonUserRecord = Partial<User> & { reportHistory?: LegacyReportEntry[] };
+type JsonUsersDb = Record<string, JsonUserRecord>;
+type JsonStats = { totalChats?: number };
+
 // Connect to MongoDB
 async function connectToDatabase(): Promise<Db> {
   if (db) return db;
@@ -126,6 +142,7 @@ async function connectToDatabase(): Promise<Db> {
     client = new MongoClient(MONGODB_URI, MONGO_OPTIONS);
     await client.connect();
     db = client.db(DB_NAME);
+    mongoConnectionFailed = false;
     console.log("[INFO] - Connected to MongoDB");
     
     // Create indexes
@@ -167,6 +184,7 @@ async function connectToDatabase(): Promise<Db> {
     
     return db;
   } catch (error) {
+    mongoConnectionFailed = true;
     console.error("[ERROR] - MongoDB connection failed:", error);
     throw error;
   }
@@ -284,7 +302,7 @@ export async function getUser(id: number): Promise<UserWithNew> {
   }
   
   // JSON fallback (thread-safe via mutex helpers)
-  const dbObj = await readJson(JSON_FILE);
+  const dbObj = await readJson<Record<string, unknown>>(JSON_FILE);
   
   if (!dbObj[id]) {
     dbObj[id] = {
@@ -304,9 +322,9 @@ export async function getUser(id: number): Promise<UserWithNew> {
       banned: false
     };
     await writeJson(JSON_FILE, dbObj);
-    return { ...dbObj[id], isNew: true };
+    return { ...(dbObj[id] as Record<string, unknown>), isNew: true } as UserWithNew;
   }
-  return dbObj[id];
+  return dbObj[id] as UserWithNew;
 }
 
 export async function updateUser(id: number, data: Partial<User>): Promise<void> {
@@ -390,6 +408,15 @@ export interface Ban {
   banExpiresAt?: number; // For temporary bans (timestamp when ban expires)
 }
 
+type JsonBanMeta = {
+  reason?: string;
+  bannedAt?: number;
+  bannedBy?: number;
+  banExpiresAt?: number;
+};
+
+type JsonBans = Record<string, JsonBanMeta> | number[];
+
 export async function banUser(id: number, reason: string = "Banned by admin", adminId: number = 0): Promise<void> {
   if (useMongoDB && !isFallbackMode) {
     try {
@@ -417,7 +444,7 @@ export async function banUser(id: number, reason: string = "Banned by admin", ad
   }
   
   // JSON fallback - store as object with metadata (locked)
-  let bans: any = await readJson(BANS_FILE);
+  let bans = await readJson<JsonBans>(BANS_FILE);
 
   // Convert array to object format if needed (migration)
   if (Array.isArray(bans)) {
@@ -450,7 +477,7 @@ export async function unbanUser(id: number): Promise<void> {
   }
   
   // JSON fallback (locked)
-  const bans: any = await readJson(BANS_FILE);
+  const bans = await readJson<JsonBans>(BANS_FILE);
   
   // Handle both array and object formats
   if (Array.isArray(bans)) {
@@ -493,7 +520,7 @@ export async function tempBanUser(id: number, durationMs: number, reason: string
   }
   
   // JSON fallback
-  let bans: any = await readJson(BANS_FILE);
+  let bans = await readJson<JsonBans>(BANS_FILE);
   
   if (Array.isArray(bans)) {
     const oldBans = bans;
@@ -533,7 +560,10 @@ export async function checkAndRemoveExpiredBan(id: number): Promise<boolean> {
   }
   
   // JSON fallback
-  const bans: any = await readJson(BANS_FILE);
+  const bans = await readJson<JsonBans>(BANS_FILE);
+  if (Array.isArray(bans)) {
+    return false;
+  }
   if (bans[id] && bans[id].banExpiresAt && bans[id].banExpiresAt < Date.now()) {
     delete bans[id];
     await writeJson(BANS_FILE, bans);
@@ -564,12 +594,12 @@ export async function getUserLatestReportReason(userId: number): Promise<string 
   
   // JSON fallback - check user's report history
   const user = await getUser(userId);
-  const history = (user as any).reportHistory || [];
+  const history = ((user as User & { reportHistory?: Report[] }).reportHistory) || [];
   if (history.length > 0) {
     const latestReport = history[history.length - 1];
     return latestReport?.reason || null;
   }
-  return (user as any).reportReason || null;
+  return user.reportReason || null;
 }
 
 export async function isBanned(id: number): Promise<boolean> {
@@ -589,7 +619,7 @@ export async function isBanned(id: number): Promise<boolean> {
   }
   
   // JSON fallback
-  const bans: any = await readJson(BANS_FILE);
+  const bans = await readJson<JsonBans>(BANS_FILE);
   
   // Handle both array and object formats
   if (Array.isArray(bans)) {
@@ -613,7 +643,7 @@ export async function readBans(): Promise<number[]> {
   
   // JSON fallback - with array->object migration support (locked)
   // Initialize with object format if doesn't exist
-  const bans: any = await readJson(BANS_FILE);
+  const bans = await readJson<JsonBans>(BANS_FILE);
 
   // If file was just created, readJson already wrote '{}'
   if (!bans) {
@@ -635,9 +665,9 @@ export async function readBans(): Promise<number[]> {
     }
     
     // Save in new object format
-    fs.writeFileSync(BANS_FILE, JSON.stringify(banObject, null, 2));
+    await writeJson(BANS_FILE, banObject);
     console.log(`[readBans] Migrated ${bans.length} bans to object format`);
-    return bans; // Return array for backward compatibility during migration
+    return Object.keys(banObject).map(key => parseInt(key, 10));
   }
   
   // Return array of ban IDs from object format
@@ -682,20 +712,15 @@ export async function getReportCount(id: number): Promise<number> {
   
   // Also check JSON fallback for reports (locked)
   try {
-    const dbObj = await readJson(JSON_FILE);
-    const userData = dbObj[id];
+    const dbObj = await readJson<JsonUsersDb>(JSON_FILE);
+    const userData = dbObj[id.toString()];
     
     if (userData) {
-      // Check legacy reports field
-      const jsonCount = userData.reports || 0;
-      
-      // Also check reportHistory
-      let historyCount = 0;
+      // Prefer the structured history source when present; fallback to legacy count.
       if (userData.reportHistory && Array.isArray(userData.reportHistory)) {
-        historyCount = userData.reportHistory.length;
+        return count + userData.reportHistory.length;
       }
-      
-      return count + jsonCount + historyCount;
+      return count + (userData.reports || 0);
     }
   } catch (error) {
     console.error("[ERROR] - Reading report count from JSON:", error);
@@ -726,7 +751,7 @@ export async function createReport(
   reportedUserId: number,
   reportedByUserId: number,
   reason: string
-): Promise<void> {
+): Promise<number> {
   if (useMongoDB && !isFallbackMode) {
     try {
       const collection = await getReportsCollection();
@@ -736,17 +761,17 @@ export async function createReport(
         reason: reason,
         createdAt: Date.now()
       });
-      
-      // Also update legacy field for backward compatibility
-      await incrementReportCount(reportedUserId);
-      return;
+
+      // Return authoritative count from reports collection.
+      const totalReports = await collection.countDocuments({ reportedUser: reportedUserId });
+      return totalReports;
     } catch (error) {
       console.error("[ERROR] - MongoDB createReport error:", error);
     }
   }
   
   // JSON/file fallback - update user fields for backward compatibility (locked)
-  const dbObj: any = await readJson(JSON_FILE);
+  const dbObj = await readJson<JsonUsersDb>(JSON_FILE);
   
   // Store report in user's reports array
   if (!dbObj[reportedUserId]) {
@@ -761,13 +786,12 @@ export async function createReport(
     createdAt: Date.now()
   });
   
-  // Update legacy fields
-  const currentReports = dbObj[reportedUserId]?.reports || 0;
-  dbObj[reportedUserId].reports = currentReports + 1;
+  // Keep only lightweight legacy pointers for admin views.
   dbObj[reportedUserId].reportReason = reason; // Keep for backward compatibility
   dbObj[reportedUserId].reportingPartner = reportedByUserId;
   
   await writeJson(JSON_FILE, dbObj);
+  return dbObj[reportedUserId].reportHistory?.length || 0;
 }
 
 // Get all reports grouped by user (for admin view - scalable)
@@ -825,9 +849,9 @@ export async function getGroupedReports(limit: number = 10): Promise<{ userId: n
   // Merge JSON results (add counts if user already exists)
   for (const r of jsonReports) {
     if (mergedMap.has(r.userId)) {
-      // User exists in MongoDB, add the JSON count to MongoDB count
+      // User exists in MongoDB; avoid double counting by taking the larger count.
       const existing = mergedMap.get(r.userId)!;
-      existing.count += r.count;
+      existing.count = Math.max(existing.count, r.count);
       // Use JSON reason if MongoDB doesn't have one
       if (!existing.latestReason && r.latestReason) {
         existing.latestReason = r.latestReason;
@@ -856,59 +880,34 @@ async function getReportsFromJson(): Promise<{ userId: number; count: number; la
   const userReports: { userId: number; count: number; latestReason: string; reporters: number[] }[] = [];
   
   try {
-    const dbObj = await readJson(JSON_FILE);
+    const dbObj = await readJson<JsonUsersDb>(JSON_FILE);
     if (!dbObj) {
       return userReports;
     }
 
     for (const [idStr, userData] of Object.entries(dbObj)) {
       const userId = parseInt(idStr);
-      const data = userData as any;
+      const data = userData as JsonUserRecord;
 
-      // Check for legacy reports field
-      if (data.reports && data.reports > 0) {
+      // Prefer reportHistory (new format); fallback to legacy reports fields.
+      if (data.reportHistory && Array.isArray(data.reportHistory) && data.reportHistory.length > 0) {
+        const reporters = data.reportHistory
+          .map((r: LegacyReportEntry) => r.reportedBy)
+          .filter((r: number) => !!r);
+        const latestReport = data.reportHistory[data.reportHistory.length - 1];
+        userReports.push({
+          userId,
+          count: data.reportHistory.length,
+          latestReason: latestReport?.reason || "No reason",
+          reporters
+        });
+      } else if (data.reports && data.reports > 0) {
         userReports.push({
           userId,
           count: data.reports || 0,
           latestReason: data.reportReason || "No reason",
           reporters: data.reportingPartner ? [data.reportingPartner] : []
         });
-      }
-
-      // Also check for reportHistory (newer format)
-      if (data.reportHistory && Array.isArray(data.reportHistory)) {
-        // Check if we already added this user from legacy reports
-        const existingIndex = userReports.findIndex(r => r.userId === userId);
-
-        if (existingIndex >= 0) {
-          // Add history reports to existing count
-          userReports[existingIndex].count += data.reportHistory.length;
-          // Get reporters from history
-          for (const report of data.reportHistory) {
-            if (report.reportedBy && !userReports[existingIndex].reporters.includes(report.reportedBy)) {
-              userReports[existingIndex].reporters.push(report.reportedBy);
-            }
-            // Use latest reason from history
-            if (report.reason) {
-              userReports[existingIndex].latestReason = report.reason;
-            }
-          }
-        } else {
-          // New entry from reportHistory
-          const reporters = data.reportHistory
-            .map((r: any) => r.reportedBy)
-            .filter((r: any) => r);
-
-          // Get latest reason
-          const latestReport = data.reportHistory[data.reportHistory.length - 1];
-
-          userReports.push({
-            userId,
-            count: data.reportHistory.length,
-            latestReason: latestReport?.reason || "No reason",
-            reporters
-          });
-        }
       }
     }
   } catch (error) {
@@ -935,8 +934,8 @@ export async function getUserReports(userId: number): Promise<Report[]> {
   
   // Fallback: read from user data
   const user = await getUser(userId);
-  const history = (user as any).reportHistory || [];
-  return history.map((r: any) => ({
+  const history = ((user as User & { reportHistory?: LegacyReportEntry[] }).reportHistory) || [];
+  return history.map((r: LegacyReportEntry) => ({
     reportedUser: userId,
     reportedBy: r.reportedBy,
     reason: r.reason,
@@ -961,11 +960,55 @@ export async function incrementReportCount(userId: number): Promise<number> {
   }
   
   // JSON/file fallback with read-modify-write (locked)
-  const dbObj: any = await readJson(JSON_FILE);
+  const dbObj = await readJson<JsonUsersDb>(JSON_FILE);
   const currentReports = dbObj[userId]?.reports || 0;
   dbObj[userId] = { ...(dbObj[userId] || {}), reports: currentReports + 1 };
   await writeJson(JSON_FILE, dbObj);
   return currentReports + 1;
+}
+
+// Reset all report data for one user (scalable + legacy)
+export async function resetUserReports(userId: number): Promise<void> {
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const reportsCollection = await getReportsCollection();
+      await reportsCollection.deleteMany({ reportedUser: userId });
+
+      const usersCollection = await getUsersCollection();
+      await usersCollection.updateOne(
+        { telegramId: userId },
+        {
+          $set: {
+            reports: 0,
+            reportCount: 0,
+            reportingPartner: null,
+            reportReason: null
+          }
+        }
+      );
+      return;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB resetUserReports error:", error);
+      // Continue to JSON fallback for resilience.
+    }
+  }
+
+  const dbObj = await readJson<JsonUsersDb>(JSON_FILE);
+  const key = userId.toString();
+  if (!dbObj[key]) {
+    dbObj[key] = {};
+  }
+
+  dbObj[key] = {
+    ...(dbObj[key] || {}),
+    reports: 0,
+    reportCount: 0,
+    reportHistory: [],
+    reportingPartner: null,
+    reportReason: null
+  };
+
+  await writeJson(JSON_FILE, dbObj);
 }
 
 export async function getBanReason(id: number): Promise<string | null> {
@@ -985,7 +1028,7 @@ export async function getBanReason(id: number): Promise<string | null> {
   }
   
   // JSON fallback - check object format (locked)
-  const bans: any = await readJson(BANS_FILE);
+  const bans = await readJson<JsonBans>(BANS_FILE);
   
   // Handle both array (legacy) and object (new) formats
   if (Array.isArray(bans)) {
@@ -1010,7 +1053,7 @@ export async function deleteUser(id: number, reason?: string): Promise<boolean> 
   }
   
   // JSON fallback (locked)
-  const dbObj: any = await readJson(JSON_FILE);
+  const dbObj = await readJson<JsonUsersDb>(JSON_FILE);
   if (dbObj[id]) {
     delete dbObj[id];
     await writeJson(JSON_FILE, dbObj);
@@ -1043,7 +1086,7 @@ export async function getTotalChats(): Promise<number> {
   
   // JSON fallback - read from file (locked)
   const statsFile = "src/storage/stats.json";
-  const stats: any = await readJson(statsFile);
+  const stats = await readJson<JsonStats>(statsFile);
   return stats.totalChats || 0;
 }
 
@@ -1067,7 +1110,7 @@ export async function incrementTotalChats(): Promise<void> {
   
   // JSON fallback - update file (locked)
   const statsFile = "src/storage/stats.json";
-  const stats: any = await readJson(statsFile);
+  const stats = await readJson<JsonStats>(statsFile);
   stats.totalChats = (stats.totalChats || 0) + 1;
   await writeJson(statsFile, stats);
 }
@@ -1089,7 +1132,7 @@ export async function resetDailyCounts(): Promise<number> {
   }
   
   // JSON fallback (locked)
-  const dbObj: any = await readJson(JSON_FILE);
+  const dbObj = await readJson<JsonUsersDb>(JSON_FILE);
   if (!dbObj) return 0;
   let count = 0;
   
@@ -1172,11 +1215,11 @@ export async function getInactiveUsers(daysInactive: number): Promise<string[]> 
   }
   
   // JSON fallback (locked)
-  const dbObj: any = await readJson(JSON_FILE);
+  const dbObj = await readJson<JsonUsersDb>(JSON_FILE);
   if (!dbObj) return [];
   const inactiveIds: string[] = [];
   for (const [id, userData] of Object.entries(dbObj)) {
-    const user = userData as any;
+    const user = userData as JsonUserRecord;
     const lastActive = user.lastActive || user.createdAt || 0;
     if (lastActive < cutoffTime) {
       inactiveIds.push(id);
@@ -1407,10 +1450,10 @@ export async function getUserByReferralCode(referralCode: string): Promise<numbe
   }
   
   // JSON fallback (locked)
-  const dbObj: any = await readJson(JSON_FILE);
+  const dbObj = await readJson<JsonUsersDb>(JSON_FILE);
   if (!dbObj) return null;
   for (const [id, userData] of Object.entries(dbObj)) {
-    const user = userData as any;
+    const user = userData as JsonUserRecord;
     if (user.referralCode === referralCode) {
       return parseInt(id);
     }

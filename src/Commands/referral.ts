@@ -18,11 +18,33 @@ const REFERRAL_TIERS: ReferralTier[] = [
     { count: 50, reward: "Super Star", premiumDays: 30, badge: "👑", description: "Get 30 days Premium + Gold Badge" },
 ];
 
+type CooldownBot = {
+    isActionOnCooldown: (userId: number, action: string) => boolean;
+    setActionCooldown: (userId: number, action: string) => void;
+};
+
+function getBotUsername(ctx: Context): string {
+    const extendedCtx = ctx as Context & { me?: string };
+    return extendedCtx.me || process.env.BOT_USERNAME || "anonymouschatbot";
+}
+
+function getErrorMessage(error: unknown): string {
+    if (typeof error === "object" && error !== null) {
+        const errorLike = error as { description?: string; message?: string };
+        return errorLike.description || errorLike.message || "Unknown error";
+    }
+    return String(error);
+}
+
 export default {
     name: "referral",
     description: "View your referral stats and invite friends",
     execute: async (ctx: Context) => {
-        const userId = ctx.from?.id as number;
+        if (!ctx.from) {
+            await ctx.reply("⚠️ Could not identify your account. Please try again.");
+            return;
+        }
+        const userId = ctx.from.id;
         
         // Update user activity
         await updateLastActive(userId);
@@ -31,7 +53,7 @@ export default {
         const user = await getUser(userId);
         
         // Get or create referral code
-        let referralCode = (user as any).referralCode;
+        let referralCode = user.referralCode;
         if (!referralCode) {
             referralCode = `REF${userId}${Date.now().toString().slice(-6)}`;
             await updateUser(userId, { referralCode });
@@ -47,7 +69,7 @@ export default {
         const nextTier = getNextTier(referralCount);
         
         // Generate referral link
-        const botUsername = (ctx as any).me || process.env.BOT_USERNAME || "anonymouschatbot";
+        const botUsername = getBotUsername(ctx);
         const referralLink = `https://t.me/${botUsername}?start=${referralCode}`;
         
         // Build progress message
@@ -129,7 +151,7 @@ function getNextTier(count: number): ReferralTier | null {
 // Export for action handlers
 export function initReferralActions(bot: Telegraf<Context>) {
     // Safe answer callback query helper
-    async function safeAnswerCbQuery(ctx: any, text?: string) {
+    async function safeAnswerCbQuery(ctx: Context, text?: string) {
         try {
             if (ctx.callbackQuery?.id) {
                 await ctx.answerCbQuery(text);
@@ -140,11 +162,11 @@ export function initReferralActions(bot: Telegraf<Context>) {
     }
     
     // Check and apply action cooldown - returns true if action should be blocked
-    function checkAndApplyCooldown(ctx: any, action: string): boolean {
+    function checkAndApplyCooldown(ctx: Context, action: string): boolean {
         const userId = ctx.from?.id;
         if (!userId) return false;
         
-        const botInstance = require("../index").bot;
+        const botInstance = (require("../index") as { bot: CooldownBot }).bot;
         if (botInstance.isActionOnCooldown(userId, action)) {
             return true;
         }
@@ -154,21 +176,21 @@ export function initReferralActions(bot: Telegraf<Context>) {
     
     // Safe editMessageText helper - handles errors and falls back to reply
     // This prevents UI freeze when message can't be edited
-    async function safeEditMessageText(ctx: any, text: string, extra?: any) {
+    async function safeEditMessageText(ctx: Context, text: string, extra?: Record<string, unknown>) {
         try {
             await ctx.editMessageText(text, extra);
-        } catch (error: any) {
+        } catch (error: unknown) {
             // Check for "message not modified" - this is not an error
-            if (error.description && error.description.includes("message is not modified")) {
+            if (getErrorMessage(error).includes("message is not modified")) {
                 return;
             }
             // For all other errors, try to reply instead to prevent UI freeze
-            console.log("[Referral safeEditMessageText] Falling back to reply:", error.description || error.message);
+            console.log("[Referral safeEditMessageText] Falling back to reply:", getErrorMessage(error));
             try {
                 await ctx.reply(text, extra);
                 return; // Exit after successful fallback
-            } catch (replyError: any) {
-                console.error("[Referral safeEditMessageText] Failed to reply:", replyError.message);
+            } catch (replyError: unknown) {
+                console.error("[Referral safeEditMessageText] Failed to reply:", getErrorMessage(replyError));
             }
         }
     }
@@ -181,10 +203,13 @@ export function initReferralActions(bot: Telegraf<Context>) {
             return;
         }
         await safeAnswerCbQuery(ctx);
-        const userId = ctx.from?.id as number;
+        const userId = ctx.from?.id;
+        if (!userId) {
+            return;
+        }
         
         const user = await getUser(userId);
-        let referralCode = (user as any).referralCode;
+        let referralCode = user.referralCode;
         if (!referralCode) {
             referralCode = `REF${userId}${Date.now().toString().slice(-6)}`;
             await updateUser(userId, { referralCode });
@@ -195,7 +220,7 @@ export function initReferralActions(bot: Telegraf<Context>) {
         const activeReferrals = referralStats.active;
         const premiumDaysEarned = referralStats.premiumDaysEarned;
         
-        const botUsername = (ctx as any).me || process.env.BOT_USERNAME || "anonymouschatbot";
+        const botUsername = getBotUsername(ctx);
         const referralLink = `https://t.me/${botUsername}?start=${referralCode}`;
         
         const nextTier = getNextTier(referralCount);
@@ -233,9 +258,12 @@ export function initReferralActions(bot: Telegraf<Context>) {
         }
         await safeAnswerCbQuery(ctx);
         
-        const userId = ctx.from?.id as number;
+        const userId = ctx.from?.id;
+        if (!userId) {
+            return;
+        }
         const user = await getUser(userId);
-        let referralCode = (user as any).referralCode;
+        let referralCode = user.referralCode;
         if (!referralCode) {
             referralCode = `REF${userId}${Date.now().toString().slice(-6)}`;
             await updateUser(userId, { referralCode });
@@ -248,7 +276,7 @@ export function initReferralActions(bot: Telegraf<Context>) {
         
         const nextTier = getNextTier(referralCount);
         
-        const botUsername = (ctx as any).me || process.env.BOT_USERNAME || "anonymouschatbot";
+        const botUsername = getBotUsername(ctx);
         const referralLink = `https://t.me/${botUsername}?start=${referralCode}`;
         
         let text = `🎁 <b>Referral Rewards</b>\n\n`;
@@ -289,114 +317,9 @@ export function initReferralActions(bot: Telegraf<Context>) {
         });
     });
     
-    // Back to main menu
-    bot.action("BACK_MAIN_MENU", async (ctx) => {
-        // Check cooldown to prevent button spamming
-        if (checkAndApplyCooldown(ctx, "BACK_MAIN_MENU")) {
-            await safeAnswerCbQuery(ctx);
-            return;
-        }
-        await safeAnswerCbQuery(ctx);
-        const mainMenuKeyboard = Markup.inlineKeyboard([
-            [Markup.button.callback("🔍 Search", "START_SEARCH")],
-            [Markup.button.callback("⚙️ Settings", "OPEN_SETTINGS")],
-            [Markup.button.callback("🎁 Referrals", "OPEN_REFERRAL")],
-            [Markup.button.callback("❓ Help", "START_HELP")]
-        ]);
-        
-        await safeEditMessageText(
-            ctx,
-            "🌟 <b>Welcome back!</b> 🌟\n\nThis bot helps you chat anonymously with people worldwide.\n\nUse the menu below to navigate:", 
-            { parse_mode: "HTML", ...mainMenuKeyboard }
-        );
-    });
-    
-    // Open referral menu from settings/main menu
-    bot.action("OPEN_REFERRAL", async (ctx) => {
-        await safeAnswerCbQuery(ctx);
-        const userId = ctx.from?.id as number;
-        
-        // Update user activity
-        await updateLastActive(userId);
-        
-        // Get user data
-        const user = await getUser(userId);
-        
-        // Get or create referral code
-        let referralCode = (user as any).referralCode;
-        if (!referralCode) {
-            referralCode = `REF${userId}${Date.now().toString().slice(-6)}`;
-            await updateUser(userId, { referralCode });
-        }
-        
-        // Get detailed referral stats
-        const referralStats = await getReferralStats(userId);
-        const referralCount = referralStats.total;
-        const activeReferrals = referralStats.active;
-        const premiumDaysEarned = referralStats.premiumDaysEarned;
-        
-        // Get next tier to achieve
-        const nextTier = getNextTier(referralCount);
-        
-        // Generate referral link
-        const botUsername = (ctx as any).me || process.env.BOT_USERNAME || "anonymouschatbot";
-        const referralLink = `https://t.me/${botUsername}?start=${referralCode}`;
-        
-        // Build progress message
-        let text = `🎁 <b>Referral Rewards</b>\n\n`;
-        
-        // Show stats
-        text += `📊 <b>Your Stats:</b>\n`;
-        text += `   👥 Total Invited: ${referralCount}\n`;
-        text += `   ✅ Active Friends: ${activeReferrals}\n`;
-        text += `   🏆 Premium Earned: ${premiumDaysEarned} days\n\n`;
-        
-        // Show progress to next tier
-        if (nextTier) {
-            const progress = Math.min(100, Math.round((referralCount / nextTier.count) * 100));
-            const remaining = nextTier.count - referralCount;
-            text += `🎯 <b>Next Reward:</b> ${nextTier.badge} ${nextTier.reward}\n`;
-            text += `${createProgressBar(progress)} ${remaining} more to go!\n\n`;
-        } else {
-            text += `🎉 <b>Max Level Reached!</b> 🎉\n\n`;
-        }
-        
-        // Show tier progress
-        text += `🏅 <b>Your Tiers:</b>\n`;
-        for (const tier of REFERRAL_TIERS) {
-            const achieved = referralCount >= tier.count;
-            const status = achieved ? "✅" : "○";
-            text += `${status} ${tier.badge} ${tier.reward} (${tier.count}): ${tier.description}\n`;
-        }
-        
-        text += `\n🔗 <b>Your Referral Link:</b>\n`;
-        text += `<code>${referralLink}</code>\n\n`;
-        
-        text += `📋 <b>How to earn rewards:</b>\n`;
-        text += `1. Copy your link above\n`;
-        text += `2. Share with friends on Telegram\n`;
-        text += `3. Friends get bonus too!\n`;
-        text += `4. Unlock all tiers for maximum rewards!\n\n`;
-        
-        text += `💡 <b>Tips:</b>\n`;
-        text += `• Share in groups (but avoid spam!)\n`;
-        text += `• Tell friends about the bot features\n`;
-        text += `• Each active referral counts!\n`;
-        
-        // Create inline keyboard with share button
-        const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent("🌟 Join me on Anonymous Chat! Chat with strangers anonymously. Use my link:")}`;
-        
-        const buttons = [
-            [Markup.button.url("📤 Share on Telegram", shareUrl)],
-            [Markup.button.callback("🔄 Refresh Stats", "REFRESH_REFERRAL")],
-            [Markup.button.callback("🔙 Main Menu", "BACK_MAIN_MENU")]
-        ];
-        
-        await safeEditMessageText(ctx, text, { 
-            parse_mode: "HTML", 
-            ...Markup.inlineKeyboard(buttons)
-        });
-    });
+    // NOTE:
+    // "BACK_MAIN_MENU" and "OPEN_REFERRAL" are registered in actionHandler.ts.
+    // Avoid duplicate handlers here to prevent duplicate responses/edits.
 }
 
 // Export constants

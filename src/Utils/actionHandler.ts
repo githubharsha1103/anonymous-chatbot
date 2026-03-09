@@ -6,6 +6,10 @@ import { Markup } from "telegraf";
 import { updateUser, getUser, getReferralCount, banUser, isBanned, createReport } from "../storage/db";
 import { handleTelegramError } from "./telegramErrorHandler";
 import { isAdmin, ADMINS } from "./adminAuth";
+import { safeAnswerCbQuery as safeAnswerCbQueryShared, safeEditMessageText as safeEditMessageTextShared, getErrorMessage } from "./telegramUi";
+import searchCommand from "../Commands/search";
+import referralCommand from "../Commands/referral";
+import endCommand from "../Commands/end";
 
 // Because it doesn't know that ctx has a match property. by default, Context<Update> doesn't include match, but telegraf adds it dynamically when using regex triggers.
 export interface ActionContext extends Context {
@@ -14,7 +18,7 @@ export interface ActionContext extends Context {
 
 export interface Action {
     name: string | RegExp;
-    execute: (ctx: ActionContext, bot: Telegraf<Context>) => Promise<any>;
+    execute: (ctx: ActionContext, bot: Telegraf<Context>) => Promise<unknown>;
     disabled?: boolean;
 }
 
@@ -78,12 +82,31 @@ const premiumMessage =
 "📞 Contact admin @demonhunter1511 to purchase Premium\n" +
 "🎁 Or use /settings → Referrals to earn free Premium!";
 
-// Empty keyboards (no buttons)
-const genderKeyboard: any = { reply_markup: { inline_keyboard: [] } };
-const stateKeyboard: any = { reply_markup: { inline_keyboard: [] } };
-const backKeyboard: any = { reply_markup: { inline_keyboard: [] } };
-const preferenceKeyboard: any = { reply_markup: { inline_keyboard: [] } };
-const mainMenuKeyboard: any = { reply_markup: { inline_keyboard: [] } };
+const genderKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("👨 Male", "GENDER_MALE")],
+    [Markup.button.callback("👩 Female", "GENDER_FEMALE")],
+    [Markup.button.callback("🔙 Back", "OPEN_SETTINGS")]
+]);
+const stateKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("Telangana", "STATE_TELANGANA")],
+    [Markup.button.callback("Andhra Pradesh", "STATE_AP")],
+    [Markup.button.callback("🔙 Back", "OPEN_SETTINGS")]
+]);
+const backKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🔙 Main Menu", "BACK_MAIN_MENU")]
+]);
+const preferenceKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("Any", "PREF_ANY")],
+    [Markup.button.callback("Male", "PREF_MALE")],
+    [Markup.button.callback("Female", "PREF_FEMALE")],
+    [Markup.button.callback("🔙 Back", "OPEN_SETTINGS")]
+]);
+const mainMenuKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🔍 Find Partner", "START_SEARCH")],
+    [Markup.button.callback("⚙️ Settings", "OPEN_SETTINGS")],
+    [Markup.button.callback("🎁 Referrals", "OPEN_REFERRAL")],
+    [Markup.button.callback("❓ Help", "START_HELP")]
+]);
 
 // Group verification settings
 const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID || "-1001234567890";
@@ -106,49 +129,33 @@ async function isUserGroupMember(userId: number): Promise<boolean> {
 
 // Safe answerCallbackQuery helper
 async function safeAnswerCbQuery(ctx: ActionContext, text?: string) {
-    try {
-        if (ctx.callbackQuery?.id) {
-            await ctx.answerCbQuery(text);
-        }
-    } catch {
-        // Query too old or invalid, ignore
-    }
+    await safeAnswerCbQueryShared(ctx, text);
 }
 
 // Check and apply action cooldown - returns true if action should be blocked
 function checkAndApplyCooldown(ctx: ActionContext, action: string): boolean {
     const userId = ctx.from?.id;
     if (!userId) return false;
-    
-    const botInstance = require("../index").bot;
-    if (botInstance.isActionOnCooldown(userId, action)) {
+
+    if (bot.isActionOnCooldown(userId, action)) {
         return true;
     }
-    botInstance.setActionCooldown(userId, action);
+    bot.setActionCooldown(userId, action);
     return false;
 }
 
 // Safe editMessageText helper - handles all errors with fallback to reply
 // This prevents UI freeze when message can't be edited (too old, deleted, etc.)
-async function safeEditMessageText(ctx: ActionContext, text: string, extra?: any) {
+async function safeEditMessageText(ctx: ActionContext, text: string, extra?: Parameters<Context["reply"]>[1]) {
     try {
-        await ctx.editMessageText(text, extra);
-    } catch (error: any) {
-        // Check for "message not modified" - this is not an error, just ignore it
-        if (error.description && error.description.includes("message is not modified")) {
-            return; // Message already has same content
-        }
-        
-        // For all other errors (message too old, not found, etc.), try to reply instead
-        console.log("[safeEditMessageText] Falling back to reply:", error.description || error.message);
+        await safeEditMessageTextShared(ctx, text, extra);
+    } catch (error: unknown) {
+        // Send user feedback on failure
+        console.error("[safeEditMessageText] Failed to edit/reply:", getErrorMessage(error));
         try {
-            await ctx.reply(text, extra);
-        } catch (replyError: any) {
-            // Send user feedback on failure
-            console.error("[safeEditMessageText] Failed to reply:", replyError.message);
-            try {
-                await ctx.answerCbQuery("Something went wrong. Please try again.");
-            } catch { /* ignore */ }
+            await safeAnswerCbQueryShared(ctx, "Something went wrong. Please try again.");
+        } catch {
+            // Ignore
         }
     }
 }
@@ -208,7 +215,6 @@ bot.action("START_SEARCH", async (ctx) => {
     }
     await safeAnswerCbQuery(ctx);
     // Trigger search command
-    const searchCommand = require("../Commands/search").default;
     await searchCommand.execute(ctx, bot);
 });
 
@@ -567,6 +573,20 @@ bot.action("PREF_MALE", async (ctx) => {
     await showSettings(ctx);
 });
 
+bot.action("PREF_ANY", async (ctx) => {
+    if (!ctx.from) return;
+    const user = await getUser(ctx.from.id);
+    
+    if (!user.premium) {
+        await safeAnswerCbQuery(ctx);
+        return ctx.reply(premiumMessage, { parse_mode: "Markdown" });
+    }
+    
+    await safeAnswerCbQuery(ctx, "Preference saved: Any ✅");
+    await updateUser(ctx.from.id, { preference: "any" });
+    await showSettings(ctx);
+});
+
 bot.action("PREF_FEMALE", async (ctx) => {
     if (!ctx.from) return;
     const user = await getUser(ctx.from.id);
@@ -599,7 +619,6 @@ bot.action("BUY_PREMIUM", async (ctx) => {
 // Open referral command
 bot.action("OPEN_REFERRAL", async (ctx) => {
     await safeAnswerCbQuery(ctx);
-    const referralCommand = require("../Commands/referral").default;
     await referralCommand.execute(ctx, bot);
 });
 
@@ -698,7 +717,7 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
         return safeEditMessageText(ctx, "⚠️ You have already reported this user.", backKeyboard);
     }
     
-    // Create report in the reports collection (this also increments report count)
+    // Create report in the reports collection and return latest total.
     const newReportCount = await createReport(partnerId, ctx.from.id, reportReason);
     
     // Track that this user has reported this partner
@@ -844,7 +863,7 @@ async function showSetupComplete(ctx: ActionContext) {
     const stateText = user.state === "Other" ? "🌍 Other" : (user.state || "Not Set");
     
     let text: string;
-    let keyboard: any;
+    const keyboard = mainMenuKeyboard;
     
     // Always show main menu - group join is now optional
     // Users can chat without joining the group, but we show the invite link as optional
@@ -868,8 +887,6 @@ async function showSetupComplete(ctx: ActionContext) {
     "❓ /help - Get help with commands\n\n" +
     "💡 *Tip:* Be friendly and respectful for the best experience!";
     
-    keyboard = mainMenuKeyboard;
-
     // Use safeEditMessageText to prevent UI freeze
     await safeEditMessageText(ctx, text, { parse_mode: "Markdown", ...keyboard });
 }
@@ -992,7 +1009,6 @@ bot.action("END_CHAT", async (ctx) => {
     }
     await safeAnswerCbQuery(ctx);
     // Trigger end command
-    const endCommand = require("../Commands/end").default;
     await endCommand.execute(ctx, bot);
 });
 
@@ -1032,10 +1048,12 @@ bot.action("CANCEL_SEARCH", async (ctx) => {
     if (!userId) return;
     
     // Remove from waiting queue
-    const botInstance = require("../index").bot;
-    const queueIndex = botInstance.waitingQueue.findIndex((w: any) => w.id === userId);
+    const queueIndex = bot.waitingQueue.findIndex((w: { id: number }) => w.id === userId);
     if (queueIndex !== -1) {
-        botInstance.waitingQueue.splice(queueIndex, 1);
+        bot.waitingQueue.splice(queueIndex, 1);
+        bot.queueSet.delete(userId);
+    } else if (bot.queueSet.has(userId)) {
+        bot.queueSet.delete(userId);
     }
     
     const mainMenuKeyboard = Markup.inlineKeyboard([
