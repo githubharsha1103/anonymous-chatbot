@@ -250,6 +250,7 @@ export default {
       }
 
       // No match, add to queue - use atomic method for thread safety
+      // The mutex is already held from the try block above
       const added = bot.addToQueueAtomic({ id: userId, preference, gender: gender || "any", isPremium });
       if (!added) {
         // Fallback if not added (e.g., already in queue)

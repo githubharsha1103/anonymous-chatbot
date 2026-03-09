@@ -224,6 +224,7 @@ export class ExtraTelegraf extends Telegraf<Context> {
   }
 
   // Atomic queue operations - all protected by queueMutex
+  // These methods handle queueSet internally for O(1) lookups
   addToQueueAtomic(user: { id: number; preference: string; gender: string; isPremium: boolean }): boolean {
     // O(1) check using Set - much faster than array.some()
     if (this.runningChats.has(user.id)) return false;
@@ -235,6 +236,7 @@ export class ExtraTelegraf extends Telegraf<Context> {
     return true;
   }
 
+  // Match from queue - call within mutex lock for thread safety
   matchFromQueue(userId: number, matchData: { id: number; preference: string; gender: string; isPremium: boolean }): { matched: boolean; partnerId: number | null } {
     const matchIndex = this.waitingQueue.findIndex(w => {
       // Use Set for O(1) existence check first
@@ -263,6 +265,7 @@ export class ExtraTelegraf extends Telegraf<Context> {
     return { matched: true, partnerId: match.id };
   }
 
+  // Remove from queue - call within mutex lock for thread safety
   removeFromQueue(userId: number): boolean {
     // O(1) check using Set first
     if (!this.queueSet.has(userId)) return false;

@@ -406,10 +406,11 @@ export async function sendMessageWithRetry(
  * BLOCKING: Waits for all messages to be sent before returning
  * 
  * Optimizations for large broadcasts (10k+ users):
- * - Processes users in chunks to avoid memory issues
- * - Respects Telegram rate limits
+ * - Processes users in chunks (30 at a time) to respect Telegram limits
+ * - Sends messages in parallel within each chunk
+ * - Respects Telegram rate limits with 1s delay between chunks
  * - Reports progress periodically
- * - Handles failures gracefully
+ * - Handles failures gracefully with retry logic
  */
 export async function broadcastWithRateLimit(
   bot: ExtraTelegraf,
@@ -421,9 +422,9 @@ export async function broadcastWithRateLimit(
     onProgress?: (success: number, failed: number) => void;
   }
 ): Promise<{ success: number; failed: number; failedUserIds: number[] }> {
-  // Configuration for large broadcasts
-  const CHUNK_SIZE = 100;        // Process 100 users at a time
-  const CHUNK_DELAY = 2000;      // 2 second delay between chunks
+  // Configuration for large broadcasts - 30 users per chunk (Telegram safe limit)
+  const CHUNK_SIZE = 30;
+  const CHUNK_DELAY = 1000;  // 1 second delay between chunks
   
   console.log(`[BROADCAST] - Starting broadcast to ${userIds.length} users (chunk size: ${CHUNK_SIZE})`);
   
@@ -432,7 +433,7 @@ export async function broadcastWithRateLimit(
     return await broadcastSequential(bot, userIds, text, extra);
   }
   
-  // For large broadcasts, use chunked approach
+  // For large broadcasts, use chunked approach with parallel sending within chunks
   const totalChunks = Math.ceil(userIds.length / CHUNK_SIZE);
   let success = 0;
   let failed = 0;
@@ -445,15 +446,26 @@ export async function broadcastWithRateLimit(
     
     console.log(`[BROADCAST] - Processing chunk ${chunk + 1}/${totalChunks} (${chunkUsers.length} users)`);
     
-    // Process this chunk sequentially
-    const chunkResult = await broadcastSequential(bot, chunkUsers, text, extra);
-    success += chunkResult.success;
-    failed += chunkResult.failed;
-    failedUserIds.push(...chunkResult.failedUserIds);
+    // Send messages in parallel within this chunk
+    const chunkResults = await Promise.all(
+      chunkUsers.map(userId => 
+        sendMessageSafe(bot, userId, text, extra)
+      )
+    );
+    
+    // Count results
+    for (const result of chunkResults) {
+      if (result.success) {
+        success++;
+      } else {
+        failed++;
+        if (result.userId) failedUserIds.push(result.userId);
+      }
+    }
     
     // Progress log
     const totalProcessed = (chunk + 1) * CHUNK_SIZE;
-    if (totalProcessed % 500 === 0 || chunk === totalChunks - 1) {
+    if (totalProcessed % 300 === 0 || chunk === totalChunks - 1) {
       console.log(`[BROADCAST] - Progress: ${Math.min(totalProcessed, userIds.length)}/${userIds.length} (${success} sent, ${failed} failed)`);
     }
     
@@ -465,6 +477,47 @@ export async function broadcastWithRateLimit(
   
   console.log(`[BROADCAST] - Complete! Sent: ${success}, Failed: ${failed} out of ${userIds.length} users`);
   return { success, failed, failedUserIds };
+}
+
+/**
+ * Safe message send with retry logic
+ */
+async function sendMessageSafe(
+  bot: ExtraTelegraf,
+  userId: number,
+  text: string,
+  extra?: any
+): Promise<{ success: boolean; userId?: number }> {
+  const MAX_RETRIES = 2;
+  
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      await bot.telegram.sendMessage(userId, text, extra);
+      return { success: true, userId };
+    } catch (error: any) {
+      // Check for rate limit - wait and retry
+      if (error?.response?.error_code === 429) {
+        const retryAfter = error?.response?.parameters?.retry_after || 5;
+        console.log(`[BROADCAST] - Rate limited! Waiting ${retryAfter}s...`);
+        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+        continue;
+      }
+      
+      // Check for retryable errors
+      const isRetryable = error?.response?.error_code === 403 || 
+                          error?.response?.error_code === 400;
+      
+      if (isRetryable && attempt < MAX_RETRIES - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue;
+      }
+      
+      // Failed
+      return { success: false, userId };
+    }
+  }
+  
+  return { success: false, userId };
 }
 
 /**
