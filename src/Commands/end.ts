@@ -72,6 +72,17 @@ export default {
                 bot.rateLimitMap.delete(partner);
             }
 
+            // Clean up spectator sessions for this chat
+            // Find and remove any spectator entries that include these users
+            for (const [adminId, chat] of bot.spectatingChats) {
+                if ((partner && chat.user1 === partner && chat.user2 === id) ||
+                    (partner && chat.user1 === id && chat.user2 === partner)) {
+                    bot.spectatingChats.delete(adminId);
+                    console.log(`[CLEANUP] - Removed spectator session for admin ${adminId}`);
+                    break;
+                }
+            }
+
             // Store partner ID for potential report
             if (partner) {
                 await updateUser(id, { reportingPartner: partner });

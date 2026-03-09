@@ -107,10 +107,12 @@ export default {
         );
       }
 
-      // Remove from queue if already waiting
-      const queueIndex = bot.waitingQueue.findIndex(w => w.id === userId);
-      if (queueIndex !== -1) {
-        bot.waitingQueue.splice(queueIndex, 1);
+      // Remove from queue if already waiting - use atomic method for thread safety
+      if (!bot.removeFromQueue(userId)) {
+        // Also check queueSet directly in case of inconsistency
+        if (bot.queueSet.has(userId)) {
+          bot.queueSet.delete(userId);
+        }
       }
 
       // Get user preference
@@ -137,13 +139,15 @@ export default {
       // Otherwise (free user or "any" preference), match with anyone
       const matchPreference = (isPremium && preference !== "any") ? preference : null;
 
-      // Find a compatible match
+      // Find a compatible match - use queueSet for O(1) lookup validation
       // Bidirectional matching: both users must be compatible
-      // Use stored queue entry data to avoid database roundtrips
       let matchIndex = -1;
       
       for (let i = 0; i < bot.waitingQueue.length; i++) {
         const w = bot.waitingQueue[i] as WaitingUser;
+        // Skip if not in queueSet (may be stale)
+        if (!bot.queueSet.has(w.id)) continue;
+        
         const waitingGender = w.gender || "any";
         const waitingPref = w.preference || "any";
 
@@ -158,7 +162,9 @@ export default {
 
       if (matchIndex !== -1) {
         const match = bot.waitingQueue[matchIndex] as WaitingUser;
+        // Remove from both queue array and queueSet
         bot.waitingQueue.splice(matchIndex, 1);
+        bot.queueSet.delete(match.id);
 
         bot.runningChats.set(match.id, userId);
         bot.runningChats.set(userId, match.id);
@@ -243,8 +249,15 @@ export default {
         return ctx.reply(userPartnerInfo);
       }
 
-      // No match, add to queue
-      bot.waitingQueue.push({ id: userId, preference, gender: gender || "any", isPremium } as WaitingUser);
+      // No match, add to queue - use atomic method for thread safety
+      const added = bot.addToQueueAtomic({ id: userId, preference, gender: gender || "any", isPremium });
+      if (!added) {
+        // Fallback if not added (e.g., already in queue)
+        if (!bot.queueSet.has(userId)) {
+          bot.waitingQueue.push({ id: userId, preference, gender: gender || "any", isPremium } as WaitingUser);
+          bot.queueSet.add(userId);
+        }
+      }
       return ctx.reply("⏳ Waiting for a partner...");
     } finally {
       bot.chatMutex.release();
