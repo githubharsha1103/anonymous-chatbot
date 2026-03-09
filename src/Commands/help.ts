@@ -1,11 +1,11 @@
-import { Context, Telegraf } from "telegraf";
+import { Context } from "telegraf";
 import { Command } from "../Utils/commandHandler";
 import { removeKeyboard } from "telegraf/markup";
 
 export default {
     name: "help",
     description: "See the available commands",
-    execute: async (ctx: Context, bot: Telegraf<Context>) => {
+    execute: async (ctx: Context) => {
         await ctx.reply(
             "📚 <b>Available Commands:</b>\n\n" +
             "/start - Start the bot\n" +

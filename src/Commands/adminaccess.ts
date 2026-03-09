@@ -1,5 +1,5 @@
 import { Context } from "telegraf";
-import { ExtraTelegraf, bot } from "..";
+import { ExtraTelegraf } from "..";
 import { Command } from "../Utils/commandHandler";
 import { Markup } from "telegraf";
 import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts, getGroupedReports, getAllReferralStats, tempBanUser, getUserLatestReportReason } from "../storage/db";
@@ -404,7 +404,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
                 `🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:`,
                 { parse_mode: "Markdown", ...reportKeyboard }
             );
-        } catch (e) {
+        } catch {
             // User might have blocked the bot
         }
         
@@ -414,7 +414,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
                 `🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:`,
                 { parse_mode: "Markdown", ...reportKeyboard }
             );
-        } catch (e) {
+        } catch {
             // User might have blocked the bot
         }
         
@@ -877,7 +877,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
                 `Use the button below to return to reports.`,
                 { parse_mode: "Markdown", ...backKeyboard }
             );
-        } catch (error: any) {
+        } catch {
             // User might have blocked the bot
             await safeEditMessageText(
                 ctx,

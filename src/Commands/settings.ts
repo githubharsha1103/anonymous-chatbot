@@ -1,11 +1,11 @@
 import { Command } from "../Utils/commandHandler";
 import { Markup } from "telegraf";
-import { getUser, updateUser, getReferralCount } from "../storage/db";
+import { getUser, getReferralCount } from "../storage/db";
 
 export default {
   name: "settings",
   description: "Open settings menu",
-  execute: async (ctx, bot) => {
+  execute: async (ctx) => {
 
     if (!ctx.from) return;
     const u = await getUser(ctx.from.id);

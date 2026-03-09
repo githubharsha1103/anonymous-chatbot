@@ -21,7 +21,7 @@ const REFERRAL_TIERS: ReferralTier[] = [
 export default {
     name: "referral",
     description: "View your referral stats and invite friends",
-    execute: async (ctx: Context, bot: Telegraf<Context>) => {
+    execute: async (ctx: Context) => {
         const userId = ctx.from?.id as number;
         
         // Update user activity
@@ -43,8 +43,7 @@ export default {
         const activeReferrals = referralStats.active;
         const premiumDaysEarned = referralStats.premiumDaysEarned;
         
-        // Get current tier progress
-        const currentTier = getCurrentTier(referralCount);
+        // Get next tier to achieve
         const nextTier = getNextTier(referralCount);
         
         // Generate referral link
@@ -115,16 +114,6 @@ function createProgressBar(percent: number): string {
     const empty = 10 - filled;
     const bar = "▓".repeat(filled) + "░".repeat(empty);
     return `<code>${bar}</code> ${percent}%`;
-}
-
-// Get current tier based on referral count
-function getCurrentTier(count: number): ReferralTier | null {
-    for (let i = REFERRAL_TIERS.length - 1; i >= 0; i--) {
-        if (count >= REFERRAL_TIERS[i].count) {
-            return REFERRAL_TIERS[i];
-        }
-    }
-    return null;
 }
 
 // Get next tier to achieve
@@ -346,8 +335,7 @@ export function initReferralActions(bot: Telegraf<Context>) {
         const activeReferrals = referralStats.active;
         const premiumDaysEarned = referralStats.premiumDaysEarned;
         
-        // Get current tier progress
-        const currentTier = getCurrentTier(referralCount);
+        // Get next tier to achieve
         const nextTier = getNextTier(referralCount);
         
         // Generate referral link

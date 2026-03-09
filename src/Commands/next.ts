@@ -32,12 +32,25 @@ export default {
     const MAX_QUEUE_SOFT_LIMIT = 9500; // Start removing at 95% capacity
     if (bot.waitingQueue.length > MAX_QUEUE_SOFT_LIMIT) {
       const removeCount = bot.waitingQueue.length - MAX_QUEUE_SOFT_LIMIT;
+      // Remove oldest entries (from the beginning of the array)
       bot.waitingQueue = bot.waitingQueue.slice(removeCount);
       console.log(`[QUEUE] - Queue size limit enforced, removed ${removeCount} oldest users`);
     }
 
     // Acquire mutex to prevent race conditions
-    await bot.chatMutex.acquire();
+    try {
+        await bot.chatMutex.acquire();
+    } catch (error) {
+        // Distinguish between timeout and other errors
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('timeout')) {
+            console.error("[Next command] Mutex acquisition timed out:", error);
+            return ctx.reply("⚠️ Server is busy. Please try again in a moment.");
+        }
+        // Re-throw unexpected errors to not mask critical issues
+        console.error("[Next command] Mutex acquisition failed:", error);
+        throw error;
+    }
 
     try {
       const gender = await getGender(userId);
@@ -84,7 +97,7 @@ export default {
         // If message failed to send, end the chat properly
         if (!notifySent && partner) {
           cleanupBlockedUser(bot, partner);
-          endChatDueToError(bot, userId, partner);
+          await endChatDueToError(bot, userId, partner);
           return ctx.reply("🚫 Partner left the chat");
         }
 
@@ -222,7 +235,7 @@ export default {
             return ctx.reply("⚠️ Temporary connection issue with partner. You've been added back to the queue...\n⏳ Waiting for a new partner...");
           } else {
             // Partner has actually left
-            endChatDueToError(bot, userId, match.id);
+            await endChatDueToError(bot, userId, match.id);
             return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
           }
         }

@@ -13,10 +13,6 @@ const reportReasons = Markup.inlineKeyboard([
     [Markup.button.callback("🔙 Cancel", "REPORT_CANCEL")]
 ]);
 
-const backKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🔙 Back", "REPORT_CANCEL")]
-]);
-
 export default {
     name: "report",
     description: "Report a user",

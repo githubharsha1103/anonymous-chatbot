@@ -2,7 +2,6 @@ import { Context, Telegraf } from "telegraf";
 import { Command } from "../Utils/commandHandler";
 import { ExtraTelegraf } from "..";
 import { getUser, updateUser, updateLastActive, processReferral } from "../storage/db";
-import { Markup } from "telegraf";
 
 // Setup step constants
 export const SETUP_STEP_GENDER = "gender";
@@ -63,8 +62,7 @@ export default {
             await updateUser(userId, updateData);
             (bot as ExtraTelegraf).incrementUserCount();
             
-            // New user - show welcome message with WebApp button
-            const webAppUrl = process.env.WEBAPP_URL ? process.env.WEBAPP_URL + "/menu" : "https://your-domain.com/menu";
+            // New user - show welcome message
             await ctx.reply(
                 "🌟 <b>Welcome to Anonymous Chat!</b> 🌟\n\n" +
                 "✨ Connect with strangers anonymously\n" +
@@ -72,10 +70,7 @@ export default {
                 "💬 Chat freely and safely\n\n" +
                 "Tap <b>Get Started</b> to begin!",
                 { 
-                    parse_mode: "HTML" as const,
-                    reply_markup: Markup.inlineKeyboard([
-                        Markup.button.webApp("📱 Open Menu", webAppUrl)
-                    ]) as any
+                    parse_mode: "HTML" as const
                 }
             );
             return;
@@ -110,10 +105,9 @@ export default {
             return;
         }
         
-        // Existing user with complete profile - show main menu with WebApp button
+        // Existing user with complete profile - show main menu
         // Group join is now optional - show invite link but allow access
         const groupInviteLink = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
-        const webAppUrl = process.env.WEBAPP_URL ? process.env.WEBAPP_URL + "/menu" : "https://your-domain.com/menu";
         await ctx.reply(
             "🌟 <b>Welcome back!</b> 🌟\n\n" +
             "This bot helps you chat anonymously with people worldwide.\n\n" +
@@ -122,10 +116,7 @@ export default {
             "👉 " + groupInviteLink + "\n\n" +
             "Use the commands below to navigate:",
             { 
-                parse_mode: "HTML" as const,
-                reply_markup: Markup.inlineKeyboard([
-                    Markup.button.webApp("📱 Open Menu", webAppUrl)
-                ]) as any
+                parse_mode: "HTML" as const
             }
         );
     }

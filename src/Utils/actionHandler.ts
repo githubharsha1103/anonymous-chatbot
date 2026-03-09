@@ -3,9 +3,9 @@ import * as path from "path";
 import { bot } from "../index";
 import { Context, Telegraf } from "telegraf";
 import { Markup } from "telegraf";
-import { updateUser, getUser, getReferralCount, banUser, isBanned, incrementReportCount, createReport } from "../storage/db";
+import { updateUser, getUser, getReferralCount, banUser, isBanned, createReport } from "../storage/db";
 import { handleTelegramError } from "./telegramErrorHandler";
-import { isAdmin, unauthorizedResponse, ADMINS } from "./adminAuth";
+import { isAdmin, ADMINS } from "./adminAuth";
 
 // Because it doesn't know that ctx has a match property. by default, Context<Update> doesn't include match, but telegraf adds it dynamically when using regex triggers.
 export interface ActionContext extends Context {
@@ -631,8 +631,8 @@ bot.action("OPEN_REPORT", async (ctx) => {
     if (!ctx.from) return;
     
     const user = await getUser(ctx.from.id);
-    let partnerId = user.reportingPartner || user.lastPartner;
-    let message = "Select a reason to report:";
+    const partnerId = user.reportingPartner || user.lastPartner;
+    const message = "Select a reason to report:";
 
     if (!partnerId) {
         return safeEditMessageText(ctx, "No user to report. Start a chat first.", backKeyboard);
@@ -842,9 +842,6 @@ async function showSetupComplete(ctx: ActionContext) {
         ? (user.gender.charAt(0).toUpperCase() + user.gender.slice(1)) 
         : "Hidden";
     const stateText = user.state === "Other" ? "🌍 Other" : (user.state || "Not Set");
-    
-    // Check if user has joined the group (optional - for display purposes only)
-    const hasJoined = user.hasJoinedGroup === true;
     
     let text: string;
     let keyboard: any;

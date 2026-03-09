@@ -2,8 +2,8 @@ import { Context, Markup } from "telegraf";
 import { Command } from "../Utils/commandHandler";
 import { ExtraTelegraf } from "..";
 import { getInactiveUsers, getUserStats } from "../storage/db";
-import { broadcastWithRateLimit, sendMessageWithRetry } from "../Utils/telegramErrorHandler";
-import { isAdmin, isAdminByUsername, isAdminContext } from "../Utils/adminAuth";
+import { broadcastWithRateLimit } from "../Utils/telegramErrorHandler";
+import { isAdminContext } from "../Utils/adminAuth";
 
 // Removed local isAdmin/isAdminByUsername - now using shared utility from adminAuth.ts
 

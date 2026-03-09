@@ -34,10 +34,30 @@ To host the bot yourself, follow these steps:
     ```
 
 3. **Set up environment variables**:
-    Create a `.env` file in the root directory and add your Telegram bot token:
-    ```env
-    BOT_TOKEN=your-telegram-bot-token
-    ```
+   
+   **For Local Development:**
+   - Copy `.env.example` to `.env`
+   - Fill in your real credentials in `.env` (this file is gitignored)
+   
+   **For Production Deployment:**
+   - Set environment variables in your hosting platform (Render, Heroku, etc.)
+   
+   **Required Environment Variables:**
+   ```env
+   BOT_TOKEN=your-telegram-bot-token
+   ADMIN_IDS=your-admin-user-ids
+   GROUP_CHAT_ID=your-group-chat-id
+   MONGODB_URI=your-mongodb-connection-string
+   DB_NAME=telugu_anomybot
+   GROUP_INVITE_LINK=https://t.me/your-group-link
+   ```
+   
+   **Optional Environment Variables:**
+   ```env
+   PORT=3000
+   WEBHOOK_PATH=/webhook
+   WEBAPP_URL=https://your-domain.com
+   ```
 
 4. **Build the project**:
     ```sh
@@ -48,6 +68,13 @@ To host the bot yourself, follow these steps:
     ```sh
     npm start
     ```
+
+## Security Notes
+
+- Never commit real credentials to version control
+- Use `.env` for local development (automatically gitignored)
+- Set environment variables directly in your production hosting platform
+- The `.env.local.example` file shows the format for local overrides
 
 ## Template Repository
 

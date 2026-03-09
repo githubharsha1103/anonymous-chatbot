@@ -1,6 +1,6 @@
-import { Context } from "telegraf";
+import { Context, Markup } from "telegraf";
 import { ExtraTelegraf } from "..";
-import { sendMessageWithRetry, cleanupBlockedUser, cleanupUserMaps } from "../Utils/telegramErrorHandler";
+import { sendMessageWithRetry, cleanupBlockedUser } from "../Utils/telegramErrorHandler";
 import { updateUser, getUser, incUserTotalChats } from "../storage/db";
 
 // Helper function to format duration
@@ -30,7 +30,12 @@ export default {
         }
 
         // Acquire mutex to prevent race conditions
-        await bot.chatMutex.acquire();
+        try {
+            await bot.chatMutex.acquire();
+        } catch (error) {
+            console.error("[End command] Mutex acquisition failed:", error);
+            return ctx.reply("⚠️ Server is busy. Please try again in a moment.");
+        }
 
         try {
             if (!bot.runningChats.has(id)) {
@@ -82,6 +87,11 @@ export default {
                 await incUserTotalChats(partner);
             }
 
+            // Report keyboard
+            const reportKeyboard = Markup.inlineKeyboard([
+                [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
+            ]);
+
             // Common exit message for both users
             const exitMessage = 
 `🚫 Partner left the chat
@@ -91,13 +101,17 @@ export default {
 
 How was your chat experience?
 
-Use /next to find a new partner.`;
+Use /next to find a new partner.
 
-            // Use sendMessageWithRetry to handle blocked partners (without keyboard)
+━━━━━━━━━━━━━━━━━
+To report this chat:`;
+
+            // Use sendMessageWithRetry to handle blocked partners (with report keyboard)
             const notifySent = partner ? await sendMessageWithRetry(
                 bot,
                 partner,
-                exitMessage
+                exitMessage,
+                reportKeyboard
             ) : false;
 
             // If message failed to send, still clean up
@@ -105,10 +119,10 @@ Use /next to find a new partner.`;
                 cleanupBlockedUser(bot, partner);
             }
 
-            // Send exit message to user who ended chat (without keyboard)
+            // Send exit message to user who ended chat (with report keyboard)
             return ctx.reply(
                 exitMessage,
-                { parse_mode: "HTML" }
+                { parse_mode: "HTML", ...reportKeyboard }
             );
 
         } finally {

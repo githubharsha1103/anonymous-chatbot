@@ -96,6 +96,18 @@ export function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): void {
       bot.messageMap.delete(partner);
     }
 
+    // Clean up message count maps for both users (prevents memory leak)
+    bot.messageCountMap.delete(userId);
+    if (partner) {
+      bot.messageCountMap.delete(partner);
+    }
+
+    // Clean up rate limit entries for both users (prevents memory leak)
+    bot.rateLimitMap.delete(userId);
+    if (partner) {
+      bot.rateLimitMap.delete(partner);
+    }
+
     return; // Partner cleanup handled synchronously
   }
 
@@ -136,8 +148,25 @@ export async function cleanupBlockedUserAsync(bot: ExtraTelegraf, userId: number
 
 /**
  * End a chat properly when an error occurs with the partner
+ * Notifies both users that the chat has ended due to an error
  */
-export function endChatDueToError(bot: ExtraTelegraf, userId: number, partnerId: number): void {
+export async function endChatDueToError(bot: ExtraTelegraf, userId: number, partnerId: number): Promise<void> {
+  // First notify the partner (best effort)
+  try {
+    const reportKeyboard = Markup.inlineKeyboard([
+      [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
+    ]);
+    
+    await bot.telegram.sendMessage(
+      partnerId,
+      "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
+      { ...reportKeyboard }
+    );
+    console.log(`[CLEANUP] - Notified partner ${partnerId} about chat ending`);
+  } catch (error) {
+    console.log(`[CLEANUP] - Could not notify partner ${partnerId}:`, error);
+  }
+  
   // Remove both users from running chats using Map delete
   bot.runningChats.delete(userId);
   bot.runningChats.delete(partnerId);
@@ -149,6 +178,10 @@ export function endChatDueToError(bot: ExtraTelegraf, userId: number, partnerId:
   // Clean up message count maps
   bot.messageCountMap.delete(userId);
   bot.messageCountMap.delete(partnerId);
+  
+  // Clean up rate limit maps
+  bot.rateLimitMap.delete(userId);
+  bot.rateLimitMap.delete(partnerId);
   
   console.log(`[CLEANUP] - Chat ended due to error: user ${userId}, partner ${partnerId}`);
 }
@@ -187,7 +220,7 @@ export async function handleTelegramError(
   bot: ExtraTelegraf,
   error: any,
   userId?: number,
-  partnerId?: number
+  _partnerId?: number
 ): Promise<boolean> {
   if (isBotBlockedError(error)) {
     const blockedUserId = userId || error.on?.payload?.chat_id;

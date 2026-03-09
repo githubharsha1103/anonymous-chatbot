@@ -5,8 +5,8 @@ const DB_NAME = process.env.DB_NAME || "telugu_anomybot";
 
 // MongoDB connection options for better SSL/TLS compatibility
 const MONGO_OPTIONS = {
-  maxPoolSize: 10,
-  minPoolSize: 2,
+  maxPoolSize: 5,
+  minPoolSize: 1,
   serverSelectionTimeoutMS: 10000,
   socketTimeoutMS: 45000,
   tls: true,
@@ -183,9 +183,56 @@ const BANS_FILE = "src/storage/bans.json";
 
 // Set to true to use MongoDB (requires MONGODB_URI environment variable)
 // Auto-detect based on whether MONGODB_URI is set
-let useMongoDB = !!process.env.MONGODB_URI;
-let isFallbackMode = !useMongoDB;
+const useMongoDB = !!process.env.MONGODB_URI;
+const isFallbackMode = !useMongoDB;
 let mongoConnectionFailed = false;
+
+// Track database health status for external monitoring
+export function getDatabaseStatus(): { mode: string; healthy: boolean; message: string } {
+  if (!useMongoDB || isFallbackMode) {
+    return {
+      mode: 'json',
+      healthy: true,
+      message: 'Using JSON file storage (no MongoDB configured)'
+    };
+  }
+  
+  if (mongoConnectionFailed) {
+    return {
+      mode: 'mongodb',
+      healthy: false,
+      message: 'MongoDB connection failed, using JSON fallback'
+    };
+  }
+  
+  return {
+    mode: 'mongodb',
+    healthy: true,
+    message: 'Connected to MongoDB'
+  };
+}
+
+/**
+ * Ping MongoDB to verify connection is alive
+ * Returns true if connection is healthy
+ */
+export async function pingDatabase(): Promise<boolean> {
+  if (!useMongoDB || isFallbackMode || mongoConnectionFailed) {
+    return false;
+  }
+  
+  if (!client) {
+    return false;
+  }
+  
+  try {
+    const db = client.db(DB_NAME);
+    await db.command({ ping: 1 });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // Log which storage mode is being used
 if (useMongoDB && !isFallbackMode) {
@@ -403,7 +450,7 @@ export async function unbanUser(id: number): Promise<void> {
   }
   
   // JSON fallback (locked)
-  let bans: any = await readJson(BANS_FILE);
+  const bans: any = await readJson(BANS_FILE);
   
   // Handle both array and object formats
   if (Array.isArray(bans)) {
@@ -566,7 +613,7 @@ export async function readBans(): Promise<number[]> {
   
   // JSON fallback - with array->object migration support (locked)
   // Initialize with object format if doesn't exist
-  let bans: any = await readJson(BANS_FILE);
+  const bans: any = await readJson(BANS_FILE);
 
   // If file was just created, readJson already wrote '{}'
   if (!bans) {
@@ -1204,22 +1251,6 @@ const REFERRAL_TIERS = [
     { count: 30, premiumDays: 14 },
     { count: 50, premiumDays: 30 }
 ];
-
-// Calculate premium days earned based on referral count
-function calculatePremiumDays(referralCount: number): number {
-    // Sum premium days from all tiers the user has reached.
-    // e.g. if tiers are 3->1d, 7->3d, 15->7d and you have 20 referrals,
-    // you earn 1+3+7 = 11 days total.
-    let totalDays = 0;
-    for (const tier of REFERRAL_TIERS) {
-        if (referralCount >= tier.count) {
-            totalDays += tier.premiumDays;
-        } else {
-            break;
-        }
-    }
-    return totalDays;
-}
 
 // Get detailed referral statistics
 interface ReferralStats {

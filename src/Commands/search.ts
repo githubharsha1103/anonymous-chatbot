@@ -1,6 +1,6 @@
 import { Context, Markup } from "telegraf";
 import { ExtraTelegraf } from "..";
-import { getGender, getUser, updateUser, incDaily, checkAndResetDaily } from "../storage/db";
+import { getUser, updateUser, incDaily, checkAndResetDaily } from "../storage/db";
 import { sendMessageWithRetry, endChatDueToError } from "../Utils/telegramErrorHandler";
 
 // Setup keyboards for forced setup
@@ -24,12 +24,7 @@ const setupStateKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
 ]);
 
-// Group join keyboard
-const GROUP_INVITE_LINK = process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat";
-const groupJoinKeyboard = Markup.inlineKeyboard([
-    [Markup.button.url("📢 Join Our Group", GROUP_INVITE_LINK)],
-    [Markup.button.callback("✅ I've Joined", "VERIFY_GROUP_JOIN")]
-]);
+
 
 // Type for users in waiting queue
 interface WaitingUser {
@@ -39,55 +34,45 @@ interface WaitingUser {
   isPremium: boolean;
 }
 
-// (old non-exported helper removed - only the exported version below is needed)
-// Function to check if user is group member (re-verifies on each search for security)
-async function isUserGroupMember(bot: ExtraTelegraf, userId: number): Promise<boolean> {
-    try {
-        const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID || "-1001234567890";
-        // Use GROUP_CHAT_ID directly - Telegram API requires numeric chat ID
-        const chatMember = await bot.telegram.getChatMember(GROUP_CHAT_ID, userId);
-        const validStatuses = ['creator', 'administrator', 'member', 'restricted'];
-        return validStatuses.includes(chatMember.status);
-    } catch (error) {
-        console.error(`[GroupCheck] - Error checking group membership for user ${userId}:`, error);
-        return false;
-    }
-}
-
 export async function redirectToSetup(ctx: Context) {
     if (!ctx.from) return null;
     
-    const user = await getUser(ctx.from.id);
-    
-    if (!user.gender) {
-        return ctx.reply(
-            "📝 *Setup Required*\n\n" +
-            "⚠️ You must complete your profile before searching for a partner.\n\n" +
-            "👤 *Step 1 of 3*\n" +
-            "Select your gender:",
-            { parse_mode: "Markdown", ...setupGenderKeyboard }
-        );
-    } else if (!user.age) {
-        return ctx.reply(
-            "📝 *Setup Required*\n\n" +
-            "⚠️ You must complete your profile before searching for a partner.\n\n" +
-            "👤 *Step 2 of 3*\n" +
-            "🎂 *Select your age range:*\n" +
-            "(This helps us match you with people in similar age groups)",
-            { parse_mode: "Markdown", ...setupAgeKeyboard }
-        );
-    } else if (!user.state) {
-        return ctx.reply(
-            "📝 *Setup Required*\n\n" +
-            "⚠️ You must complete your profile before searching for a partner.\n\n" +
-            "👤 *Step 3 of 3*\n" +
-            "📍 *Select your location:*\n" +
-            "(Helps match you with nearby people)",
-            { parse_mode: "Markdown", ...setupStateKeyboard }
-        );
+    try {
+        const user = await getUser(ctx.from.id);
+        
+        if (!user.gender) {
+            return ctx.reply(
+                "📝 *Setup Required*\n\n" +
+                "⚠️ You must complete your profile before searching for a partner.\n\n" +
+                "👤 *Step 1 of 3*\n" +
+                "Select your gender:",
+                { parse_mode: "Markdown", ...setupGenderKeyboard }
+            );
+        } else if (!user.age) {
+            return ctx.reply(
+                "📝 *Setup Required*\n\n" +
+                "⚠️ You must complete your profile before searching for a partner.\n\n" +
+                "👤 *Step 2 of 3*\n" +
+                "🎂 *Select your age range:*\n" +
+                "(This helps us match you with people in similar age groups)",
+                { parse_mode: "Markdown", ...setupAgeKeyboard }
+            );
+        } else if (!user.state) {
+            return ctx.reply(
+                "📝 *Setup Required*\n\n" +
+                "⚠️ You must complete your profile before searching for a partner.\n\n" +
+                "👤 *Step 3 of 3*\n" +
+                "📍 *Select your location:*\n" +
+                "(Helps match you with nearby people)",
+                { parse_mode: "Markdown", ...setupStateKeyboard }
+            );
+        }
+        
+        return null; // Setup is complete
+    } catch (error) {
+        console.error("[redirectToSetup] Error fetching user:", error);
+        return ctx.reply("⚠️ An error occurred. Please try again.");
     }
-    
-    return null; // Setup is complete
 }
 
 export default {
@@ -111,6 +96,7 @@ export default {
     const MAX_QUEUE_SOFT_LIMIT = 9500; // Start removing at 95% capacity
     if (bot.waitingQueue.length > MAX_QUEUE_SOFT_LIMIT) {
       const removeCount = bot.waitingQueue.length - MAX_QUEUE_SOFT_LIMIT;
+      // Remove oldest entries (from the beginning of the array)
       bot.waitingQueue = bot.waitingQueue.slice(removeCount);
       console.log(`[QUEUE] - Queue size limit enforced, removed ${removeCount} oldest users`);
     }
@@ -136,7 +122,12 @@ export default {
     // Proceed with search - no group verification needed
 
     // Acquire mutex to prevent race conditions in matchmaking
-    await bot.matchMutex.acquire();
+    try {
+        await bot.matchMutex.acquire();
+    } catch (error) {
+        console.error("[Search command] Mutex acquisition failed:", error);
+        return ctx.reply("⚠️ Server is busy. Please try again in a moment.");
+    }
 
     try {
       // User already fetched above, use that data
@@ -275,7 +266,7 @@ export default {
             return ctx.reply("⚠️ Temporary connection issue with partner. You've been added back to the queue...\n⏳ Waiting for a new partner...");
           } else {
             // Partner has actually left (was removed from running chats by cleanup)
-            endChatDueToError(bot, userId, match.id);
+            await endChatDueToError(bot, userId, match.id);
             return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
           }
         }

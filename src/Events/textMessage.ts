@@ -2,10 +2,13 @@ import { Context, NarrowedContext } from "telegraf";
 import { Event } from "../Utils/eventHandler";
 import { ExtraTelegraf } from "..";
 import { Message, Update, ChatAction } from "telegraf/types";
-import { updateUser, getUser, getAllUsers, deleteUser, isBanned, getReportCount, getReferralCount, updateLastActive } from "../storage/db";
+import { updateUser, getUser, getAllUsers, updateLastActive } from "../storage/db";
 import { isBotBlockedError, cleanupBlockedUser, isNotEnoughRightsError, isRateLimitError, getRetryDelay, broadcastWithRateLimit } from "../Utils/telegramErrorHandler";
 import { waitingForBroadcast, waitingForUserId } from "../Commands/adminaccess";
 import { showUserDetails } from "../Commands/adminaccess";
+
+// Pre-compiled regex for URL detection (performance optimization)
+const urlRegex = /(https?:\/\/)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi;
 
 export default {
   type: "message",
@@ -52,7 +55,7 @@ export default {
 
         // Send broadcast with rate limiting
         const userIds = users.map(id => Number(id)).filter(id => !isNaN(id));
-        const { success, failed, failedUserIds } = await broadcastWithRateLimit(bot, userIds, broadcastText);
+        const { success, failed } = await broadcastWithRateLimit(bot, userIds, broadcastText);
 
         console.log(`[BROADCAST] - Completed: Sent ${success}, Failed ${failed}`);
         
@@ -161,7 +164,6 @@ export default {
 
         // ✅ Age (13-80) - Handle manual age input
         if (/^\d+$/.test(txt)) {
-          const user = await getUser(ctx.from.id);
           const age = Number(txt);
           
           if (age < 13 || age > 80) {
@@ -250,7 +252,7 @@ export default {
        LINK DETECTION & BLOCKING
     ================================= */
 
-    const urlRegex = /(https?:\/\/)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi;
+    // Use pre-compiled regex for URL detection
     if (text && urlRegex.test(text)) {
       return ctx.reply(
         "🚫 Links are not allowed in chat for your safety.\n\nPlease share information verbally instead."
@@ -283,7 +285,7 @@ export default {
         await ctx.telegram.sendChatAction(partner, getChatAction());
         // Add delay to simulate natural typing
         await new Promise(resolve => setTimeout(resolve, 1500));
-      } catch (error) {
+      } catch {
         // Partner might have left, ignore typing indicator errors
         console.log(`[CHAT] - Could not send typing indicator to ${partner}`);
       }
@@ -337,11 +339,11 @@ export default {
       }
 
       if (sent) {
-        let userMap = bot.messageMap.get(ctx.from.id) || {};
+        const userMap = bot.messageMap.get(ctx.from.id) || {};
         userMap[sent.message_id] = ctx.message.message_id;
         bot.messageMap.set(ctx.from.id, userMap);
 
-        let partnerMap = bot.messageMap.get(partner) || {};
+        const partnerMap = bot.messageMap.get(partner) || {};
         partnerMap[ctx.message.message_id] = sent.message_id;
         bot.messageMap.set(partner, partnerMap);
 
@@ -384,7 +386,7 @@ export default {
           
           // Forward the actual message
           await withTimeout(ctx.forwardMessage(adminId));
-        } catch (error) {
+        } catch {
           // Admin might have exited spectator mode, remove from spectating chats
           console.log(`[SPECTATOR] - Admin ${adminId} no longer available, removing spectator`);
           bot.spectatingChats.delete(adminId);
