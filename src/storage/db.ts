@@ -1,6 +1,12 @@
 import { MongoClient, Db, Collection, ObjectId } from "mongodb";
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
+const MONGODB_URI = process.env.MONGODB_URI || "";
+// Check if MongoDB URI is a valid placeholder or empty
+const isValidMongoDBUri = MONGODB_URI && 
+  !MONGODB_URI.includes("YOUR_") && 
+  !MONGODB_URI.includes("placeholder") &&
+  MONGODB_URI.length > 10;
+  
 const DB_NAME = process.env.DB_NAME || "telugu_anomybot";
 
 // MongoDB connection options for better SSL/TLS compatibility
@@ -190,6 +196,11 @@ export function normalizeAgeValue(age: string | number | null | undefined): stri
 
 // Connect to MongoDB
 async function connectToDatabase(): Promise<Db> {
+  // If no valid MongoDB URI, throw error immediately
+  if (!isValidMongoDBUri) {
+    throw new Error("No valid MongoDB URI configured");
+  }
+  
   if (db) return db;
   if (connectPromise) return connectPromise;
 
@@ -277,8 +288,8 @@ const BANS_FILE = "src/storage/bans.json";
 const PAYMENT_ORDERS_FILE = "src/storage/paymentOrders.json";
 
 // Set to true to use MongoDB (requires MONGODB_URI environment variable)
-// Auto-detect based on whether MONGODB_URI is set
-const useMongoDB = !!process.env.MONGODB_URI;
+// Auto-detect based on whether MONGODB_URI is set and is valid
+const useMongoDB = isValidMongoDBUri;
 const isFallbackMode = !useMongoDB;
 let mongoConnectionFailed = false;
 
@@ -332,8 +343,9 @@ export async function pingDatabase(): Promise<boolean> {
 // Log which storage mode is being used
 if (useMongoDB && !isFallbackMode) {
   console.log("[INFO] - MongoDB URI detected, will use MongoDB for data storage");
+  console.log("[INFO] - MongoDB URI:", MONGODB_URI.substring(0, 20) + "..."); // Log partial URI for debugging
 } else if (!useMongoDB) {
-  console.log("[INFO] - No MongoDB URI found, using JSON file storage");
+  console.log("[INFO] - No MongoDB URI found (or using placeholder), using JSON file storage");
 } else {
   console.log("[INFO] - MongoDB connection failed, using JSON file storage");
 }
