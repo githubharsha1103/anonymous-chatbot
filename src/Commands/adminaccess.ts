@@ -1332,24 +1332,17 @@ async function showUsersPage(ctx: Context, page: number) {
     const pageUsers = allUsers.slice(start, end);
     
     const userButtons = await Promise.all(pageUsers.map(async (id: string) => {
-        const userId = parseInt(id);
-        const user = await getUser(userId);
-        
-        // Use saved name or try to get from Telegram
-        let name = user.name;
-        if (!name || name === "Unknown") {
-            try {
-                const chat = await ctx.telegram.getChat(userId);
-                const username = "username" in chat ? chat.username : undefined;
-                const firstName = "first_name" in chat ? chat.first_name : undefined;
-                name = username || firstName || "Unknown";
-            } catch {
-                name = "Unknown";
-            }
+        const userId = parseInt(id, 10);
+
+        try {
+            const user = await getUser(userId);
+            const name = user.name && user.name !== "Unknown" ? user.name : "User";
+            const status = (await isBanned(userId)) ? "[BANNED]" : "[OK]";
+            return [Markup.button.callback(`${status} ${name} (${id})`, `ADMIN_USER_${id}`)];
+        } catch (error) {
+            console.error(`[showUsersPage] Failed loading user ${id}:`, error);
+            return [Markup.button.callback(`[ERR] User (${id})`, `ADMIN_USER_${id}`)];
         }
-        
-        const status = (await isBanned(userId)) ? "🚫" : "✅";
-        return [Markup.button.callback(`${status} ${name} (${id})`, `ADMIN_USER_${id}`)];
     }));
     
     const navButtons = [];
@@ -1512,6 +1505,7 @@ export async function showUserDetails(ctx: Context, userId: number) {
         }
     }
 }
+
 
 
 

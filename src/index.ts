@@ -20,8 +20,7 @@ import {
   getUser,
   isBanned,
   getTotalChats,
-  incrementTotalChats,
-  migrateAgeRangesToExactAges
+  incrementTotalChats
 } from "./storage/db";
 
 // ==================== ERROR HANDLING ====================
@@ -437,14 +436,6 @@ getTotalChats().then(chats => {
   console.log(`[INFO] - Loaded ${chats} total chats from database`);
 }).catch(err => {
   console.error("[ERROR] - Failed to load statistics:", err);
-});
-
-migrateAgeRangesToExactAges().then(updated => {
-  if (updated > 0) {
-    console.log(`[INFO] - Normalized age ranges to exact ages for ${updated} users`);
-  }
-}).catch(err => {
-  console.error("[ERROR] - Failed to normalize stored ages:", err);
 });
 
 /* ---------------- SERVER STARTUP ---------------- */

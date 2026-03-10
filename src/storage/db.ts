@@ -80,6 +80,7 @@ async function writeJson<T>(path: string, data: T): Promise<void> {
 
 let client: MongoClient | null = null;
 let db: Db | null = null;
+let connectPromise: Promise<Db> | null = null;
 
 // User interface
 export interface User {
@@ -163,79 +164,101 @@ const AGE_RANGE_TO_AVERAGE: Record<string, string> = {
   "40+": "45"
 };
 
-export function normalizeAgeValue(age: string | null | undefined): string | null {
-  if (!age) {
+export function normalizeAgeValue(age: string | number | null | undefined): string | null {
+  if (age === null || age === undefined) {
+    return null;
+  }
+
+  if (typeof age === "number") {
+    if (!Number.isFinite(age)) {
+      return null;
+    }
+    return String(Math.round(age));
+  }
+
+  if (typeof age !== "string") {
     return null;
   }
 
   const trimmed = age.trim();
+  if (!trimmed) {
+    return null;
+  }
+
   return AGE_RANGE_TO_AVERAGE[trimmed] || trimmed;
 }
 
 // Connect to MongoDB
 async function connectToDatabase(): Promise<Db> {
   if (db) return db;
+  if (connectPromise) return connectPromise;
 
-  try {
-    client = new MongoClient(MONGODB_URI, MONGO_OPTIONS);
-    await client.connect();
-    db = client.db(DB_NAME);
-    mongoConnectionFailed = false;
-    console.log("[INFO] - Connected to MongoDB");
-    
-    // Create indexes
-    await db.collection<User>("users").createIndex({ telegramId: 1 }, { unique: true });
-    await db.collection<User>("users").createIndex({ referralCode: 1 });
-    await db.collection<User>("users").createIndex({ referredBy: 1 });
-    
-    // Reports collection indexes for scalable report system
-    await db.collection<Report>("reports").createIndex({ reportedUser: 1 }, { name: "report_user_idx" });
-    await db.collection<Report>("reports").createIndex({ reportedBy: 1 }, { name: "report_reporter_idx" });
-    await db.collection<Report>("reports").createIndex({ createdAt: -1 }, { name: "report_date_idx" });
-    
-    // Bans collection indexes for fast isBanned() queries
-    await db.collection("bans").createIndex({ telegramId: 1 }, { name: "ban_telegram_idx", unique: true });
-    
-    // Performance indexes for admin commands and partner matching
-    await db.collection<User>("users").createIndex(
-      { lastActive: -1, banned: 1 },
-      { name: "admin_broadcast_idx" }
-    );
-    await db.collection<User>("users").createIndex(
-      { reports: -1 },
-      { name: "reports_idx" }
-    );
-    await db.collection<User>("users").createIndex(
-      { gender: 1, preference: 1, premium: 1, banned: 1 },
-      { name: "partner_match_idx" }
-    );
-    await db.collection<User>("users").createIndex(
-      { premium: 1, premiumExpiry: 1 },
-      { name: "premium_idx" }
-    );
-    await db.collection<User>("users").createIndex(
-      { state: 1, gender: 1 },
-      { name: "location_gender_idx" }
-    );
+  connectPromise = (async () => {
+    try {
+      client = new MongoClient(MONGODB_URI, MONGO_OPTIONS);
+      await client.connect();
+      db = client.db(DB_NAME);
+      mongoConnectionFailed = false;
+      console.log("[INFO] - Connected to MongoDB");
+      
+      // Create indexes
+      await db.collection<User>("users").createIndex({ telegramId: 1 }, { unique: true });
+      await db.collection<User>("users").createIndex({ referralCode: 1 });
+      await db.collection<User>("users").createIndex({ referredBy: 1 });
+      
+      // Reports collection indexes for scalable report system
+      await db.collection<Report>("reports").createIndex({ reportedUser: 1 }, { name: "report_user_idx" });
+      await db.collection<Report>("reports").createIndex({ reportedBy: 1 }, { name: "report_reporter_idx" });
+      await db.collection<Report>("reports").createIndex({ createdAt: -1 }, { name: "report_date_idx" });
+      
+      // Bans collection indexes for fast isBanned() queries
+      await db.collection("bans").createIndex({ telegramId: 1 }, { name: "ban_telegram_idx", unique: true });
+      
+      // Performance indexes for admin commands and partner matching
+      await db.collection<User>("users").createIndex(
+        { lastActive: -1, banned: 1 },
+        { name: "admin_broadcast_idx" }
+      );
+      await db.collection<User>("users").createIndex(
+        { reports: -1 },
+        { name: "reports_idx" }
+      );
+      await db.collection<User>("users").createIndex(
+        { gender: 1, preference: 1, premium: 1, banned: 1 },
+        { name: "partner_match_idx" }
+      );
+      await db.collection<User>("users").createIndex(
+        { premium: 1, premiumExpiry: 1 },
+        { name: "premium_idx" }
+      );
+      await db.collection<User>("users").createIndex(
+        { state: 1, gender: 1 },
+        { name: "location_gender_idx" }
+      );
 
-    // Premium payment orders indexes
-    await db.collection<PremiumPaymentOrder>("premium_orders").createIndex(
-      { orderId: 1 },
-      { name: "premium_order_id_idx", unique: true }
-    );
-    await db.collection<PremiumPaymentOrder>("premium_orders").createIndex(
-      { userId: 1, status: 1, createdAt: -1 },
-      { name: "premium_order_user_status_idx" }
-    );
-    
-    console.log("[INFO] - Database indexes created successfully");
-    
-    return db;
-  } catch (error) {
-    mongoConnectionFailed = true;
-    console.error("[ERROR] - MongoDB connection failed:", error);
-    throw error;
-  }
+      // Premium payment orders indexes
+      await db.collection<PremiumPaymentOrder>("premium_orders").createIndex(
+        { orderId: 1 },
+        { name: "premium_order_id_idx", unique: true }
+      );
+      await db.collection<PremiumPaymentOrder>("premium_orders").createIndex(
+        { userId: 1, status: 1, createdAt: -1 },
+        { name: "premium_order_user_status_idx" }
+      );
+      
+      console.log("[INFO] - Database indexes created successfully");
+      
+      return db;
+    } catch (error) {
+      mongoConnectionFailed = true;
+      console.error("[ERROR] - MongoDB connection failed:", error);
+      throw error;
+    } finally {
+      connectPromise = null;
+    }
+  })();
+
+  return connectPromise;
 }
 
 async function getUsersCollection(): Promise<Collection<User>> {
@@ -329,11 +352,6 @@ export async function getUser(id: number): Promise<UserWithNew> {
           await updateUser(id, { premium: false });
           user.premium = false;
         }
-        const normalizedAge = normalizeAgeValue(user.age);
-        if (normalizedAge !== user.age) {
-          await updateUser(id, { age: normalizedAge });
-          return { ...user, age: normalizedAge };
-        }
         return user;
       }
       
@@ -403,20 +421,11 @@ export async function getUser(id: number): Promise<UserWithNew> {
     await writeJson(JSON_FILE, dbObj);
     user.premium = false;
   }
-  const normalizedAge = normalizeAgeValue(user.age);
-  if (normalizedAge !== user.age) {
-    dbObj[id] = { ...(dbObj[id] as Record<string, unknown>), age: normalizedAge };
-    await writeJson(JSON_FILE, dbObj);
-    return { ...user, age: normalizedAge };
-  }
   return user;
 }
 
 export async function updateUser(id: number, data: Partial<User>): Promise<void> {
-  const normalizedData: Partial<User> = {
-    ...data,
-    ...(Object.prototype.hasOwnProperty.call(data, "age") ? { age: normalizeAgeValue(data.age ?? null) } : {})
-  };
+  const normalizedData: Partial<User> = { ...data };
 
   if (useMongoDB && !isFallbackMode) {
     try {
@@ -792,8 +801,14 @@ export async function getAllUsers(): Promise<string[]> {
   if (useMongoDB && !isFallbackMode) {
     try {
       const collection = await getUsersCollection();
-      const users = await collection.find({}).toArray();
-      return users.map((u: User) => u.telegramId.toString());
+      const users = await collection.find(
+        {},
+        { projection: { telegramId: 1, _id: 0 } }
+      ).toArray();
+      return users
+        .map((u: User) => u.telegramId)
+        .filter((telegramId): telegramId is number => Number.isFinite(telegramId))
+        .map((telegramId) => telegramId.toString());
     } catch (error) {
       console.error("[ERROR] - MongoDB error:", error);
       // Don't switch to fallback permanently
@@ -1315,8 +1330,8 @@ export async function migrateAgeRangesToExactAges(): Promise<number> {
     let jsonUpdated = 0;
 
     for (const [id, userData] of Object.entries(dbObj)) {
-      const normalizedAge = normalizeAgeValue(userData.age || null);
-      if (normalizedAge !== (userData.age || null)) {
+      const normalizedAge = normalizeAgeValue(userData.age ?? null);
+      if (normalizedAge !== (userData.age ?? null)) {
         dbObj[id] = { ...userData, age: normalizedAge };
         jsonUpdated++;
       }
