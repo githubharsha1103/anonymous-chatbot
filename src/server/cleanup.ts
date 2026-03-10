@@ -1,5 +1,5 @@
 import { ExtraTelegraf } from '../index';
-import { resetDailyCounts, closeDatabase } from '../storage/db';
+import { closeDatabase } from '../storage/db';
 
 /**
  * Cleanup and maintenance tasks
@@ -120,39 +120,6 @@ export function hourlyMapCleanup(bot: ExtraTelegraf): void {
 }
 
 /**
- * Schedule daily reset of chat counts
- */
-export function scheduleDailyReset(): void {
-  const now = new Date();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(0, 0, 0, 0);
-  
-  const msUntilMidnight = tomorrow.getTime() - now.getTime();
-  
-  console.log(`[DAILY] - Daily reset scheduled in ${Math.round(msUntilMidnight / 1000 / 60)} minutes`);
-  
-  setTimeout(async () => {
-    try {
-      const count = await resetDailyCounts();
-      console.log(`[DAILY] - Daily chat counts reset for ${count} users`);
-    } catch (error) {
-      console.error("[DAILY] - Error resetting daily counts:", error);
-    }
-    
-    // Schedule next reset every 24 hours
-    setInterval(async () => {
-      try {
-        const count = await resetDailyCounts();
-        console.log(`[DAILY] - Daily chat counts reset for ${count} users`);
-      } catch (error) {
-        console.error("[DAILY] - Error resetting daily counts:", error);
-      }
-    }, 24 * 60 * 60 * 1000);
-  }, msUntilMidnight);
-}
-
-/**
  * Register all cleanup intervals
  */
 export function registerCleanupTasks(bot: ExtraTelegraf): void {
@@ -167,9 +134,6 @@ export function registerCleanupTasks(bot: ExtraTelegraf): void {
   
   // Queue safety filter every 30 seconds
   setInterval(() => filterQueueUsersInChats(bot), 30000);
-  
-  // Schedule daily reset
-  scheduleDailyReset();
 }
 
 /**

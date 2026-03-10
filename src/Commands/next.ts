@@ -1,9 +1,16 @@
-import { Context, Markup } from "telegraf";
+﻿import { Context } from "telegraf";
 import { ExtraTelegraf } from "..";
-import { getGender, getUser, updateUser, incDaily, checkAndResetDaily } from "../storage/db";
-import { sendMessageWithRetry, endChatDueToError, cleanupBlockedUser } from "../Utils/telegramErrorHandler";
+import { getGender, getUser, updateUser } from "../storage/db";
+import {
+  beginChatRuntime,
+  buildPartnerLeftMessage,
+  buildPartnerMatchMessage,
+  buildSelfSkippedMessage,
+  clearChatRuntime,
+  exitChatKeyboard
+} from "../Utils/chatFlow";
+import { cleanupBlockedUser, endChatDueToError, sendMessageWithRetry } from "../Utils/telegramErrorHandler";
 
-// Type for users in waiting queue
 interface WaitingUser {
   id: number;
   preference: string;
@@ -15,265 +22,124 @@ export default {
   name: "next",
   description: "Skip current chat and find new partner",
   execute: async (ctx: Context, bot: ExtraTelegraf) => {
-
     const userId = ctx.from?.id as number;
 
-    // Check rate limit
     if (bot.isRateLimited(userId)) {
       return ctx.reply("⏳ Please wait a moment before trying again.");
     }
 
-    // Keep queue Set and array synchronized for reliable queue checks/matching
-    if (bot.queueSet.size !== bot.waitingQueue.length) {
-      bot.queueSet.clear();
-      for (const queued of bot.waitingQueue) {
-        bot.queueSet.add(queued.id);
-      }
-    }
-    
-    // Check queue size limit
+    bot.syncQueueState();
+
     if (bot.isQueueFull()) {
       return ctx.reply("🚫 Queue is full. Please try again later.");
     }
-    
-    // Enforce queue size limit by removing oldest if approaching limit
-    const MAX_QUEUE_SOFT_LIMIT = 9500; // Start removing at 95% capacity
+
+    const MAX_QUEUE_SOFT_LIMIT = 9500;
     if (bot.waitingQueue.length > MAX_QUEUE_SOFT_LIMIT) {
-      const removeCount = bot.waitingQueue.length - MAX_QUEUE_SOFT_LIMIT;
-      // Remove oldest entries (from the beginning of the array)
-      bot.waitingQueue = bot.waitingQueue.slice(removeCount);
-      bot.queueSet.clear();
-      for (const queued of bot.waitingQueue) {
-        bot.queueSet.add(queued.id);
-      }
+      const removeCount = bot.trimWaitingQueue(MAX_QUEUE_SOFT_LIMIT);
       console.log(`[QUEUE] - Queue size limit enforced, removed ${removeCount} oldest users`);
     }
 
-    // Acquire matchmaking mutex to prevent race conditions with /search
     try {
-        await bot.matchMutex.acquire();
-    } catch (error) {
-        // Distinguish between timeout and other errors
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        if (errorMessage.includes('timeout')) {
-            console.error("[Next command] Mutex acquisition timed out:", error);
-            return ctx.reply("⚠️ Server is busy. Please try again in a moment.");
-        }
-        // Re-throw unexpected errors to not mask critical issues
-        console.error("[Next command] Mutex acquisition failed:", error);
-        throw error;
-    }
+      return await bot.withChatStateLock(async () => {
+        const gender = (await getGender(userId)) || "any";
 
-    try {
-      const gender = await getGender(userId);
-      
-      // End current chat if in one
-      if (bot.runningChats.has(userId)) {
-        const partner = bot.getPartner(userId);
-        
-        // Remove users from running chats using Map delete
-        bot.runningChats.delete(userId);
-        if (partner) bot.runningChats.delete(partner);
-        
-        // Clean up message maps
-        bot.messageMap.delete(userId);
-        if (partner) bot.messageMap.delete(partner);
-        
-        // Clean up message count
-        bot.messageCountMap.delete(userId);
-        if (partner) bot.messageCountMap.delete(partner);
-        
-        // Clean up rate limit entries to prevent memory growth
-        bot.rateLimitMap.delete(userId);
-        if (partner) bot.rateLimitMap.delete(partner);
+        if (bot.runningChats.has(userId)) {
+          const partner = bot.getPartner(userId);
+          clearChatRuntime(bot, userId, partner);
 
-        // Store partner ID for potential report (both ways)
-        if (partner) {
-          await updateUser(userId, { reportingPartner: partner, chatStartTime: null });
-          await updateUser(partner, { reportingPartner: userId, chatStartTime: null });
-        }
-        
-        // Report keyboard
-        const reportKeyboard = Markup.inlineKeyboard([
-          [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
-        ]);
+          if (partner) {
+            await updateUser(userId, { reportingPartner: partner, chatStartTime: null });
+            await updateUser(partner, { reportingPartner: userId, chatStartTime: null });
+          }
 
-        // Use sendMessageWithRetry to handle blocked partners
-        const notifySent = partner ? await sendMessageWithRetry(
-          bot,
-          partner,
-          "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
-          reportKeyboard
-        ) : false;
+          const notifySent = partner
+            ? await sendMessageWithRetry(bot, partner, buildPartnerLeftMessage(), exitChatKeyboard)
+            : false;
 
-        // If message failed to send, end the chat properly
-        if (!notifySent && partner) {
-          cleanupBlockedUser(bot, partner);
-          await endChatDueToError(bot, userId, partner);
-          return ctx.reply("🚫 Partner left the chat");
+          if (!notifySent && partner) {
+            cleanupBlockedUser(bot, partner);
+            await endChatDueToError(bot, userId, partner);
+            return ctx.reply("🚫 Partner left the chat");
+          }
+
+          await ctx.reply(buildSelfSkippedMessage(), exitChatKeyboard);
         }
 
-        await ctx.reply(
-          "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
-          reportKeyboard
-        );
-      }
-
-      // Remove from queue if already waiting - use atomic method for thread safety
-      if (!bot.removeFromQueue(userId)) {
-        // Also check queueSet directly in case of inconsistency
+        bot.removeFromQueue(userId);
         if (bot.queueSet.has(userId)) {
           bot.queueSet.delete(userId);
         }
-      }
 
-      // Get user preference
-      const user = await getUser(userId);
-      
-      // Check daily chat limit for non-premium users (only when looking for a new match)
-      const canChat = await checkAndResetDaily(userId);
-      if (!canChat) {
-          return ctx.reply(
-              "⏰ *Daily chat limit reached!*\n\n" +
-              "You've used all 100 free chats for today.\n\n" +
-              "💎 *Upgrade to Premium for unlimited chats!*/settings",
-              { parse_mode: "Markdown" }
-          );
-      }
-      
-      const preference = user.preference || "any";
-      const isPremium = user.premium || false;
+        const user = await getUser(userId);
+        const preference = user.preference || "any";
+        const isPremium = user.premium || false;
+        const matchPreference = isPremium && preference !== "any" ? preference : null;
 
-      // SIMPLIFIED MATCHING LOGIC:
-      // - Normal users (non-premium): preference is locked to "any" → match with BOTH genders randomly
-      // - Premium users: can set preference → match ONLY with preferred gender
-      // If user is premium AND has specific preference, match only with that gender
-      // Otherwise (free user or "any" preference), match with anyone
-      const matchPreference = (isPremium && preference !== "any") ? preference : null;
+        let matchIndex = -1;
+        for (let i = 0; i < bot.waitingQueue.length; i++) {
+          const queuedUser = bot.waitingQueue[i] as WaitingUser;
+          if (!bot.queueSet.has(queuedUser.id)) continue;
 
-      // Find a compatible match - use queueSet for O(1) lookup validation
-      // Bidirectional matching: both users must be compatible
-      let matchIndex = -1;
-      
-      for (let i = 0; i < bot.waitingQueue.length; i++) {
-        const w = bot.waitingQueue[i] as WaitingUser;
-        // Skip if not in queueSet (may be stale)
-        if (!bot.queueSet.has(w.id)) continue;
-        
-        const waitingGender = w.gender || "any";
-        const waitingPref = w.preference || "any";
+          const waitingGender = queuedUser.gender || "any";
+          const waitingPreference = queuedUser.preference || "any";
+          const genderMatches = !matchPreference || waitingGender === matchPreference;
+          const preferenceMatches = waitingPreference === "any" || waitingPreference === gender;
 
-        const genderMatches = !matchPreference || waitingGender === matchPreference;
-        const preferenceMatches = waitingPref === "any" || waitingPref === gender;
-
-        if (genderMatches && preferenceMatches) {
-          matchIndex = i;
-          break;
-        }
-      }
-
-      if (matchIndex !== -1) {
-        const match = bot.waitingQueue[matchIndex] as WaitingUser;
-        // Remove from both queue array and queueSet
-        bot.waitingQueue.splice(matchIndex, 1);
-        bot.queueSet.delete(match.id);
-
-        bot.runningChats.set(match.id, userId);
-        bot.runningChats.set(userId, match.id);
-
-        // Store last partner and chat start time
-        await updateUser(userId, { lastPartner: match.id, chatStartTime: Date.now() });
-        await updateUser(match.id, { lastPartner: userId, chatStartTime: Date.now() });
-        
-        // load matched user profile for display
-        const matchUser = await getUser(match.id);
-        // Increment chat count for new chat
-        bot.incrementChatCount();
-        
-        // Increment daily chat count for both matched users (non-premium only)
-        await incDaily(userId);
-        await incDaily(match.id);
-
-        // Build partner info message - hide gender for non-premium users
-        // Premium users can see partner's gender only if partner has set it
-        const partnerGender = isPremium && matchUser.gender 
-            ? matchUser.gender.charAt(0).toUpperCase() + matchUser.gender.slice(1) 
-            : "🔒 Hidden";
-        const partnerAge = matchUser.age || "Not Set";
-        
-        const userPartnerInfo = 
-`✅ Partner Matched
-
-🔢 Age: ${partnerAge}
-👥 Gender: ${partnerGender}
-🌍 Country: 🇮🇳 India${matchUser.state ? ` - ${matchUser.state.charAt(0).toUpperCase() + matchUser.state.slice(1)}` : ""}
-
-🚫 Links are restricted
-⏱️ Media sharing unlocked after 2 minutes
-
-/end — Leave the chat`;
-
-        // For match user - also hide gender if they're not premium
-        // Premium users can see their own gender only if they have set it
-        const matchUserGender = user.premium && user.gender 
-            ? user.gender.charAt(0).toUpperCase() + user.gender.slice(1) 
-            : "🔒 Hidden";
-            
-        const matchPartnerInfo = 
-`✅ Partner Matched
-
-🔢 Age: ${user.age || "Not Set"}
-👥 Gender: ${matchUserGender}
-🌍 Country: 🇮🇳 India${user.state ? ` - ${user.state.charAt(0).toUpperCase() + user.state.slice(1)}` : ""}
-
-🚫 Links are restricted
-⏱️ Media sharing unlocked after 2 minutes
-
-/end — Leave the chat`;
-
-        // Use sendMessageWithRetry to handle blocked matches
-        const matchSent = await sendMessageWithRetry(
-          bot,
-          match.id,
-          matchPartnerInfo
-        );
-
-        // If message failed to send, check if partner is still in running chats
-        if (!matchSent) {
-          // Check if partner is still in running chats (they haven't left)
-          const partnerStillThere = bot.runningChats.has(match.id);
-          
-          if (partnerStillThere) {
-            // Partner is still there - treat this as a failed match and cleanly end chat state first
-            await endChatDueToError(bot, userId, match.id);
-            
-            // Add current user back to queue to find another partner
-            const currentGender = await getGender(userId);
-            const requeued = bot.addToQueueAtomic({ id: userId, preference, gender: currentGender || "any", isPremium });
-            if (!requeued) {
-              return ctx.reply("⚠️ Temporary connection issue. Please try /next again.");
-            }
-            
-            return ctx.reply("⚠️ Temporary connection issue with partner. You've been added back to the queue...\n⏳ Waiting for a new partner...");
-          } else {
-            // Partner has actually left
-            await endChatDueToError(bot, userId, match.id);
-            return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+          if (genderMatches && preferenceMatches) {
+            matchIndex = i;
+            break;
           }
         }
 
-        return ctx.reply(userPartnerInfo);
-      }
+        if (matchIndex === -1) {
+          const added = bot.addToQueueAtomic({ id: userId, preference, gender, isPremium });
+          if (!added) {
+            return ctx.reply("You are already in the queue!");
+          }
+          return ctx.reply("⏳ Waiting for a partner...");
+        }
 
-      // No match, add to queue - use atomic method for thread safety
-      // The mutex is already held from the try block above
-      const added = bot.addToQueueAtomic({ id: userId, preference, gender: gender || "any", isPremium });
-      if (!added) {
-        return ctx.reply("You are already in the queue!");
-      }
-      return ctx.reply("⏳ Waiting for a partner...");
-    } finally {
-      bot.matchMutex.release();
+        const match = bot.waitingQueue[matchIndex] as WaitingUser;
+        bot.waitingQueue.splice(matchIndex, 1);
+        bot.queueSet.delete(match.id);
+        beginChatRuntime(bot, userId, match.id);
+
+        const chatStartTime = Date.now();
+        await updateUser(userId, { lastPartner: match.id, chatStartTime });
+        await updateUser(match.id, { lastPartner: userId, chatStartTime });
+
+        const matchUser = await getUser(match.id);
+        bot.incrementChatCount();
+
+        const userPartnerInfo = buildPartnerMatchMessage(isPremium, matchUser);
+        const matchPartnerInfo = buildPartnerMatchMessage(!!user.premium, user);
+
+        const matchSent = await sendMessageWithRetry(bot, match.id, matchPartnerInfo);
+        if (!matchSent) {
+          const partnerStillThere = bot.runningChats.has(match.id);
+          await endChatDueToError(bot, userId, match.id);
+
+          if (partnerStillThere) {
+            const currentGender = (await getGender(userId)) || "any";
+            const requeued = bot.addToQueueAtomic({ id: userId, preference, gender: currentGender, isPremium });
+            if (!requeued) {
+              return ctx.reply("⚠️ Temporary connection issue. Please try /next again.");
+            }
+
+            return ctx.reply(
+              "⚠️ Temporary connection issue with partner. You've been added back to the queue...\n⏳ Waiting for a new partner..."
+            );
+          }
+
+          return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+        }
+
+        return ctx.reply(userPartnerInfo);
+      });
+    } catch (error) {
+      console.error("[Next command] Match flow failed:", error);
+      return ctx.reply("⚠️ Server is busy. Please try again in a moment.");
     }
   }
 };

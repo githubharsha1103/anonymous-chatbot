@@ -1,147 +1,79 @@
-import { Context, Markup } from "telegraf";
+﻿import { Context } from "telegraf";
 import { ExtraTelegraf } from "..";
-import { sendMessageWithRetry, cleanupBlockedUser } from "../Utils/telegramErrorHandler";
+import { cleanupBlockedUser, sendMessageWithRetry } from "../Utils/telegramErrorHandler";
 import { updateUser, getUser, incUserTotalChats } from "../storage/db";
+import {
+  buildPartnerLeftMessage,
+  buildSelfEndedMessage,
+  clearChatRuntime,
+  exitChatKeyboard
+} from "../Utils/chatFlow";
 
-// Helper function to format duration
 function formatDuration(ms: number): string {
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
 
-    if (hours > 0) {
-        return `${hours}h ${minutes % 60}m`;
-    } else if (minutes > 0) {
-        return `${minutes} min${minutes > 1 ? 's' : ''}`;
-    } else {
-        return `${seconds}s`;
-    }
+  if (hours > 0) {
+    return `${hours}h ${minutes % 60}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes} min${minutes > 1 ? "s" : ""}`;
+  }
+  return `${seconds}s`;
 }
 
 export default {
-    name: "end",
-    execute: async (ctx: Context, bot: ExtraTelegraf) => {
+  name: "end",
+  execute: async (ctx: Context, bot: ExtraTelegraf) => {
+    const id = ctx.from?.id as number;
 
-        const id = ctx.from?.id as number;
-
-        // Check rate limit
-        if (bot.isRateLimited(id)) {
-            return ctx.reply("⏳ Please wait a moment before trying again.");
-        }
-
-        // Acquire mutex to prevent race conditions
-        try {
-            await bot.chatMutex.acquire();
-        } catch (error) {
-            console.error("[End command] Mutex acquisition failed:", error);
-            return ctx.reply("⚠️ Server is busy. Please try again in a moment.");
-        }
-
-        try {
-            if (!bot.runningChats.has(id)) {
-                // If user is waiting in queue, /end should cancel search.
-                if (bot.removeFromQueue(id)) {
-                    return ctx.reply("🔍 Search cancelled. Use /search when you want to find a partner again.");
-                }
-                return ctx.reply("You are not in a chat. Use /search to find a partner!");
-            }
-
-            const partner = bot.getPartner(id);
-
-            // Calculate chat duration
-            const user = await getUser(id);
-            const chatStartTime = user.chatStartTime;
-            const duration = chatStartTime ? Date.now() - chatStartTime : 0;
-            const durationText = formatDuration(duration);
-
-            // Get message count
-            const messageCount = bot.messageCountMap.get(id) || 0;
-
-            // Clean up chat state using Map delete
-            bot.runningChats.delete(id);
-            if (partner) bot.runningChats.delete(partner);
-
-            bot.messageMap.delete(id);
-            if (partner) bot.messageMap.delete(partner);
-
-            // Clean up message count
-            bot.messageCountMap.delete(id);
-            if (partner) {
-                bot.messageCountMap.delete(partner);
-            }
-            
-            // Clean up rate limit entries to prevent memory growth
-            bot.rateLimitMap.delete(id);
-            if (partner) {
-                bot.rateLimitMap.delete(partner);
-            }
-
-            // Clean up spectator sessions for this chat
-            // Find and remove any spectator entries that include these users
-            for (const [adminId, chat] of bot.spectatingChats) {
-                if ((partner && chat.user1 === partner && chat.user2 === id) ||
-                    (partner && chat.user1 === id && chat.user2 === partner)) {
-                    bot.spectatingChats.delete(adminId);
-                    console.log(`[CLEANUP] - Removed spectator session for admin ${adminId}`);
-                    break;
-                }
-            }
-
-            // Store partner ID for potential report
-            if (partner) {
-                await updateUser(id, { reportingPartner: partner });
-                await updateUser(partner, { reportingPartner: id });
-            }
-
-            // Clear chat start time and increment chat count
-            await updateUser(id, { chatStartTime: null });
-            if (partner) {
-                await updateUser(partner, { chatStartTime: null });
-                // Increment total chats for both users
-                await incUserTotalChats(id);
-                await incUserTotalChats(partner);
-            }
-
-            // Report keyboard
-            const reportKeyboard = Markup.inlineKeyboard([
-                [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
-            ]);
-
-            // Common exit message for both users
-            const exitMessage = 
-`🚫 Partner left the chat
-
-💬 Chat Duration: ${durationText}
-💭 Messages Exchanged: ${messageCount}
-
-How was your chat experience?
-
-Use /next to find a new partner.
-
-━━━━━━━━━━━━━━━━━
-To report this chat:`;
-
-            // Use sendMessageWithRetry to handle blocked partners (with report keyboard)
-            const notifySent = partner ? await sendMessageWithRetry(
-                bot,
-                partner,
-                exitMessage,
-                reportKeyboard
-            ) : false;
-
-            // If message failed to send, still clean up
-            if (!notifySent && partner) {
-                cleanupBlockedUser(bot, partner);
-            }
-
-            // Send exit message to user who ended chat (with report keyboard)
-            return ctx.reply(
-                exitMessage,
-                { parse_mode: "HTML", ...reportKeyboard }
-            );
-
-        } finally {
-            bot.chatMutex.release();
-        }
+    if (bot.isRateLimited(id)) {
+      return ctx.reply("⏳ Please wait a moment before trying again.");
     }
+
+    try {
+      return await bot.withChatStateLock(async () => {
+        if (!bot.runningChats.has(id)) {
+          if (bot.removeFromQueue(id)) {
+            return ctx.reply("🔍 Search cancelled. Use /search when you want to find a partner again.");
+          }
+          return ctx.reply("You are not in a chat. Use /search to find a partner!");
+        }
+
+        const partner = bot.getPartner(id);
+        const user = await getUser(id);
+        const chatStartTime = user.chatStartTime;
+        const durationText = formatDuration(chatStartTime ? Date.now() - chatStartTime : 0);
+        const messageCount = bot.messageCountMap.get(id) || 0;
+
+        clearChatRuntime(bot, id, partner);
+
+        if (partner) {
+          await updateUser(id, { reportingPartner: partner, chatStartTime: null });
+          await updateUser(partner, { reportingPartner: id, chatStartTime: null });
+          await incUserTotalChats(id);
+          await incUserTotalChats(partner);
+        } else {
+          await updateUser(id, { chatStartTime: null });
+        }
+
+        const notifySent = partner
+          ? await sendMessageWithRetry(bot, partner, buildPartnerLeftMessage(durationText, messageCount), exitChatKeyboard)
+          : false;
+
+        if (!notifySent && partner) {
+          cleanupBlockedUser(bot, partner);
+        }
+
+        return ctx.reply(buildSelfEndedMessage(durationText, messageCount), {
+          parse_mode: "HTML",
+          ...exitChatKeyboard
+        });
+      });
+    } catch (error) {
+      console.error("[End command] End flow failed:", error);
+      return ctx.reply("⚠️ Server is busy. Please try again in a moment.");
+    }
+  }
 };

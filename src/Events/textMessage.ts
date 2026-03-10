@@ -6,6 +6,8 @@ import { updateUser, getUser, getAllUsers, updateLastActive } from "../storage/d
 import { isBotBlockedError, cleanupBlockedUser, isNotEnoughRightsError, isRateLimitError, getRetryDelay, broadcastWithRateLimit } from "../Utils/telegramErrorHandler";
 import { waitingForBroadcast, waitingForUserId } from "../Commands/adminaccess";
 import { showUserDetails } from "../Commands/adminaccess";
+import { getSetupCompleteText, getSetupStepPrompt } from "../Utils/setupFlow";
+import { buildPartnerLeftMessage, exitChatKeyboard } from "../Utils/chatFlow";
 
 // Pre-compiled regex for URL detection (performance optimization)
 const urlRegex = /(https?:\/\/)?(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_.+~#?&//=]*)/i;
@@ -148,60 +150,42 @@ export default {
 
       if (text) {
         const txt = text.toLowerCase();
+        const userForInput = await getUser(ctx.from.id);
 
-        // ✅ Gender - Only allow premium users to change gender via text
-        const userForGender = await getUser(ctx.from.id);
-        if (userForGender.premium && (txt === "male" || txt === "female")) {
-          await updateUser(ctx.from.id, { gender: txt });
-          return ctx.reply("Gender updated ✅");
-        }
+        // Only accept free-form profile updates when the user is actively in a setup/edit step.
+        if (userForInput.setupStep === "age" || userForInput.setupStep === "age_manual") {
+          if (/^\d+$/.test(txt)) {
+            const age = Number(txt);
 
-        // ✅ Preference
-        if (txt === "any") {
-          await updateUser(ctx.from.id, { preference: txt });
-          return ctx.reply("Preference updated ✅");
-        }
+            if (age < 13 || age > 80) {
+              return ctx.reply("🎂 *Age must be between 13 and 80*\n\nPlease try again:",
+                { parse_mode: "Markdown" });
+            }
 
-        // ✅ Age (13-80) - Handle manual age input
-        if (/^\d+$/.test(txt)) {
-          const age = Number(txt);
-          
-          if (age < 13 || age > 80) {
-            return ctx.reply("🎂 *Age must be between 13 and 80*\n\nPlease try again:", 
-              { parse_mode: "Markdown" });
+            await updateUser(ctx.from.id, { age: String(age), setupStep: "state" });
+
+            const statePrompt = getSetupStepPrompt("state");
+            if (statePrompt) {
+              await ctx.reply(statePrompt.text, { parse_mode: "Markdown", ...(statePrompt.keyboard || {}) });
+            }
+            return;
           }
-          
-          await updateUser(ctx.from.id, { age: String(age) });
-          
-          // After manual age input, ask for state
-          await ctx.reply(
-            "📝 *Step 3 of 3*\n\n" +
-            "📍 *Select your location:*\n" +
-            "(Helps match you with nearby people)",
-            { parse_mode: "Markdown" }
-          );
-          return;
         }
 
-        // ✅ State (for setup phase - when user types state name)
-        const validStates = ["telangana", "andhra pradesh", "karnataka", "tamil nadu", "maharashtra", "other"];
-        if (validStates.includes(txt)) {
-          const user = await getUser(ctx.from.id);
-          
-          // Only process as setup if user is in setup phase
-          if (user.setupStep === "state" || !user.state) {
-            // Capitalize first letter of each word
-            const formattedState = txt.split(' ').map(word => 
+        if (userForInput.setupStep === "state" || userForInput.setupStep === "state_other" || !userForInput.state) {
+          const validStates = ["telangana", "andhra pradesh", "karnataka", "tamil nadu", "maharashtra", "other"];
+          if (validStates.includes(txt)) {
+            const formattedState = txt.split(" ").map(word =>
                 word.charAt(0).toUpperCase() + word.slice(1)
-            ).join(' ');
-            
-            await updateUser(ctx.from.id, { state: formattedState });
-            
-            // Show setup complete message
+            ).join(" ");
+
+            await updateUser(ctx.from.id, { state: formattedState, setupStep: "done" });
+
             await ctx.reply(
-              `✨ *Profile Complete!* ✨\n\n` +
-              `Your profile has been set up successfully!\n\n` +
-              `🎉 Ready to start chatting? Use /search to find a partner!`,
+              getSetupCompleteText(
+                { gender: userForInput.gender, age: userForInput.age, state: formattedState },
+                process.env.GROUP_INVITE_LINK || "https://t.me/teluguanomychat"
+              ),
               { parse_mode: "Markdown" }
             );
             return;
@@ -406,8 +390,12 @@ export default {
         bot.messageMap.delete(ctx.from.id);
         bot.messageMap.delete(partner);
         
+        await updateUser(ctx.from.id, { chatStartTime: null, reportingPartner: partner });
+        await updateUser(partner, { chatStartTime: null, reportingPartner: ctx.from.id });
+
         return ctx.reply(
-          "🚫 Partner left the chat\n\n/next - Find new partner"
+          buildPartnerLeftMessage(),
+          exitChatKeyboard
         );
       }
       
@@ -422,8 +410,12 @@ export default {
         bot.messageMap.delete(ctx.from.id);
         bot.messageMap.delete(partner);
         
+        await updateUser(ctx.from.id, { chatStartTime: null, reportingPartner: partner });
+        await updateUser(partner, { chatStartTime: null, reportingPartner: ctx.from.id });
+
         return ctx.reply(
-          "🚫 Partner left the chat\n\n/next - Find new partner"
+          buildPartnerLeftMessage(),
+          exitChatKeyboard
         );
       }
       
@@ -450,8 +442,12 @@ export default {
             bot.messageMap.delete(ctx.from.id);
             bot.messageMap.delete(partner);
             
+            await updateUser(ctx.from.id, { chatStartTime: null, reportingPartner: partner });
+            await updateUser(partner, { chatStartTime: null, reportingPartner: ctx.from.id });
+
             return ctx.reply(
-              "🚫 Partner left the chat\n\n/next - Find new partner"
+              buildPartnerLeftMessage(),
+              exitChatKeyboard
             );
           }
           
@@ -466,3 +462,4 @@ export default {
     }
   }
 } as Event;
+

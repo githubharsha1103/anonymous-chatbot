@@ -2,9 +2,10 @@ import { Context } from "telegraf";
 import { ExtraTelegraf } from "..";
 import { Command } from "../Utils/commandHandler";
 import { Markup } from "telegraf";
-import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts, getGroupedReports, getAllReferralStats, tempBanUser, getUserLatestReportReason, resetUserReports } from "../storage/db";
+import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts, getGroupedReports, getGroupedReportsCount, getAllReferralStats, tempBanUser, getUserLatestReportReason, resetUserReports } from "../storage/db";
 import { isAdmin, isAdminContext, unauthorizedResponse } from "../Utils/adminAuth";
 import { getErrorMessage } from "../Utils/telegramUi";
+import { buildPartnerLeftMessage, clearChatRuntime, exitChatKeyboard } from "../Utils/chatFlow";
 
 // Removed local isAdmin/isAdminByUsername - now using shared utility from adminAuth.ts
 
@@ -47,6 +48,7 @@ const searchCancelKeyboard = Markup.inlineKeyboard([
 ]);
 
 const userPages: Map<number, number> = new Map();
+const reportPages: Map<number, number> = new Map();
 
 // Track admins waiting for broadcast input
 export const waitingForBroadcast: Set<number> = new Set();
@@ -158,6 +160,118 @@ export function initAdminActions(bot: ExtraTelegraf) {
                 console.error("[adminaccess safeEditMessageText] Failed to reply:", getErrorMessage(replyError));
             }
         }
+    }
+
+    async function showReportsList(ctx: Context, page: number = 0) {
+        const pageSize = 10;
+        const totalReportedUsers = await getGroupedReportsCount();
+
+        if (totalReportedUsers === 0) {
+            await safeEditMessageText(
+                ctx,
+                "📋 *Reported Users*\n\nNo users have been reported.\n\nUse the button below to return to menu.",
+                { parse_mode: "Markdown", ...backKeyboard }
+            );
+            return;
+        }
+
+        const totalPages = Math.max(1, Math.ceil(totalReportedUsers / pageSize));
+        const safePage = Math.min(Math.max(0, page), totalPages - 1);
+        const pageUsers = await getGroupedReports(pageSize, safePage * pageSize);
+
+        if (ctx.from?.id) {
+            reportPages.set(ctx.from.id, safePage);
+        }
+
+        const reportButtons = pageUsers.map(({ userId, count, latestReason }) => ([
+            Markup.button.callback(
+                `👤 ${userId} • ${count} report${count === 1 ? "" : "s"} • ${latestReason || "No reason"}`,
+                `ADMIN_REPORT_USER_${userId}`
+            )
+        ]));
+
+        const navButtons = [];
+        if (safePage > 0) {
+            navButtons.push(Markup.button.callback("◀️ Prev", `ADMIN_VIEW_REPORTS_PAGE_${safePage - 1}`));
+        }
+        if (safePage < totalPages - 1) {
+            navButtons.push(Markup.button.callback("Next ▶️", `ADMIN_VIEW_REPORTS_PAGE_${safePage + 1}`));
+        }
+
+        await safeEditMessageText(
+            ctx,
+            `📋 *Reports Inbox*\n\n` +
+            `Reported users: ${totalReportedUsers}\n` +
+            `Page ${safePage + 1}/${totalPages}\n\n` +
+            `Tap a user below to review reports and moderation options.`,
+            {
+                parse_mode: "Markdown",
+                ...Markup.inlineKeyboard([
+                    ...reportButtons,
+                    ...(navButtons.length > 0 ? [navButtons] : []),
+                    [Markup.button.callback("🔄 Refresh", `ADMIN_VIEW_REPORTS_PAGE_${safePage}`)],
+                    [Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
+                ])
+            }
+        );
+    }
+
+    async function showReportUserActions(ctx: Context, userId: number) {
+        const reportCount = await getReportCount(userId);
+        const reportReason = await getUserLatestReportReason(userId);
+        const userBanned = await isBanned(userId);
+
+        if (reportCount === 0) {
+            await safeEditMessageText(
+                ctx,
+                `📋 *Report Review*\n\nUser \`${userId}\` has no active reports.`,
+                {
+                    parse_mode: "Markdown",
+                    ...Markup.inlineKeyboard([
+                        [Markup.button.callback("🔙 Back to Reports", `ADMIN_VIEW_REPORTS_PAGE_${reportPages.get(ctx.from?.id || 0) || 0}`)]
+                    ])
+                }
+            );
+            return;
+        }
+
+        const keyboardRows = [];
+
+        if (!userBanned) {
+            keyboardRows.push([
+                Markup.button.callback("⚠️ Warn User", `ADMIN_REPORT_WARN_${userId}`),
+                Markup.button.callback("🚫 Ban User", `ADMIN_REPORT_BAN_${userId}`)
+            ]);
+            keyboardRows.push([
+                Markup.button.callback("⏱️ Temp Ban", `ADMIN_REPORT_TEMP_BAN_SELECT_${userId}`),
+                Markup.button.callback("🧹 Clear Reports", `ADMIN_REPORT_CLEAR_${userId}`)
+            ]);
+        } else {
+            keyboardRows.push([
+                Markup.button.callback("✅ Already Banned", `ADMIN_USER_${userId}`)
+            ]);
+            keyboardRows.push([
+                Markup.button.callback("🧹 Clear Reports", `ADMIN_REPORT_CLEAR_${userId}`)
+            ]);
+        }
+
+        keyboardRows.push([
+            Markup.button.callback("👁️ View Full User", `ADMIN_USER_${userId}`)
+        ]);
+        keyboardRows.push([
+            Markup.button.callback("🔙 Back to Reports", `ADMIN_VIEW_REPORTS_PAGE_${reportPages.get(ctx.from?.id || 0) || 0}`)
+        ]);
+
+        await safeEditMessageText(
+            ctx,
+            `📋 *Report Review*\n\n` +
+            `👤 User ID: \`${userId}\`\n` +
+            `📊 Total Reports: ${reportCount}\n` +
+            `📝 Latest Reason: ${reportReason || "No reason"}\n` +
+            `🚫 Status: ${userBanned ? "Banned" : "Active"}\n\n` +
+            `Choose an action below.`,
+            { parse_mode: "Markdown", ...Markup.inlineKeyboard(keyboardRows) }
+        );
     }
 
     // Back to main menu
@@ -398,30 +512,17 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         // Remove from spectating chats
         bot.spectatingChats.delete(adminId);
+        clearChatRuntime(bot, user1, user2);
         
-        // Clean up chat state for both users using Map delete
-        bot.runningChats.delete(user1);
-        bot.runningChats.delete(user2);
-        bot.messageMap.delete(user1);
-        bot.messageMap.delete(user2);
-        bot.messageCountMap.delete(user1);
-        bot.messageCountMap.delete(user2);
-        
-        // Clear chat start time
-        await updateUser(user1, { chatStartTime: null });
-        await updateUser(user2, { chatStartTime: null });
-        
-        // Report keyboard - same as when partner leaves normally
-        const reportKeyboard = Markup.inlineKeyboard([
-            [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
-        ]);
+        await updateUser(user1, { chatStartTime: null, reportingPartner: user2 });
+        await updateUser(user2, { chatStartTime: null, reportingPartner: user1 });
         
         // Notify both users that chat was terminated (show as partner left)
         try {
             await ctx.telegram.sendMessage(
                 user1,
-                `🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:`,
-                { parse_mode: "Markdown", ...reportKeyboard }
+                buildPartnerLeftMessage(),
+                { parse_mode: "Markdown", ...exitChatKeyboard }
             );
         } catch {
             // User might have blocked the bot
@@ -430,8 +531,8 @@ export function initAdminActions(bot: ExtraTelegraf) {
         try {
             await ctx.telegram.sendMessage(
                 user2,
-                `🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:`,
-                { parse_mode: "Markdown", ...reportKeyboard }
+                buildPartnerLeftMessage(),
+                { parse_mode: "Markdown", ...exitChatKeyboard }
             );
         } catch {
             // User might have blocked the bot
@@ -535,86 +636,35 @@ export function initAdminActions(bot: ExtraTelegraf) {
         );
     });
 
-    // View Reports (SCALABLE - uses new Report collection)
+    // View Reports (inbox style)
     bot.action("ADMIN_VIEW_REPORTS", async (ctx) => {
-        // Re-validate admin permissions
         if (!validateAdmin(ctx)) {
             await safeAnswerCbQuery(ctx, "Unauthorized");
             return;
         }
 
         await safeAnswerCbQuery(ctx);
+        await showReportsList(ctx, 0);
+    });
 
-        // Use new scalable getGroupedReports instead of looping through all users
-        const reportedUsers = await getGroupedReports(10);
-
-        if (reportedUsers.length === 0) {
-            await safeEditMessageText(
-                ctx,
-                "📋 *Reported Users*\n\nNo users have been reported.\n\nUse the button below to return to menu.",
-                { parse_mode: "Markdown", ...backKeyboard }
-            );
+    bot.action(/ADMIN_REPORT_USER_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
             return;
         }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+        await showReportUserActions(ctx, userId);
+    });
 
-        // Build list with report reasons
-        let reportList = "📋 Reported Users (Top 10)\n\n";
-        reportList += `Total Reported Users: ${reportedUsers.length}\n\n`;
-        
-        const reportButtons = [];
-        
-        for (const { userId, count, latestReason, reporters } of reportedUsers) {
-            const reporterList = reporters.slice(0, 3).join(", ") || "Various";
-            
-            reportList += `👤 \`${userId}\`\n`;
-            reportList += `   📊 Reports: ${count}\n`;
-            reportList += `   📝 Reason: ${latestReason || "No reason"}\n`;
-            reportList += `   👁️ Reported by: ${reporterList}\n\n`;
-            
-            // Check if user is already banned
-            const userBanned = await isBanned(userId);
-            if (!userBanned) {
-                // User not banned - show all action buttons
-                reportButtons.push([
-                    Markup.button.callback(
-                        `🚫 Ban ${userId}`,
-                        `ADMIN_BAN_USER_${userId}`
-                    ),
-                    Markup.button.callback(
-                        `⏱️ Temp Ban ${userId}`,
-                        `ADMIN_TEMP_BAN_SELECT_${userId}`
-                    )
-                ]);
-                reportButtons.push([
-                    Markup.button.callback(
-                        `⚠️ Warn ${userId}`,
-                        `ADMIN_WARN_USER_${userId}`
-                    ),
-                    Markup.button.callback(
-                        `👁️ View ${userId}`,
-                        `ADMIN_USER_${userId}`
-                    )
-                ]);
-            } else {
-                reportButtons.push([
-                    Markup.button.callback(
-                        `✅ Already Banned ${userId}`,
-                        `ADMIN_USER_${userId}`
-                    )
-                ]);
-            }
+    bot.action(/ADMIN_VIEW_REPORTS_PAGE_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
         }
-
-        const keyboard = Markup.inlineKeyboard([
-            ...reportButtons,
-            [Markup.button.callback("🔙 Back to Menu", "ADMIN_BACK")]
-        ]);
-
-        await safeEditMessageText(
-            ctx,
-            reportList + "Select an action:",
-            { parse_mode: "Markdown", ...keyboard }
-        );
+        await safeAnswerCbQuery(ctx);
+        const page = parseInt(ctx.match[1]);
+        await showReportsList(ctx, Number.isNaN(page) ? 0 : page);
     });
 
     // Re-engagement campaign
@@ -772,6 +822,25 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await showUserDetails(ctx, userId);
     });
 
+    bot.action(/ADMIN_REPORT_BAN_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+        const adminId = ctx.from?.id || 0;
+
+        const partnerId = await terminateUserChat(ctx, bot, userId);
+        await banUser(userId, "Banned by admin", adminId);
+
+        if (partnerId) {
+            await safeAnswerCbQuery(ctx, `User banned. Partner ${partnerId} removed from chat.`);
+        }
+
+        await showReportUserActions(ctx, userId);
+    });
+
     // Show temporary ban duration selection
     bot.action(/ADMIN_TEMP_BAN_SELECT_(\d+)/, async (ctx) => {
         // Validate admin permissions
@@ -800,8 +869,33 @@ export function initAdminActions(bot: ExtraTelegraf) {
         );
     });
 
+    bot.action(/ADMIN_REPORT_TEMP_BAN_SELECT_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+
+        const tempBanDurations = Markup.inlineKeyboard([
+            [Markup.button.callback("⏱️ 1 Hour", `ADMIN_REPORT_TEMP_BAN_1_${userId}`)],
+            [Markup.button.callback("⏱️ 6 Hours", `ADMIN_REPORT_TEMP_BAN_6_${userId}`)],
+            [Markup.button.callback("⏱️ 24 Hours", `ADMIN_REPORT_TEMP_BAN_24_${userId}`)],
+            [Markup.button.callback("⏱️ 7 Days", `ADMIN_REPORT_TEMP_BAN_168_${userId}`)],
+            [Markup.button.callback("🔙 Back", `ADMIN_REPORT_USER_${userId}`)]
+        ]);
+
+        await safeEditMessageText(
+            ctx,
+            `⏱️ *Select Temporary Ban Duration*\n\n` +
+            `User ID: \`${userId}\`\n\n` +
+            `Choose how long to ban this user:`,
+            { parse_mode: "Markdown", ...tempBanDurations }
+        );
+    });
+
     // Helper function to execute temporary ban with duration
-    async function executeTempBan(ctx: Context, userId: number, durationHours: number) {
+    async function executeTempBan(ctx: Context, userId: number, durationHours: number, backAction: string = "ADMIN_VIEW_REPORTS") {
         const adminId = ctx.from?.id || 0;
         const durationMs = durationHours * 60 * 60 * 1000;
         const reason = `Temporarily banned for ${durationHours} hour(s)`;
@@ -826,7 +920,12 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await safeEditMessageText(
             ctx,
             message,
-            { parse_mode: "Markdown", ...backKeyboard }
+            {
+                parse_mode: "Markdown",
+                ...Markup.inlineKeyboard([
+                    [Markup.button.callback("🔙 Back", backAction)]
+                ])
+            }
         );
     }
 
@@ -841,6 +940,16 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await executeTempBan(ctx, userId, 1);
     });
 
+    bot.action(/ADMIN_REPORT_TEMP_BAN_1_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+        await executeTempBan(ctx, userId, 1, `ADMIN_REPORT_USER_${userId}`);
+    });
+
     // Temporary ban action handlers (6 hours)
     bot.action(/ADMIN_TEMP_BAN_6_(\d+)/, async (ctx) => {
         if (!validateAdmin(ctx)) {
@@ -850,6 +959,16 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await safeAnswerCbQuery(ctx);
         const userId = parseInt(ctx.match[1]);
         await executeTempBan(ctx, userId, 6);
+    });
+
+    bot.action(/ADMIN_REPORT_TEMP_BAN_6_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+        await executeTempBan(ctx, userId, 6, `ADMIN_REPORT_USER_${userId}`);
     });
 
     // Temporary ban action handlers (24 hours)
@@ -863,6 +982,16 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await executeTempBan(ctx, userId, 24);
     });
 
+    bot.action(/ADMIN_REPORT_TEMP_BAN_24_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+        await executeTempBan(ctx, userId, 24, `ADMIN_REPORT_USER_${userId}`);
+    });
+
     // Temporary ban action handlers (7 days = 168 hours)
     bot.action(/ADMIN_TEMP_BAN_168_(\d+)/, async (ctx) => {
         if (!validateAdmin(ctx)) {
@@ -872,6 +1001,16 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await safeAnswerCbQuery(ctx);
         const userId = parseInt(ctx.match[1]);
         await executeTempBan(ctx, userId, 168);
+    });
+
+    bot.action(/ADMIN_REPORT_TEMP_BAN_168_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+        await executeTempBan(ctx, userId, 168, `ADMIN_REPORT_USER_${userId}`);
     });
 
     // Map report reason codes to human-readable warning messages
@@ -910,7 +1049,9 @@ export function initAdminActions(bot: ExtraTelegraf) {
         // Get the appropriate warning message based on reason
         const warningMessage = getWarningMessage(reportReason);
         
-        const fullMessage = `⚠️ *Warning*\n\n${warningMessage}\n\n` +
+        const fullMessage = `⚠️ *Warning*\n\n` +
+            `You were reported for: *${reportReason || "General violation"}*\n\n` +
+            `${warningMessage}\n\n` +
             `This is an automated warning based on reports received about your behavior.\n\n` +
             `If you continue to violate our guidelines, further action may be taken including a temporary or permanent ban.`;
         
@@ -944,48 +1085,95 @@ export function initAdminActions(bot: ExtraTelegraf) {
         }
     });
 
+    bot.action(/ADMIN_REPORT_WARN_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx);
+        const userId = parseInt(ctx.match[1]);
+
+        const reportReason = await getUserLatestReportReason(userId);
+        const warningMessage = getWarningMessage(reportReason);
+        const fullMessage = `⚠️ *Warning*\n\n` +
+            `You were reported for: *${reportReason || "General violation"}*\n\n` +
+            `${warningMessage}\n\n` +
+            `This is an automated warning based on reports received about your behavior.\n\n` +
+            `If you continue to violate our guidelines, further action may be taken including a temporary or permanent ban.`;
+
+        try {
+            await ctx.telegram.sendMessage(
+                userId,
+                fullMessage,
+                { parse_mode: "Markdown" }
+            );
+            await safeEditMessageText(
+                ctx,
+                `✅ *Warning Sent*\n\n` +
+                `Warning message sent to user \`${userId}\`.\n\n` +
+                `📝 Reason: ${reportReason || "General violation"}`,
+                {
+                    parse_mode: "Markdown",
+                    ...Markup.inlineKeyboard([
+                        [Markup.button.callback("🔙 Back", `ADMIN_REPORT_USER_${userId}`)],
+                        [Markup.button.callback("📋 Reports", `ADMIN_VIEW_REPORTS_PAGE_${reportPages.get(ctx.from?.id || 0) || 0}`)]
+                    ])
+                }
+            );
+        } catch {
+            await safeEditMessageText(
+                ctx,
+                `⚠️ *Warning Could Not Be Sent*\n\n` +
+                `Could not send warning to user \`${userId}\`.\n` +
+                `The user may have blocked the bot.\n\n` +
+                `📝 Reason: ${reportReason || "General violation"}`,
+                {
+                    parse_mode: "Markdown",
+                    ...Markup.inlineKeyboard([
+                        [Markup.button.callback("🔙 Back", `ADMIN_REPORT_USER_${userId}`)],
+                        [Markup.button.callback("📋 Reports", `ADMIN_VIEW_REPORTS_PAGE_${reportPages.get(ctx.from?.id || 0) || 0}`)]
+                    ])
+                }
+            );
+        }
+    });
+
     // Helper function to terminate user's active chat
     async function terminateUserChat(ctx: Context, botInstance: ExtraTelegraf, userId: number): Promise<number | null> {
         const runningChats = botInstance.runningChats;
-        
-        // Check if user is in active chat using Map.has()
+
         if (!runningChats.has(userId)) {
-            return null; // User is not in an active chat
+            return null;
         }
-        
-        // Find partner using Map.get()
+
         const partnerId = runningChats.get(userId);
-        
         if (!partnerId) {
             return null;
         }
-        
+
         console.log(`[BAN] - Terminating chat between ${userId} and ${partnerId}`);
-        
-        // Remove both users from runningChats using Map delete
-        botInstance.runningChats.delete(userId);
-        botInstance.runningChats.delete(partnerId);
-        
-        // Clear message maps
-        botInstance.messageMap.delete(userId);
-        botInstance.messageMap.delete(partnerId);
-        botInstance.messageCountMap.delete(userId);
-        botInstance.messageCountMap.delete(partnerId);
-        
-        // Reset chat start times for both users
-        await updateUser(userId, { chatStartTime: null });
-        await updateUser(partnerId, { chatStartTime: null });
-        
-        // Notify partner that chat ended
+
+        clearChatRuntime(botInstance, userId, partnerId);
+
+        await updateUser(userId, {
+            chatStartTime: null,
+            reportingPartner: partnerId,
+        });
+        await updateUser(partnerId, {
+            chatStartTime: null,
+            reportingPartner: userId,
+        });
+
         try {
             await ctx.telegram.sendMessage(
                 partnerId,
-                "🚫 Your chat partner has been removed from the platform.\n\n/next - Find new partner"
+                buildPartnerLeftMessage(),
+                exitChatKeyboard
             );
         } catch (error) {
             console.log(`[BAN] - Could not notify partner ${partnerId}:`, error);
         }
-        
+
         return partnerId;
     }
 
@@ -1119,6 +1307,17 @@ export function initAdminActions(bot: ExtraTelegraf) {
         const userId = parseInt(ctx.match[1]);
         await resetUserReports(userId);
         await showUserDetails(ctx, userId);
+    });
+
+    bot.action(/ADMIN_REPORT_CLEAR_(\d+)/, async (ctx) => {
+        if (!validateAdmin(ctx)) {
+            await unauthorizedResponse(ctx, "Unauthorized");
+            return;
+        }
+        await safeAnswerCbQuery(ctx, "Reports cleared");
+        const userId = parseInt(ctx.match[1]);
+        await resetUserReports(userId);
+        await showReportsList(ctx, reportPages.get(ctx.from?.id || 0) || 0);
     });
 }
 
@@ -1313,4 +1512,6 @@ export async function showUserDetails(ctx: Context, userId: number) {
         }
     }
 }
+
+
 

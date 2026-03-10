@@ -10,6 +10,7 @@ import { safeAnswerCbQuery as safeAnswerCbQueryShared, safeEditMessageText as sa
 import searchCommand from "../Commands/search";
 import referralCommand from "../Commands/referral";
 import endCommand from "../Commands/end";
+import { getSetupCompleteText } from "./setupFlow";
 
 // Because it doesn't know that ctx has a match property. by default, Context<Update> doesn't include match, but telegraf adds it dynamically when using regex triggers.
 export interface ActionContext extends Context {
@@ -166,8 +167,7 @@ async function showSettings(ctx: ActionContext) {
     const u = await getUser(ctx.from.id);
     const referralCount = await getReferralCount(ctx.from.id);
 
-    // Show gender only for premium users
-    const genderDisplay = u.premium ? (u.gender ?? "Not Set") : "🔒 Hidden";
+    const genderDisplay = u.gender ?? "Not Set";
 
     const text =
     `⚙ Settings
@@ -177,7 +177,7 @@ async function showSettings(ctx: ActionContext) {
  📍 State: ${u.state ?? "Not Set"}
  💕 Preference: ${u.premium ? (u.preference === "any" ? "Any" : u.preference === "male" ? "Male" : "Female") : "🔒 Premium Only"}
  💎 Premium: ${u.premium ? "Yes ✅" : "No ❌"}
- 💬 Daily chats left: ${100 - (u.daily || 0)}/100
+  💬 Chats: Unlimited
  👥 Referrals: ${referralCount}/30
 
  Use buttons below to update:`;
@@ -455,28 +455,12 @@ bot.action("SETUP_CANCEL", async (ctx) => {
 
 // Gender actions
 bot.action("SET_GENDER", async (ctx) => {
-    const user = await getUser(ctx.from.id);
-    
-    // Only allow premium users to change their gender
-    if (!user.premium) {
-        await safeAnswerCbQuery(ctx);
-        return ctx.reply("🔒 This feature is only available for Premium users.\n\nUpgrade to Premium to set your gender!");
-    }
-    
     await safeAnswerCbQuery(ctx);
     await safeEditMessageText(ctx, "Select your gender:", genderKeyboard);
 });
 
 bot.action("GENDER_MALE", async (ctx) => {
     if (!ctx.from) return;
-    const user = await getUser(ctx.from.id);
-    
-    // Only allow premium users to change their gender
-    if (!user.premium) {
-        await safeAnswerCbQuery(ctx, "🔒 This feature is only available for Premium users!");
-        return;
-    }
-    
     await updateUser(ctx.from.id, { gender: "male" });
     await safeAnswerCbQuery(ctx, "Gender set to Male ✅");
     await showSettings(ctx);
@@ -484,14 +468,6 @@ bot.action("GENDER_MALE", async (ctx) => {
 
 bot.action("GENDER_FEMALE", async (ctx) => {
     if (!ctx.from) return;
-    const user = await getUser(ctx.from.id);
-    
-    // Only allow premium users to change their gender
-    if (!user.premium) {
-        await safeAnswerCbQuery(ctx, "🔒 This feature is only available for Premium users!");
-        return;
-    }
-    
     await updateUser(ctx.from.id, { gender: "female" });
     await safeAnswerCbQuery(ctx, "Gender set to Female ✅");
     await showSettings(ctx);
@@ -747,6 +723,10 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
                                 {
                                     text: "🚫 Ban User",
                                     callback_data: `ADMIN_QUICK_BAN_${partnerId}`
+                                },
+                                {
+                                    text: "⚠️ Warn User",
+                                    callback_data: `ADMIN_WARN_USER_${partnerId}`
                                 }
                             ],
                             [
@@ -852,41 +832,9 @@ bot.action("ADMIN_IGNORE_REPORT", async (ctx) => {
 async function showSetupComplete(ctx: ActionContext) {
     if (!ctx.from) return;
     const user = await getUser(ctx.from.id);
-    
-    // Get display values - show gender only for premium users
-    const genderEmoji = user.premium && user.gender 
-        ? (user.gender === "male" ? "👨" : "👩") 
-        : "🔒";
-    const genderText = user.premium && user.gender 
-        ? (user.gender.charAt(0).toUpperCase() + user.gender.slice(1)) 
-        : "Hidden";
-    const stateText = user.state === "Other" ? "🌍 Other" : (user.state || "Not Set");
-    
-    let text: string;
     const keyboard = mainMenuKeyboard;
-    
-    // Always show main menu - group join is now optional
-    // Users can chat without joining the group, but we show the invite link as optional
-    text =
-    "✨ *Profile Complete!* ✨\n\n" +
-    "━━━━━━━━━━━━━━━━━━━━\n\n" +
-    "📋 *Your Profile:*\n\n" +
-    `${genderEmoji} *Gender:* ${genderText}\n` +
-    `🎂 *Age:* ${user.age || "Not Set"}\n` +
-    `📍 *Location:* ${stateText}\n\n` +
-    "━━━━━━━━━━━━━━━━━━━━\n\n";
-    
-    // Add optional group join message
-    text += "📢 *Want to join our community group?*\n" +
-    "Join to meet more people and stay updated!\n" +
-    `👉 ${GROUP_INVITE_LINK}\n\n` +
-    "━━━━━━━━━━━━━━━━━━━━\n\n" +
-    "🎉 *You're all set to start chatting!*\n" +
-    "/search - Find a chat partner now\n" +
-    "⚙️ /settings - Update your profile anytime\n" +
-    "❓ /help - Get help with commands\n\n" +
-    "💡 *Tip:* Be friendly and respectful for the best experience!";
-    
+    const text = getSetupCompleteText(user, GROUP_INVITE_LINK);
+
     // Use safeEditMessageText to prevent UI freeze
     await safeEditMessageText(ctx, text, { parse_mode: "Markdown", ...keyboard });
 }
@@ -1047,14 +995,7 @@ bot.action("CANCEL_SEARCH", async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
     
-    // Remove from waiting queue
-    const queueIndex = bot.waitingQueue.findIndex((w: { id: number }) => w.id === userId);
-    if (queueIndex !== -1) {
-        bot.waitingQueue.splice(queueIndex, 1);
-        bot.queueSet.delete(userId);
-    } else if (bot.queueSet.has(userId)) {
-        bot.queueSet.delete(userId);
-    }
+    bot.removeFromQueue(userId);
     
     const mainMenuKeyboard = Markup.inlineKeyboard([
         [Markup.button.callback("🔍 Find Partner", "START_SEARCH")],

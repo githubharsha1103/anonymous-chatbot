@@ -1,5 +1,7 @@
 import { ExtraTelegraf } from "../index";
 import { Markup } from "telegraf";
+import { updateUser } from "../storage/db";
+import { buildPartnerLeftMessage, clearChatRuntime, exitChatKeyboard } from "./chatFlow";
 
 /**
  * Telegram API Error types
@@ -74,7 +76,6 @@ export function getRetryDelay(error: unknown): number {
  * This removes the user from waiting queues, active chats, etc.
  */
 export function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): void {
-  // Remove from waiting queue (both array and Set for O(1) cleanup)
   if (bot.queueSet.has(userId)) {
     bot.queueSet.delete(userId);
     const queueIndex = bot.waitingQueue.findIndex(w => w.id === userId);
@@ -84,39 +85,12 @@ export function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): void {
     console.log(`[CLEANUP] - User ${userId} removed from waiting queue`);
   }
 
-  // Remove from running chats using Map
   if (bot.runningChats.has(userId)) {
-    // Get partner before removing
     const partner = bot.getPartner(userId);
-    
-    // Remove both users from running chats using Map delete
-    bot.runningChats.delete(userId);
-    if (partner) bot.runningChats.delete(partner);
-    
+    clearChatRuntime(bot, userId, partner);
     console.log(`[CLEANUP] - User ${userId} removed from running chats (partner: ${partner})`);
-
-    // Clean up message maps for both users
-    bot.messageMap.delete(userId);
-    if (partner) {
-      bot.messageMap.delete(partner);
-    }
-
-    // Clean up message count maps for both users (prevents memory leak)
-    bot.messageCountMap.delete(userId);
-    if (partner) {
-      bot.messageCountMap.delete(partner);
-    }
-
-    // Clean up rate limit entries for both users (prevents memory leak)
-    bot.rateLimitMap.delete(userId);
-    if (partner) {
-      bot.rateLimitMap.delete(partner);
-    }
-
-    return; // Partner cleanup handled synchronously
+    return;
   }
-
-  // Note: User data is NOT deleted from database to preserve statistics
 }
 
 /**
@@ -124,27 +98,21 @@ export function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): void {
  */
 export async function cleanupBlockedUserAsync(bot: ExtraTelegraf, userId: number): Promise<void> {
   const partner = bot.getPartner(userId);
-  
-  // First notify the partner (best effort)
+
   if (partner) {
-    const reportKeyboard = Markup.inlineKeyboard([
-      [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
-    ]);
-    
     try {
-      await bot.telegram.sendMessage(
-        partner,
-        "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
-        { ...reportKeyboard }
-      );
+      await bot.telegram.sendMessage(partner, buildPartnerLeftMessage(), { ...exitChatKeyboard });
       console.log(`[CLEANUP] - Notified partner ${partner} that user ${userId} left`);
     } catch (error) {
       console.log(`[CLEANUP] - Could not notify partner ${partner}:`, error);
     }
   }
-  
-  // Then perform cleanup
+
   cleanupBlockedUser(bot, userId);
+  await updateUser(userId, { chatStartTime: null });
+  if (partner) {
+    await updateUser(partner, { chatStartTime: null, reportingPartner: userId });
+  }
 }
 
 /**
@@ -152,38 +120,17 @@ export async function cleanupBlockedUserAsync(bot: ExtraTelegraf, userId: number
  * Notifies both users that the chat has ended due to an error
  */
 export async function endChatDueToError(bot: ExtraTelegraf, userId: number, partnerId: number): Promise<void> {
-  // First notify the partner (best effort)
   try {
-    const reportKeyboard = Markup.inlineKeyboard([
-      [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
-    ]);
-    
-    await bot.telegram.sendMessage(
-      partnerId,
-      "🚫 Partner left the chat\n\n/next - Find new partner\n\n━━━━━━━━━━━━━━━━━\nTo report this chat:",
-      { ...reportKeyboard }
-    );
+    await bot.telegram.sendMessage(partnerId, buildPartnerLeftMessage(), { ...exitChatKeyboard });
     console.log(`[CLEANUP] - Notified partner ${partnerId} about chat ending`);
   } catch (error) {
     console.log(`[CLEANUP] - Could not notify partner ${partnerId}:`, error);
   }
-  
-  // Remove both users from running chats using Map delete
-  bot.runningChats.delete(userId);
-  bot.runningChats.delete(partnerId);
-  
-  // Clean up message maps
-  bot.messageMap.delete(userId);
-  bot.messageMap.delete(partnerId);
-  
-  // Clean up message count maps
-  bot.messageCountMap.delete(userId);
-  bot.messageCountMap.delete(partnerId);
-  
-  // Clean up rate limit maps
-  bot.rateLimitMap.delete(userId);
-  bot.rateLimitMap.delete(partnerId);
-  
+
+  clearChatRuntime(bot, userId, partnerId);
+  await updateUser(userId, { chatStartTime: null });
+  await updateUser(partnerId, { chatStartTime: null });
+
   console.log(`[CLEANUP] - Chat ended due to error: user ${userId}, partner ${partnerId}`);
 }
 

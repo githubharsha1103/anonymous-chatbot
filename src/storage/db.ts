@@ -134,6 +134,22 @@ type JsonUserRecord = Partial<User> & { reportHistory?: LegacyReportEntry[] };
 type JsonUsersDb = Record<string, JsonUserRecord>;
 type JsonStats = { totalChats?: number };
 
+const AGE_RANGE_TO_AVERAGE: Record<string, string> = {
+  "13-17": "15",
+  "18-25": "22",
+  "26-40": "33",
+  "40+": "45"
+};
+
+export function normalizeAgeValue(age: string | null | undefined): string | null {
+  if (!age) {
+    return null;
+  }
+
+  const trimmed = age.trim();
+  return AGE_RANGE_TO_AVERAGE[trimmed] || trimmed;
+}
+
 // Connect to MongoDB
 async function connectToDatabase(): Promise<Db> {
   if (db) return db;
@@ -269,7 +285,14 @@ export async function getUser(id: number): Promise<UserWithNew> {
       const collection = await getUsersCollection();
       const user = await collection.findOne({ telegramId: id });
       
-      if (user) return user;
+      if (user) {
+        const normalizedAge = normalizeAgeValue(user.age);
+        if (normalizedAge !== user.age) {
+          await updateUser(id, { age: normalizedAge });
+          return { ...user, age: normalizedAge };
+        }
+        return user;
+      }
       
       // Create new user
       const newUser: User = {
@@ -324,16 +347,28 @@ export async function getUser(id: number): Promise<UserWithNew> {
     await writeJson(JSON_FILE, dbObj);
     return { ...(dbObj[id] as Record<string, unknown>), isNew: true } as UserWithNew;
   }
-  return dbObj[id] as UserWithNew;
+  const user = dbObj[id] as UserWithNew;
+  const normalizedAge = normalizeAgeValue(user.age);
+  if (normalizedAge !== user.age) {
+    dbObj[id] = { ...(dbObj[id] as Record<string, unknown>), age: normalizedAge };
+    await writeJson(JSON_FILE, dbObj);
+    return { ...user, age: normalizedAge };
+  }
+  return user;
 }
 
 export async function updateUser(id: number, data: Partial<User>): Promise<void> {
+  const normalizedData: Partial<User> = {
+    ...data,
+    ...(Object.prototype.hasOwnProperty.call(data, "age") ? { age: normalizeAgeValue(data.age ?? null) } : {})
+  };
+
   if (useMongoDB && !isFallbackMode) {
     try {
       const collection = await getUsersCollection();
       await collection.updateOne(
         { telegramId: id },
-        { $set: { ...data, telegramId: id } },
+        { $set: { ...normalizedData, telegramId: id } },
         { upsert: true }
       );
       return;
@@ -345,26 +380,13 @@ export async function updateUser(id: number, data: Partial<User>): Promise<void>
   
   // JSON fallback
   const dbObj = await readJson(JSON_FILE);
-  dbObj[id] = { ...(dbObj[id] || {}), ...data };
+  dbObj[id] = { ...(dbObj[id] || {}), ...normalizedData };
   await writeJson(JSON_FILE, dbObj);
 }
 
 export async function incDaily(id: number): Promise<boolean> {
   const user = await getUser(id);
-  
-  // Skip if premium user has unlimited chats
-  if (user.premium) {
-    return true; // Premium users have unlimited daily chats
-  }
-  
   const currentDaily = user.daily || 0;
-  const DAILY_LIMIT = 100;
-  
-  // Check if daily limit reached
-  if (currentDaily >= DAILY_LIMIT) {
-    return false; // Daily limit reached
-  }
-  
   await updateUser(id, { daily: currentDaily + 1 });
   return true;
 }
@@ -586,7 +608,10 @@ export async function getUserLatestReportReason(userId: number): Promise<string 
       if (latestReport && latestReport.length > 0) {
         return latestReport[0].reason;
       }
-      return null;
+
+      const usersCollection = await getUsersCollection();
+      const user = await usersCollection.findOne({ telegramId: userId });
+      return user?.reportReason || null;
     } catch (error) {
       console.error("[ERROR] - MongoDB getUserLatestReportReason error:", error);
     }
@@ -705,6 +730,12 @@ export async function getReportCount(id: number): Promise<number> {
       if (count > 0) {
         return count;
       }
+
+      const usersCollection = await getUsersCollection();
+      const user = await usersCollection.findOne({ telegramId: id });
+      if (user?.reports) {
+        return user.reports;
+      }
     } catch (error) {
       console.error("[ERROR] - MongoDB getReportCount error:", error);
     }
@@ -762,6 +793,20 @@ export async function createReport(
         createdAt: Date.now()
       });
 
+      const usersCollection = await getUsersCollection();
+      await usersCollection.updateOne(
+        { telegramId: reportedUserId },
+        {
+          $set: {
+            telegramId: reportedUserId,
+            reportReason: reason,
+            reportingPartner: reportedByUserId
+          },
+          $inc: { reports: 1 }
+        },
+        { upsert: true }
+      );
+
       // Return authoritative count from reports collection.
       const totalReports = await collection.countDocuments({ reportedUser: reportedUserId });
       return totalReports;
@@ -795,8 +840,9 @@ export async function createReport(
 }
 
 // Get all reports grouped by user (for admin view - scalable)
-export async function getGroupedReports(limit: number = 10): Promise<{ userId: number; count: number; latestReason: string; reporters: number[] }[]> {
+export async function getGroupedReports(limit: number = 10, offset: number = 0): Promise<{ userId: number; count: number; latestReason: string; reporters: number[] }[]> {
   let mongoResults: { userId: number; count: number; latestReason: string; reporters: number[] }[] = [];
+  let mongoSummaryResults: { userId: number; count: number; latestReason: string; reporters: number[] }[] = [];
   
   if (useMongoDB && !isFallbackMode) {
     try {
@@ -812,7 +858,6 @@ export async function getGroupedReports(limit: number = 10): Promise<{ userId: n
           }
         },
         { $sort: { count: -1 } },
-        { $limit: limit },
         {
           $project: {
             userId: "$_id",
@@ -830,6 +875,21 @@ export async function getGroupedReports(limit: number = 10): Promise<{ userId: n
         latestReason: r.latestReason,
         reporters: r.reporters || []
       }));
+
+      const usersCollection = await getUsersCollection();
+      const userSummaries = await usersCollection.find({
+        $or: [
+          { reports: { $gt: 0 } },
+          { reportReason: { $exists: true, $ne: null } }
+        ]
+      }).sort({ reports: -1 }).toArray();
+
+      mongoSummaryResults = userSummaries.map(user => ({
+        userId: user.telegramId,
+        count: user.reports || 0,
+        latestReason: user.reportReason || "No reason",
+        reporters: user.reportingPartner ? [user.reportingPartner] : []
+      }));
     } catch (error) {
       console.error("[ERROR] - MongoDB getGroupedReports error:", error);
     }
@@ -844,6 +904,23 @@ export async function getGroupedReports(limit: number = 10): Promise<{ userId: n
   // Add MongoDB results first
   for (const r of mongoResults) {
     mergedMap.set(r.userId, r);
+  }
+
+  for (const r of mongoSummaryResults) {
+    if (mergedMap.has(r.userId)) {
+      const existing = mergedMap.get(r.userId)!;
+      existing.count = Math.max(existing.count, r.count);
+      if (!existing.latestReason && r.latestReason) {
+        existing.latestReason = r.latestReason;
+      }
+      for (const reporter of r.reporters) {
+        if (!existing.reporters.includes(reporter)) {
+          existing.reporters.push(reporter);
+        }
+      }
+    } else {
+      mergedMap.set(r.userId, r);
+    }
   }
   
   // Merge JSON results (add counts if user already exists)
@@ -871,8 +948,43 @@ export async function getGroupedReports(limit: number = 10): Promise<{ userId: n
   // Convert to array and sort
   const combinedResults = Array.from(mergedMap.values());
   combinedResults.sort((a, b) => b.count - a.count);
-  
-  return combinedResults.slice(0, limit);
+
+  return combinedResults.slice(offset, offset + limit);
+}
+
+export async function getGroupedReportsCount(): Promise<number> {
+  const uniqueUserIds = new Set<number>();
+
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getReportsCollection();
+      const reportedUsers = await collection.distinct("reportedUser");
+      for (const userId of reportedUsers) {
+        uniqueUserIds.add(userId);
+      }
+
+      const usersCollection = await getUsersCollection();
+      const userSummaries = await usersCollection.find({
+        $or: [
+          { reports: { $gt: 0 } },
+          { reportReason: { $exists: true, $ne: null } }
+        ]
+      }).project({ telegramId: 1 }).toArray();
+
+      for (const user of userSummaries) {
+        uniqueUserIds.add(user.telegramId);
+      }
+    } catch (error) {
+      console.error("[ERROR] - MongoDB getGroupedReportsCount error:", error);
+    }
+  }
+
+  const jsonReports = await getReportsFromJson();
+  for (const report of jsonReports) {
+    uniqueUserIds.add(report.userId);
+  }
+
+  return uniqueUserIds.size;
 }
 
 // Helper function to get reports from JSON file
@@ -1148,14 +1260,53 @@ export async function resetDailyCounts(): Promise<number> {
   return count;
 }
 
+export async function migrateAgeRangesToExactAges(): Promise<number> {
+  let updated = 0;
+
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getUsersCollection();
+      for (const [range, normalized] of Object.entries(AGE_RANGE_TO_AVERAGE)) {
+        const result = await collection.updateMany(
+          { age: range },
+          { $set: { age: normalized } }
+        );
+        updated += result.modifiedCount;
+      }
+    } catch (error) {
+      console.error("[ERROR] - MongoDB migrateAgeRangesToExactAges error:", error);
+    }
+
+    return updated;
+  }
+
+  try {
+    const dbObj = await readJson<JsonUsersDb>(JSON_FILE);
+    let jsonUpdated = 0;
+
+    for (const [id, userData] of Object.entries(dbObj)) {
+      const normalizedAge = normalizeAgeValue(userData.age || null);
+      if (normalizedAge !== (userData.age || null)) {
+        dbObj[id] = { ...userData, age: normalizedAge };
+        jsonUpdated++;
+      }
+    }
+
+    if (jsonUpdated > 0) {
+      await writeJson(JSON_FILE, dbObj);
+    }
+
+    updated += jsonUpdated;
+  } catch (error) {
+    console.error("[ERROR] - JSON migrateAgeRangesToExactAges error:", error);
+  }
+
+  return updated;
+}
+
 // Check and reset daily count if it's a new day
 export async function checkAndResetDaily(id: number): Promise<boolean> {
   const user = await getUser(id);
-  
-  // Skip if premium user has unlimited chats
-  if (user.premium) {
-    return true;
-  }
   
   const now = Date.now();
   const lastActive = user.lastActive || 0;
@@ -1164,15 +1315,6 @@ export async function checkAndResetDaily(id: number): Promise<boolean> {
   const ONE_DAY = 24 * 60 * 60 * 1000;
   if (now - lastActive > ONE_DAY) {
     await updateUser(id, { daily: 0 });
-    return true;
-  }
-  
-  const currentDaily = user.daily || 0;
-  const DAILY_LIMIT = 100;
-  
-  // Check if daily limit reached
-  if (currentDaily >= DAILY_LIMIT) {
-    return false;
   }
   
   return true;

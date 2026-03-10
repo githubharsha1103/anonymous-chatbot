@@ -45,7 +45,8 @@ describe("db.ts fallback helpers", () => {
     await db.atomicIncrementReferralCount(5);
 
     expect(writeFile).toHaveBeenCalled();
-    const writtenPayload = JSON.parse((writeFile as any).mock.calls[0][1]);
+    const calls = (writeFile as any).mock.calls;
+    const writtenPayload = JSON.parse(calls[calls.length - 1][1]);
     expect(writtenPayload["5"].referralCount).toBe(3);
   });
 });

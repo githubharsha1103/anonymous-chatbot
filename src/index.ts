@@ -20,7 +20,8 @@ import {
   getUser,
   isBanned,
   getTotalChats,
-  incrementTotalChats
+  incrementTotalChats,
+  migrateAgeRangesToExactAges
 } from "./storage/db";
 
 // ==================== ERROR HANDLING ====================
@@ -109,6 +110,15 @@ export class ExtraTelegraf extends Telegraf<Context> {
   chatMutex = new Mutex();
   queueMutex = new Mutex();
   matchMutex = new Mutex();
+  
+  async withChatStateLock<T>(fn: () => Promise<T>): Promise<T> {
+    await this.chatMutex.acquire();
+    try {
+      return await fn();
+    } finally {
+      this.chatMutex.release();
+    }
+  }
 
   // Action cooldown methods
   isActionOnCooldown(userId: number, action: string): boolean {
@@ -286,6 +296,34 @@ export class ExtraTelegraf extends Telegraf<Context> {
   clearQueueSet(): void {
     this.queueSet.clear();
   }
+
+  syncQueueState(): void {
+    const seen = new Set<number>();
+    const normalizedQueue: { id: number; preference: string; gender: string; isPremium: boolean }[] = [];
+
+    for (const queuedUser of this.waitingQueue) {
+      if (!queuedUser || seen.has(queuedUser.id) || this.runningChats.has(queuedUser.id)) {
+        continue;
+      }
+
+      seen.add(queuedUser.id);
+      normalizedQueue.push(queuedUser);
+    }
+
+    this.waitingQueue = normalizedQueue;
+    this.queueSet = seen;
+  }
+
+  trimWaitingQueue(maxSize: number): number {
+    if (this.waitingQueue.length <= maxSize) {
+      return 0;
+    }
+
+    const removeCount = this.waitingQueue.length - maxSize;
+    this.waitingQueue = this.waitingQueue.slice(removeCount);
+    this.syncQueueState();
+    return removeCount;
+  }
 }
 
 export const bot = new ExtraTelegraf(process.env.BOT_TOKEN!);
@@ -392,6 +430,14 @@ getTotalChats().then(chats => {
   console.log(`[INFO] - Loaded ${chats} total chats from database`);
 }).catch(err => {
   console.error("[ERROR] - Failed to load statistics:", err);
+});
+
+migrateAgeRangesToExactAges().then(updated => {
+  if (updated > 0) {
+    console.log(`[INFO] - Normalized age ranges to exact ages for ${updated} users`);
+  }
+}).catch(err => {
+  console.error("[ERROR] - Failed to normalize stored ages:", err);
 });
 
 /* ---------------- SERVER STARTUP ---------------- */
