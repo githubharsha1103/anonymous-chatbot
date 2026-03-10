@@ -1353,7 +1353,7 @@ async function showUsersPage(ctx: Context, page: number) {
         try {
             const user = await getUser(userId);
             const name = user.name && user.name !== "Unknown" ? user.name : "User";
-            const status = (await isBanned(userId)) ? "[BANNED]" : "[OK]";
+            const status = (await isBanned(userId)) ? "🚫" : "✅";
             return [Markup.button.callback(`${status} ${name} (${id})`, `ADMIN_USER_${id}`)];
         } catch (error) {
             console.error(`[showUsersPage] Failed loading user ${id}:`, error);

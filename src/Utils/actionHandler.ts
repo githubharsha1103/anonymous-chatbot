@@ -176,7 +176,7 @@ async function showSettings(ctx: ActionContext) {
     const genderDisplay = u.gender ?? "Not Set";
 
     const text =
-    `⚙ Settings
+    `⚙️ Settings
  
  👤 Gender: ${genderDisplay}
  🎂 Age: ${u.age ?? "Not Set"}
@@ -200,7 +200,7 @@ async function showSettings(ctx: ActionContext) {
     ]);
 
     // Try to edit with fallback to reply
-    await safeEditMessageText(ctx, text, keyboard);
+    await safeEditMessageText(ctx, text, { parse_mode: "Markdown", ...keyboard });
 }
 
 function buildBlockedUsersView(blockedUsers: number[]) {
