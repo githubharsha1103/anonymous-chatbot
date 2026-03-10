@@ -277,10 +277,8 @@ const BANS_FILE = "src/storage/bans.json";
 const PAYMENT_ORDERS_FILE = "src/storage/paymentOrders.json";
 
 // Set to true to use MongoDB (requires MONGODB_URI environment variable)
-// Auto-detect based on whether MONGODB_URI is set and is not a placeholder
-const mongodbUri = process.env.MONGODB_URI || "";
-const isPlaceholderUri = mongodbUri.includes("YOUR_") || mongodbUri.includes("placeholder") || mongodbUri.length < 10;
-const useMongoDB = !!mongodbUri && !isPlaceholderUri;
+// Auto-detect based on whether MONGODB_URI is set
+const useMongoDB = !!process.env.MONGODB_URI;
 const isFallbackMode = !useMongoDB;
 let mongoConnectionFailed = false;
 
@@ -335,7 +333,7 @@ export async function pingDatabase(): Promise<boolean> {
 if (useMongoDB && !isFallbackMode) {
   console.log("[INFO] - MongoDB URI detected, will use MongoDB for data storage");
 } else if (!useMongoDB) {
-  console.log("[INFO] - No MongoDB URI found (or using placeholder), using JSON file storage");
+  console.log("[INFO] - No MongoDB URI found, using JSON file storage");
 } else {
   console.log("[INFO] - MongoDB connection failed, using JSON file storage");
 }
