@@ -95,6 +95,7 @@ export interface User {
   lastPartner: number | null;
   reportingPartner: number | null;
   reportReason: string | null;
+  blockedUsers?: number[]; // Personal blocklist for premium users
   isAdminAuthenticated: boolean;
   chatStartTime: number | null;
   reportCount?: number;
@@ -117,6 +118,26 @@ export interface User {
   referralTiersClaimed?: number[]; // Array of tier counts that have been claimed
   totalPremiumDaysFromReferral?: number; // Total premium days earned from referrals
   premiumExpiry?: number; // Premium expiry timestamp
+  premiumExpires?: number | null; // Stars premium expiry timestamp
+  processedPaymentChargeIds?: string[]; // Idempotency guard for successful payments
+}
+
+export type PremiumOrderStatus = "pending" | "paid" | "failed" | "expired";
+
+export interface PremiumPaymentOrder {
+  _id?: ObjectId;
+  orderId: string;
+  userId: number;
+  planId: string;
+  premiumDays: number;
+  starsAmount: number;
+  currency: "XTR";
+  status: PremiumOrderStatus;
+  entitlementApplied: boolean;
+  createdAt: number;
+  paidAt?: number;
+  telegramPaymentChargeId?: string;
+  providerPaymentChargeId?: string;
 }
 
 // Extended user with isNew flag
@@ -133,6 +154,7 @@ interface LegacyReportEntry {
 type JsonUserRecord = Partial<User> & { reportHistory?: LegacyReportEntry[] };
 type JsonUsersDb = Record<string, JsonUserRecord>;
 type JsonStats = { totalChats?: number };
+type JsonPaymentOrdersDb = Record<string, PremiumPaymentOrder>;
 
 const AGE_RANGE_TO_AVERAGE: Record<string, string> = {
   "13-17": "15",
@@ -195,6 +217,16 @@ async function connectToDatabase(): Promise<Db> {
       { state: 1, gender: 1 },
       { name: "location_gender_idx" }
     );
+
+    // Premium payment orders indexes
+    await db.collection<PremiumPaymentOrder>("premium_orders").createIndex(
+      { orderId: 1 },
+      { name: "premium_order_id_idx", unique: true }
+    );
+    await db.collection<PremiumPaymentOrder>("premium_orders").createIndex(
+      { userId: 1, status: 1, createdAt: -1 },
+      { name: "premium_order_user_status_idx" }
+    );
     
     console.log("[INFO] - Database indexes created successfully");
     
@@ -211,9 +243,15 @@ async function getUsersCollection(): Promise<Collection<User>> {
   return database.collection<User>("users");
 }
 
+async function getPremiumOrdersCollection(): Promise<Collection<PremiumPaymentOrder>> {
+  const database = await connectToDatabase();
+  return database.collection<PremiumPaymentOrder>("premium_orders");
+}
+
 // Fallback to JSON for local development without MongoDB
 const JSON_FILE = "src/storage/users.json";
 const BANS_FILE = "src/storage/bans.json";
+const PAYMENT_ORDERS_FILE = "src/storage/paymentOrders.json";
 
 // Set to true to use MongoDB (requires MONGODB_URI environment variable)
 // Auto-detect based on whether MONGODB_URI is set
@@ -286,6 +324,11 @@ export async function getUser(id: number): Promise<UserWithNew> {
       const user = await collection.findOne({ telegramId: id });
       
       if (user) {
+        const effectiveExpiry = user.premiumExpires || user.premiumExpiry || 0;
+        if (user.premium && effectiveExpiry > 0 && effectiveExpiry <= Date.now()) {
+          await updateUser(id, { premium: false });
+          user.premium = false;
+        }
         const normalizedAge = normalizeAgeValue(user.age);
         if (normalizedAge !== user.age) {
           await updateUser(id, { age: normalizedAge });
@@ -307,12 +350,15 @@ export async function getUser(id: number): Promise<UserWithNew> {
         lastPartner: null,
         reportingPartner: null,
         reportReason: null,
+        blockedUsers: [],
         isAdminAuthenticated: false,
         chatStartTime: null,
         reportCount: 0,
         totalChats: 0,
         reports: 0,
-        banned: false
+        banned: false,
+        premiumExpires: null,
+        processedPaymentChargeIds: []
       };
       
       await collection.insertOne(newUser);
@@ -339,15 +385,24 @@ export async function getUser(id: number): Promise<UserWithNew> {
       lastPartner: null,
       reportingPartner: null,
       reportReason: null,
+      blockedUsers: [],
       isAdminAuthenticated: false,
       chatStartTime: null,
       reports: 0,
-      banned: false
+      banned: false,
+      premiumExpires: null,
+      processedPaymentChargeIds: []
     };
     await writeJson(JSON_FILE, dbObj);
     return { ...(dbObj[id] as Record<string, unknown>), isNew: true } as UserWithNew;
   }
   const user = dbObj[id] as UserWithNew;
+  const effectiveExpiry = user.premiumExpires || user.premiumExpiry || 0;
+  if (user.premium && effectiveExpiry > 0 && effectiveExpiry <= Date.now()) {
+    dbObj[id] = { ...(dbObj[id] as Record<string, unknown>), premium: false };
+    await writeJson(JSON_FILE, dbObj);
+    user.premium = false;
+  }
   const normalizedAge = normalizeAgeValue(user.age);
   if (normalizedAge !== user.age) {
     dbObj[id] = { ...(dbObj[id] as Record<string, unknown>), age: normalizedAge };
@@ -409,6 +464,45 @@ export async function setAge(id: number, age: string): Promise<void> {
 export async function getAge(id: number): Promise<string | null> {
   const user = await getUser(id);
   return user.age;
+}
+
+export async function getBlockedUsers(userId: number): Promise<number[]> {
+  const user = await getUser(userId);
+  return user.blockedUsers || [];
+}
+
+export async function blockUserForUser(userId: number, blockedUserId: number): Promise<{ success: boolean; message: string }> {
+  if (userId === blockedUserId) {
+    return { success: false, message: "You cannot block yourself." };
+  }
+
+  const user = await getUser(userId);
+  const current = user.blockedUsers || [];
+
+  if (current.includes(blockedUserId)) {
+    return { success: true, message: "User is already blocked." };
+  }
+
+  await updateUser(userId, { blockedUsers: [...current, blockedUserId] });
+  return { success: true, message: "User blocked successfully." };
+}
+
+export async function unblockUserForUser(userId: number, blockedUserId: number): Promise<boolean> {
+  const user = await getUser(userId);
+  const current = user.blockedUsers || [];
+  if (!current.includes(blockedUserId)) {
+    return false;
+  }
+
+  await updateUser(userId, { blockedUsers: current.filter(id => id !== blockedUserId) });
+  return true;
+}
+
+export async function areUsersMutuallyBlocked(userId: number, otherUserId: number): Promise<boolean> {
+  const [user, other] = await Promise.all([getUser(userId), getUser(otherUserId)]);
+  const userBlocked = (user.blockedUsers || []).includes(otherUserId);
+  const otherBlocked = (other.blockedUsers || []).includes(userId);
+  return userBlocked || otherBlocked;
 }
 
 // ==================== BAN FUNCTIONS ====================
@@ -1595,12 +1689,13 @@ export async function processReferral(referredUserId: number, referralCode: stri
     const newTotalPremiumDays = currentPremiumDays + newPremiumDays;
     
     // Extend premium expiry
-    const currentExpiry = referrer.premiumExpiry || 0;
+    const currentExpiry = referrer.premiumExpires || referrer.premiumExpiry || 0;
     const newExpiry = Math.max(currentExpiry, Date.now()) + (newPremiumDays * 24 * 60 * 60 * 1000);
     
     await updateUser(referrerId, {
       premium: true,
       premiumExpiry: newExpiry,
+      premiumExpires: newExpiry,
       referralTiersClaimed: claimedTiers,
       totalPremiumDaysFromReferral: newTotalPremiumDays
     });
@@ -1680,6 +1775,244 @@ export async function fixReferralCounts(): Promise<number> {
   }
   
   return fixed;
+}
+
+// ==================== TELEGRAM STARS PREMIUM PAYMENTS ====================
+
+function createStarsOrderId(): string {
+  return `stars_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export async function createPremiumPaymentOrder(
+  userId: number,
+  planId: string,
+  premiumDays: number,
+  starsAmount: number
+): Promise<PremiumPaymentOrder> {
+  const order: PremiumPaymentOrder = {
+    orderId: createStarsOrderId(),
+    userId,
+    planId,
+    premiumDays,
+    starsAmount,
+    currency: "XTR",
+    status: "pending",
+    entitlementApplied: false,
+    createdAt: Date.now()
+  };
+
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getPremiumOrdersCollection();
+      await collection.insertOne(order);
+      return order;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB createPremiumPaymentOrder error:", error);
+    }
+  }
+
+  const orders = await readJson<JsonPaymentOrdersDb>(PAYMENT_ORDERS_FILE);
+  orders[order.orderId] = order;
+  await writeJson(PAYMENT_ORDERS_FILE, orders);
+  return order;
+}
+
+export async function getPremiumPaymentOrder(orderId: string): Promise<PremiumPaymentOrder | null> {
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getPremiumOrdersCollection();
+      return await collection.findOne({ orderId });
+    } catch (error) {
+      console.error("[ERROR] - MongoDB getPremiumPaymentOrder error:", error);
+    }
+  }
+
+  const orders = await readJson<JsonPaymentOrdersDb>(PAYMENT_ORDERS_FILE);
+  return orders[orderId] || null;
+}
+
+export async function validatePremiumPaymentCheckout(
+  orderId: string,
+  userId: number,
+  totalAmount: number,
+  currency: string
+): Promise<{ valid: boolean; message?: string }> {
+  const order = await getPremiumPaymentOrder(orderId);
+  if (!order) {
+    return { valid: false, message: "Order not found" };
+  }
+  if (order.userId !== userId) {
+    return { valid: false, message: "Order user mismatch" };
+  }
+  if (order.status !== "pending") {
+    return { valid: false, message: "Order is not pending" };
+  }
+  if (order.currency !== "XTR" || currency !== "XTR") {
+    return { valid: false, message: "Unsupported currency" };
+  }
+  if (order.starsAmount !== totalAmount) {
+    return { valid: false, message: "Amount mismatch" };
+  }
+  return { valid: true };
+}
+
+export async function finalizePremiumPayment(
+  orderId: string,
+  telegramPaymentChargeId: string,
+  providerPaymentChargeId: string | undefined
+): Promise<{ success: boolean; alreadyProcessed: boolean; premiumUntil: number | null; message?: string }> {
+  const order = await getPremiumPaymentOrder(orderId);
+  if (!order) {
+    return { success: false, alreadyProcessed: false, premiumUntil: null, message: "Order not found" };
+  }
+
+  if (order.status === "paid" && order.entitlementApplied) {
+    const user = await getUser(order.userId);
+    return { success: true, alreadyProcessed: true, premiumUntil: user.premiumExpires || user.premiumExpiry || null };
+  }
+
+  if (order.status !== "pending" && !(order.status === "paid" && !order.entitlementApplied)) {
+    return { success: false, alreadyProcessed: false, premiumUntil: null, message: "Order not payable" };
+  }
+
+  if (order.status === "pending") {
+    if (useMongoDB && !isFallbackMode) {
+      try {
+        const collection = await getPremiumOrdersCollection();
+        const result = await collection.updateOne(
+          { orderId, status: "pending" },
+          {
+            $set: {
+              status: "paid",
+              paidAt: Date.now(),
+              telegramPaymentChargeId,
+              providerPaymentChargeId: providerPaymentChargeId || "",
+              entitlementApplied: false
+            }
+          }
+        );
+        if (result.modifiedCount === 0) {
+          const latest = await collection.findOne({ orderId });
+          if (!latest || (latest.status !== "paid" && latest.status !== "pending")) {
+            return { success: false, alreadyProcessed: false, premiumUntil: null, message: "Unable to lock order" };
+          }
+        }
+      } catch (error) {
+        console.error("[ERROR] - MongoDB finalizePremiumPayment order update error:", error);
+        return { success: false, alreadyProcessed: false, premiumUntil: null, message: "Order update failed" };
+      }
+    } else {
+      const orders = await readJson<JsonPaymentOrdersDb>(PAYMENT_ORDERS_FILE);
+      const current = orders[orderId];
+      if (!current) {
+        return { success: false, alreadyProcessed: false, premiumUntil: null, message: "Order not found" };
+      }
+      if (current.status !== "pending" && !(current.status === "paid" && !current.entitlementApplied)) {
+        return { success: false, alreadyProcessed: false, premiumUntil: null, message: "Order not payable" };
+      }
+      orders[orderId] = {
+        ...current,
+        status: "paid",
+        paidAt: Date.now(),
+        telegramPaymentChargeId,
+        providerPaymentChargeId: providerPaymentChargeId || "",
+        entitlementApplied: current.entitlementApplied || false
+      };
+      await writeJson(PAYMENT_ORDERS_FILE, orders);
+    }
+  }
+
+  const latestOrder = await getPremiumPaymentOrder(orderId);
+  if (!latestOrder) {
+    return { success: false, alreadyProcessed: false, premiumUntil: null, message: "Order missing after update" };
+  }
+
+  if (latestOrder.entitlementApplied) {
+    const user = await getUser(latestOrder.userId);
+    return { success: true, alreadyProcessed: true, premiumUntil: user.premiumExpires || user.premiumExpiry || null };
+  }
+
+  const user = await getUser(latestOrder.userId);
+  const now = Date.now();
+  const currentExpiry = user.premiumExpires || user.premiumExpiry || 0;
+  const baseExpiry = user.premium && currentExpiry > now ? currentExpiry : now;
+  const premiumUntil = baseExpiry + latestOrder.premiumDays * 24 * 60 * 60 * 1000;
+
+  await updateUser(latestOrder.userId, {
+    premium: true,
+    premiumExpiry: premiumUntil,
+    premiumExpires: premiumUntil
+  });
+
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getPremiumOrdersCollection();
+      await collection.updateOne(
+        { orderId },
+        {
+          $set: {
+            entitlementApplied: true
+          }
+        }
+      );
+    } catch (error) {
+      console.error("[ERROR] - MongoDB finalizePremiumPayment entitlement flag error:", error);
+    }
+  } else {
+    const orders = await readJson<JsonPaymentOrdersDb>(PAYMENT_ORDERS_FILE);
+    if (orders[orderId]) {
+      orders[orderId] = {
+        ...orders[orderId],
+        entitlementApplied: true
+      };
+      await writeJson(PAYMENT_ORDERS_FILE, orders);
+    }
+  }
+
+  return { success: true, alreadyProcessed: false, premiumUntil };
+}
+
+export async function revokeExpiredPremiumUsers(): Promise<number> {
+  const now = Date.now();
+
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getUsersCollection();
+      const result = await collection.updateMany(
+        {
+          premium: true,
+          $or: [
+            { premiumExpires: { $lte: now } },
+            { premiumExpiry: { $lte: now } }
+          ]
+        },
+        { $set: { premium: false } }
+      );
+      return result.modifiedCount;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB revokeExpiredPremiumUsers error:", error);
+    }
+  }
+
+  const users = await readJson<JsonUsersDb>(JSON_FILE);
+  let updated = 0;
+
+  for (const [id, data] of Object.entries(users)) {
+    const expiry = data.premiumExpires || data.premiumExpiry || 0;
+    if (data.premium && expiry > 0 && expiry <= now) {
+      users[id] = {
+        ...data,
+        premium: false
+      };
+      updated++;
+    }
+  }
+
+  if (updated > 0) {
+    await writeJson(JSON_FILE, users);
+  }
+
+  return updated;
 }
 
 // Close MongoDB connection on process exit

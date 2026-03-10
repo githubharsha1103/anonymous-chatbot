@@ -91,7 +91,7 @@ class Mutex {
 }
 
 export class ExtraTelegraf extends Telegraf<Context> {
-  waitingQueue: { id: number; preference: string; gender: string; isPremium: boolean }[] = [];
+  waitingQueue: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }[] = [];
   // Set for O(1) queue membership checks - prevents duplicates and enables fast lookup
   queueSet: Set<number> = new Set();
   runningChats: Map<number, number> = new Map();
@@ -235,7 +235,7 @@ export class ExtraTelegraf extends Telegraf<Context> {
 
   // Atomic queue operations - all protected by queueMutex
   // These methods handle queueSet internally for O(1) lookups
-  addToQueueAtomic(user: { id: number; preference: string; gender: string; isPremium: boolean }): boolean {
+  addToQueueAtomic(user: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }): boolean {
     // O(1) check using Set - much faster than array.some()
     if (this.runningChats.has(user.id)) return false;
     if (this.queueSet.has(user.id)) return false;
@@ -247,19 +247,22 @@ export class ExtraTelegraf extends Telegraf<Context> {
   }
 
   // Match from queue - call within mutex lock for thread safety
-  matchFromQueue(userId: number, matchData: { id: number; preference: string; gender: string; isPremium: boolean }): { matched: boolean; partnerId: number | null } {
+  matchFromQueue(userId: number, matchData: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }): { matched: boolean; partnerId: number | null } {
     const matchIndex = this.waitingQueue.findIndex(w => {
       // Use Set for O(1) existence check first
       if (!this.queueSet.has(w.id)) return false;
       
       const waitingGender = w.gender || "any";
       const waitingPref = w.preference || "any";
+      const waitingBlocked = w.blockedUsers || [];
+      const currentBlocked = matchData.blockedUsers || [];
       const matchPreference = (matchData.isPremium && matchData.preference !== "any") ? matchData.preference : null;
       
       const genderMatches = !matchPreference || waitingGender === matchPreference;
       const preferenceMatches = waitingPref === "any" || waitingPref === matchData.gender;
       
-      return genderMatches && preferenceMatches;
+      const notBlocked = !currentBlocked.includes(w.id) && !waitingBlocked.includes(userId);
+      return genderMatches && preferenceMatches && notBlocked;
     });
     
     if (matchIndex === -1) {
@@ -299,7 +302,7 @@ export class ExtraTelegraf extends Telegraf<Context> {
 
   syncQueueState(): void {
     const seen = new Set<number>();
-    const normalizedQueue: { id: number; preference: string; gender: string; isPremium: boolean }[] = [];
+    const normalizedQueue: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }[] = [];
 
     for (const queuedUser of this.waitingQueue) {
       if (!queuedUser || seen.has(queuedUser.id) || this.runningChats.has(queuedUser.id)) {
@@ -384,6 +387,10 @@ initAdminActions(bot);
 /* ---------------- RE-ENGAGEMENT ---------------- */
 import { initReengagementActions } from "./Commands/reengagement";
 initReengagementActions(bot);
+
+/* ---------------- STARS PAYMENTS ---------------- */
+import { initStarsPaymentHandlers } from "./Utils/starsPayments";
+initStarsPaymentHandlers(bot);
 
 /* ---------------- REFERRAL SYSTEM ---------------- */
 import referral from "./Commands/referral";

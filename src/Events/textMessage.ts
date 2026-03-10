@@ -8,6 +8,7 @@ import { waitingForBroadcast, waitingForUserId } from "../Commands/adminaccess";
 import { showUserDetails } from "../Commands/adminaccess";
 import { getSetupCompleteText, getSetupStepPrompt } from "../Utils/setupFlow";
 import { buildPartnerLeftMessage, exitChatKeyboard } from "../Utils/chatFlow";
+import { handleSuccessfulPaymentMessage } from "../Utils/starsPayments";
 
 // Pre-compiled regex for URL detection (performance optimization)
 const urlRegex = /(https?:\/\/)?(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_.+~#?&//=]*)/i;
@@ -26,6 +27,12 @@ export default {
     await updateLastActive(ctx.from.id).catch(err => 
         console.error("[textMessage] - Error updating lastActive:", err)
     );
+
+    // Handle Telegram Stars successful payment updates before regular message flow.
+    const paymentHandled = await handleSuccessfulPaymentMessage(ctx);
+    if (paymentHandled) {
+      return;
+    }
 
     // Block polls
     if ("poll" in ctx.message) {

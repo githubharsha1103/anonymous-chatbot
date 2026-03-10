@@ -3,7 +3,7 @@ import * as path from "path";
 import { bot } from "../index";
 import { Context, Telegraf } from "telegraf";
 import { Markup } from "telegraf";
-import { updateUser, getUser, getReferralCount, banUser, isBanned, createReport } from "../storage/db";
+import { updateUser, getUser, getReferralCount, banUser, isBanned, createReport, blockUserForUser, getBlockedUsers, unblockUserForUser } from "../storage/db";
 import { handleTelegramError } from "./telegramErrorHandler";
 import { isAdmin, ADMINS } from "./adminAuth";
 import { safeAnswerCbQuery as safeAnswerCbQueryShared, safeEditMessageText as safeEditMessageTextShared, getErrorMessage } from "./telegramUi";
@@ -11,6 +11,7 @@ import searchCommand from "../Commands/search";
 import referralCommand from "../Commands/referral";
 import endCommand from "../Commands/end";
 import { getSetupCompleteText } from "./setupFlow";
+import { showPremiumPurchaseMenu } from "./starsPayments";
 
 // Because it doesn't know that ctx has a match property. by default, Context<Update> doesn't include match, but telegraf adds it dynamically when using regex triggers.
 export interface ActionContext extends Context {
@@ -77,11 +78,16 @@ export async function loadActions() {
     }
 }
 
-const premiumMessage = 
-"⭐ *Premium Feature*\n\n" +
+const premiumMessage =
+"*Premium Feature*\n\n" +
 "This feature is available only for Premium users.\n\n" +
-"📞 Contact admin @demonhunter1511 to purchase Premium\n" +
-"🎁 Or use /settings → Referrals to earn free Premium!";
+"Use /premium to buy with Telegram Stars\n" +
+"Or use /settings -> Referrals to earn free Premium.";
+
+const premiumBlockMessage =
+"*Premium Feature*\n\n" +
+"Block list is available only for Premium users.\n\n" +
+"To buy Premium: open /settings and tap *Premium*.";
 
 const genderKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("👨 Male", "GENDER_MALE")],
@@ -177,6 +183,7 @@ async function showSettings(ctx: ActionContext) {
  📍 State: ${u.state ?? "Not Set"}
  💕 Preference: ${u.premium ? (u.preference === "any" ? "Any" : u.preference === "male" ? "Male" : "Female") : "🔒 Premium Only"}
  💎 Premium: ${u.premium ? "Yes ✅" : "No ❌"}
+ 🚫 Blocked Users: ${(u.blockedUsers || []).length}
   💬 Chats: Unlimited
  👥 Referrals: ${referralCount}/30
 
@@ -187,12 +194,58 @@ async function showSettings(ctx: ActionContext) {
         [Markup.button.callback("🎂 Age", "SET_AGE")],
         [Markup.button.callback("📍 State", "SET_STATE")],
         [Markup.button.callback("💕 Preference", "SET_PREFERENCE")],
+        [Markup.button.callback("🚫 Blocked Users", "OPEN_BLOCKED_USERS")],
         [Markup.button.callback("🎁 Referrals", "OPEN_REFERRAL")],
         [Markup.button.callback("⭐ Premium", "BUY_PREMIUM")]
     ]);
 
     // Try to edit with fallback to reply
     await safeEditMessageText(ctx, text, keyboard);
+}
+
+function buildBlockedUsersView(blockedUsers: number[]) {
+    const MAX_VISIBLE = 40;
+    const visibleUsers = blockedUsers.slice(0, MAX_VISIBLE);
+    const hiddenCount = blockedUsers.length - visibleUsers.length;
+
+    if (blockedUsers.length === 0) {
+        return {
+            text: "You have not blocked anyone yet.",
+            keyboard: Markup.inlineKeyboard([[Markup.button.callback("Back", "OPEN_SETTINGS")]])
+        };
+    }
+
+    const lines = visibleUsers.map((id, index) => `${index + 1}. User ${id}`);
+    const rows = visibleUsers.map((id) => [Markup.button.callback(`Unblock ${id}`, `UNBLOCK_USER_${id}`)]);
+    rows.push([Markup.button.callback("Back", "OPEN_SETTINGS")]);
+
+    const hiddenText = hiddenCount > 0 ? `\n\n+${hiddenCount} more not shown` : "";
+
+    return {
+        text: `Blocked users: ${blockedUsers.length}\n\n${lines.join("\n")}${hiddenText}\n\nTap a user button below to unblock.`,
+        keyboard: Markup.inlineKeyboard(rows)
+    };
+}
+
+async function showBlockedUsersMenu(ctx: ActionContext) {
+    if (!ctx.from) return;
+
+    const user = await getUser(ctx.from.id);
+    if (!user.premium) {
+        await safeEditMessageText(
+            ctx,
+            premiumBlockMessage,
+            {
+                parse_mode: "Markdown",
+                ...Markup.inlineKeyboard([[Markup.button.callback("Open Settings", "OPEN_SETTINGS")]])
+            }
+        );
+        return;
+    }
+
+    const blockedUsers = await getBlockedUsers(ctx.from.id);
+    const view = buildBlockedUsersView(blockedUsers);
+    await safeEditMessageText(ctx, view.text, view.keyboard);
 }
 
 // Open settings
@@ -580,22 +633,92 @@ bot.action("PREF_FEMALE", async (ctx) => {
 // Buy premium action
 bot.action("BUY_PREMIUM", async (ctx) => {
     await safeAnswerCbQuery(ctx);
-    await ctx.reply(
-        "⭐ *Premium Features* 🔒\n\n" +
-        "Upgrade to Premium to unlock:\n" +
-        "• Set your chat preference (Male/Female/Any)\n" +
-        "• Priority matching\n" +
-        "• Better profile control\n" +
-        "• And more!\n\n" +
-        "Use /premium to upgrade!",
-        { parse_mode: "Markdown" }
-    );
+    await showPremiumPurchaseMenu(ctx);
 });
 
 // Open referral command
 bot.action("OPEN_REFERRAL", async (ctx) => {
     await safeAnswerCbQuery(ctx);
     await referralCommand.execute(ctx, bot);
+});
+
+// Block last chat partner (premium only)
+bot.action("BLOCK_LAST_PARTNER", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+
+    const user = await getUser(ctx.from.id);
+    if (!user.premium) {
+        return ctx.reply(premiumBlockMessage, {
+            parse_mode: "Markdown",
+            ...Markup.inlineKeyboard([[Markup.button.callback("Open Settings", "OPEN_SETTINGS")]])
+        });
+    }
+
+    const partnerId = user.reportingPartner || user.lastPartner;
+    if (!partnerId) {
+        return safeEditMessageText(
+            ctx,
+            "No recent partner found to block.",
+            Markup.inlineKeyboard([[Markup.button.callback("Find Partner", "START_SEARCH")]])
+        );
+    }
+
+    const result = await blockUserForUser(ctx.from.id, partnerId);
+    const blockedUsers = await getBlockedUsers(ctx.from.id);
+
+    const text =
+        `${result.message}\n\n` +
+        `Blocked users: ${blockedUsers.length}\n\n` +
+        "You will not be matched with this user again.";
+
+    return safeEditMessageText(
+        ctx,
+        text,
+        Markup.inlineKeyboard([
+            [Markup.button.callback("Blocked Users", "OPEN_BLOCKED_USERS")],
+            [Markup.button.callback("Find New Partner", "START_SEARCH")],
+            [Markup.button.callback("Main Menu", "BACK_MAIN_MENU")]
+        ])
+    );
+});
+
+// Open blocked users list from settings (premium only)
+bot.action("OPEN_BLOCKED_USERS", async (ctx) => {
+    await safeAnswerCbQuery(ctx);
+    await showBlockedUsersMenu(ctx);
+});
+
+// Unblock user action
+bot.action(/UNBLOCK_USER_(\d+)/, async (ctx) => {
+    if (!ctx.match || !ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+
+    const user = await getUser(ctx.from.id);
+    if (!user.premium) {
+        return ctx.reply(premiumBlockMessage, {
+            parse_mode: "Markdown",
+            ...Markup.inlineKeyboard([[Markup.button.callback("Open Settings", "OPEN_SETTINGS")]])
+        });
+    }
+
+    const targetUserId = Number(ctx.match[1]);
+    if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
+        return safeEditMessageText(
+            ctx,
+            "Invalid user selected.",
+            Markup.inlineKeyboard([[Markup.button.callback("Back", "OPEN_BLOCKED_USERS")]])
+        );
+    }
+
+    const removed = await unblockUserForUser(ctx.from.id, targetUserId);
+    if (!removed) {
+        await safeAnswerCbQuery(ctx, "User is not in your blocked list.");
+    } else {
+        await safeAnswerCbQuery(ctx, `User ${targetUserId} unblocked`);
+    }
+
+    await showBlockedUsersMenu(ctx);
 });
 
 // ==============================
@@ -646,6 +769,17 @@ const reportReasonsMap: Record<string, string> = {
     "REPORT_FRAUD": "Fraud",
     "REPORT_INSULTING": "Insulting"
 };
+
+function getAutoWarningMessage(reason: string): string {
+    const warningMap: Record<string, string> = {
+        "Impersonating": "Impersonation is not allowed on this platform.",
+        "Sexual content": "Sharing inappropriate or sexual content is not allowed.",
+        "Fraud": "Fraud or suspicious activity is a serious violation.",
+        "Insulting": "Insulting or harassing other users is not allowed."
+    };
+
+    return warningMap[reason] || "You have been reported for violating community guidelines.";
+}
 
 for (const [action, reason] of Object.entries(reportReasonsMap)) {
     bot.action(action, async (ctx) => {
@@ -700,6 +834,22 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
     await updateUser(ctx.from.id, {
         reportedUsers: [...(user.reportedUsers || []), partnerId]
     });
+
+    // Auto warn user exactly when they reach 2 reports.
+    if (newReportCount === 2) {
+        const warningText =
+            `⚠️ *Warning*\n\n` +
+            `You were reported for: *${reportReason}*\n\n` +
+            `${getAutoWarningMessage(reportReason)}\n\n` +
+            `You have received 2 reports. If this continues, you may be banned.\n\n` +
+            `Please chat safely and respect others.`;
+
+        try {
+            await ctx.telegram.sendMessage(partnerId, warningText, { parse_mode: "Markdown" });
+        } catch (error) {
+            console.error(`[AUTO_WARN] Failed to send warning to user ${partnerId}:`, error);
+        }
+    }
     
     // Notify the reporter
     await safeEditMessageText(ctx, "Thank you for reporting! 🙏", backKeyboard);
@@ -1065,6 +1215,8 @@ bot.action("AGE_40_PLUS", async (ctx) => {
     await updateUser(ctx.from.id, { age: "45" });
     await showSettings(ctx);
 });
+
+
 
 
 

@@ -14,6 +14,7 @@ export default {
             "/end - End the current chat\n" +
             "/settings - Open settings menu\n" +
             "/report - Report a user\n" +
+            "/premium - Buy premium with Telegram Stars\n" +
             "/referral - Invite friends & earn premium\n" +
             "/help - Show this help message",
             { parse_mode: "HTML", ...removeKeyboard() }

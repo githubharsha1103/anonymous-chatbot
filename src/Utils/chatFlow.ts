@@ -9,7 +9,8 @@ type PartnerProfile = {
 
 export const exitChatKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🔍 Find New Partner", "START_SEARCH")],
-    [Markup.button.callback("🚨 Report User", "OPEN_REPORT")]
+    [Markup.button.callback("🚨 Report User", "OPEN_REPORT")],
+    [Markup.button.callback("⛔ Block User", "BLOCK_LAST_PARTNER")]
 ]);
 
 export function buildPartnerMatchMessage(viewerIsPremium: boolean, partner: PartnerProfile): string {
@@ -41,7 +42,7 @@ export function buildPartnerLeftMessage(durationText?: string, messageCount?: nu
         "🚫 Partner left the chat\n" +
         details +
         "\nHow was your chat experience?\n\n" +
-        "Tap below to find a new partner or report this chat.\n\n" +
+        "Tap below to find a new partner, report, or block this user.\n\n" +
         "━━━━━━━━━━━━━━━━━\n" +
         "To report this chat:"
     );
@@ -53,7 +54,7 @@ export function buildSelfEndedMessage(durationText: string, messageCount: number
         `💬 Chat Duration: ${durationText}\n` +
         `💭 Messages Exchanged: ${messageCount}\n\n` +
         "Ready for another conversation?\n\n" +
-        "Tap below to find a new partner or report this chat.\n\n" +
+        "Tap below to find a new partner, report, or block this user.\n\n" +
         "━━━━━━━━━━━━━━━━━\n" +
         "To report this chat:"
     );

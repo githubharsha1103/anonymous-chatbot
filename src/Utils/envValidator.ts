@@ -14,6 +14,9 @@ interface EnvConfig {
   RENDER_EXTERNAL_HOSTNAME?: string;
   GROUP_INVITE_LINK?: string;
   WEB_API_KEY?: string;
+  STARS_PREMIUM_WEEKLY?: string;
+  STARS_PREMIUM_MONTHLY?: string;
+  STARS_PREMIUM_YEARLY?: string;
 }
 
 const requiredEnv: (keyof EnvConfig)[] = ["BOT_TOKEN", "ADMIN_IDS", "GROUP_CHAT_ID"];
@@ -70,6 +73,7 @@ export function validateEnvironment(): void {
   validateAdminIds();
   validateGroupChatId();
   validateWebhookUrl();
+  validateStarsPricing();
 }
 
 /**
@@ -116,5 +120,17 @@ function validateWebhookUrl(): void {
   } catch {
     console.error("[FATAL] WEBHOOK_URL is not a valid URL.");
     process.exit(1);
+  }
+}
+
+function validateStarsPricing(): void {
+  const keys: (keyof EnvConfig)[] = ["STARS_PREMIUM_WEEKLY", "STARS_PREMIUM_MONTHLY", "STARS_PREMIUM_YEARLY"];
+  for (const key of keys) {
+    const raw = process.env[key];
+    if (!raw) continue;
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      console.warn(`[WARN] ${key} should be a positive integer Stars amount. Received: ${raw}`);
+    }
   }
 }

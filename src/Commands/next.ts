@@ -1,6 +1,6 @@
-﻿import { Context } from "telegraf";
+import { Context } from "telegraf";
 import { ExtraTelegraf } from "..";
-import { getGender, getUser, updateUser } from "../storage/db";
+import { areUsersMutuallyBlocked, getUser, updateUser } from "../storage/db";
 import {
   beginChatRuntime,
   buildPartnerLeftMessage,
@@ -16,6 +16,7 @@ interface WaitingUser {
   preference: string;
   gender: string;
   isPremium: boolean;
+  blockedUsers?: number[];
 }
 
 export default {
@@ -25,13 +26,13 @@ export default {
     const userId = ctx.from?.id as number;
 
     if (bot.isRateLimited(userId)) {
-      return ctx.reply("⏳ Please wait a moment before trying again.");
+      return ctx.reply("? Please wait a moment before trying again.");
     }
 
     bot.syncQueueState();
 
     if (bot.isQueueFull()) {
-      return ctx.reply("🚫 Queue is full. Please try again later.");
+      return ctx.reply("?? Queue is full. Please try again later.");
     }
 
     const MAX_QUEUE_SOFT_LIMIT = 9500;
@@ -42,7 +43,8 @@ export default {
 
     try {
       return await bot.withChatStateLock(async () => {
-        const gender = (await getGender(userId)) || "any";
+        const user = await getUser(userId);
+        const gender = user.gender || "any";
 
         if (bot.runningChats.has(userId)) {
           const partner = bot.getPartner(userId);
@@ -60,20 +62,17 @@ export default {
           if (!notifySent && partner) {
             cleanupBlockedUser(bot, partner);
             await endChatDueToError(bot, userId, partner);
-            return ctx.reply("🚫 Partner left the chat");
+            return ctx.reply("?? Partner left the chat");
           }
 
           await ctx.reply(buildSelfSkippedMessage(), exitChatKeyboard);
         }
 
         bot.removeFromQueue(userId);
-        if (bot.queueSet.has(userId)) {
-          bot.queueSet.delete(userId);
-        }
 
-        const user = await getUser(userId);
         const preference = user.preference || "any";
         const isPremium = user.premium || false;
+        const myBlockedUsers = user.blockedUsers || [];
         const matchPreference = isPremium && preference !== "any" ? preference : null;
 
         let matchIndex = -1;
@@ -87,17 +86,26 @@ export default {
           const preferenceMatches = waitingPreference === "any" || waitingPreference === gender;
 
           if (genderMatches && preferenceMatches) {
+            const blockedByLatestState = await areUsersMutuallyBlocked(userId, queuedUser.id);
+            if (blockedByLatestState) continue;
+
             matchIndex = i;
             break;
           }
         }
 
         if (matchIndex === -1) {
-          const added = bot.addToQueueAtomic({ id: userId, preference, gender, isPremium });
+          const added = bot.addToQueueAtomic({
+            id: userId,
+            preference,
+            gender,
+            isPremium,
+            blockedUsers: myBlockedUsers
+          });
           if (!added) {
             return ctx.reply("You are already in the queue!");
           }
-          return ctx.reply("⏳ Waiting for a partner...");
+          return ctx.reply("? Waiting for a partner...");
         }
 
         const match = bot.waitingQueue[matchIndex] as WaitingUser;
@@ -121,25 +129,31 @@ export default {
           await endChatDueToError(bot, userId, match.id);
 
           if (partnerStillThere) {
-            const currentGender = (await getGender(userId)) || "any";
-            const requeued = bot.addToQueueAtomic({ id: userId, preference, gender: currentGender, isPremium });
+            const refreshedUser = await getUser(userId);
+            const requeued = bot.addToQueueAtomic({
+              id: userId,
+              preference,
+              gender: refreshedUser.gender || "any",
+              isPremium,
+              blockedUsers: refreshedUser.blockedUsers || []
+            });
             if (!requeued) {
-              return ctx.reply("⚠️ Temporary connection issue. Please try /next again.");
+              return ctx.reply("?? Temporary connection issue. Please try /next again.");
             }
 
             return ctx.reply(
-              "⚠️ Temporary connection issue with partner. You've been added back to the queue...\n⏳ Waiting for a new partner..."
+              "?? Temporary connection issue with partner. You've been added back to the queue...\n? Waiting for a new partner..."
             );
           }
 
-          return ctx.reply("🚫 Could not connect to partner. They may have left or restricted the bot.");
+          return ctx.reply("?? Could not connect to partner. They may have left or restricted the bot.");
         }
 
         return ctx.reply(userPartnerInfo);
       });
     } catch (error) {
       console.error("[Next command] Match flow failed:", error);
-      return ctx.reply("⚠️ Server is busy. Please try again in a moment.");
+      return ctx.reply("?? Server is busy. Please try again in a moment.");
     }
   }
 };

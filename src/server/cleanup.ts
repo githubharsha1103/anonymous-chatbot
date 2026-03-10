@@ -1,5 +1,5 @@
 import { ExtraTelegraf } from '../index';
-import { closeDatabase } from '../storage/db';
+import { closeDatabase, revokeExpiredPremiumUsers } from '../storage/db';
 
 /**
  * Cleanup and maintenance tasks
@@ -123,6 +123,15 @@ export function hourlyMapCleanup(bot: ExtraTelegraf): void {
  * Register all cleanup intervals
  */
 export function registerCleanupTasks(bot: ExtraTelegraf): void {
+  // Run premium expiry cleanup once on startup
+  revokeExpiredPremiumUsers().then(revoked => {
+    if (revoked > 0) {
+      console.log(`[CLEANUP] - Revoked premium for ${revoked} expired users`);
+    }
+  }).catch(error => {
+    console.error("[CLEANUP] - Startup premium cleanup failed:", error);
+  });
+
   // Run cleanup every 5 minutes
   setInterval(() => cleanupStaleData(bot), 300000);
   
@@ -134,6 +143,18 @@ export function registerCleanupTasks(bot: ExtraTelegraf): void {
   
   // Queue safety filter every 30 seconds
   setInterval(() => filterQueueUsersInChats(bot), 30000);
+
+  // Revoke expired premium users every hour
+  setInterval(async () => {
+    try {
+      const revoked = await revokeExpiredPremiumUsers();
+      if (revoked > 0) {
+        console.log(`[CLEANUP] - Revoked premium for ${revoked} expired users`);
+      }
+    } catch (error) {
+      console.error("[CLEANUP] - Error revoking expired premium users:", error);
+    }
+  }, 3600000);
 }
 
 /**

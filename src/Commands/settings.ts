@@ -26,6 +26,7 @@ Age: ${user.age ?? "Not Set"}
 State: ${user.state ?? "Not Set"}
 Preference: ${preferenceText}
 Premium: ${user.premium ? "Yes" : "No"}
+Blocked Users: ${(user.blockedUsers || []).length}
 Chats: Unlimited
 Referrals: ${referralCount}/30
 
@@ -38,6 +39,7 @@ Use buttons below to update:`;
         [Markup.button.callback("Age", "SET_AGE")],
         [Markup.button.callback("State", "SET_STATE")],
         [Markup.button.callback("Preference", "SET_PREFERENCE")],
+        [Markup.button.callback("Blocked Users", "OPEN_BLOCKED_USERS")],
         [Markup.button.callback("Referrals", "OPEN_REFERRAL")],
         [Markup.button.callback("Premium", "BUY_PREMIUM")]
       ])
