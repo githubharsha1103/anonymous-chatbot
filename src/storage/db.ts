@@ -384,13 +384,6 @@ export async function updateUser(id: number, data: Partial<User>): Promise<void>
   await writeJson(JSON_FILE, dbObj);
 }
 
-export async function incDaily(id: number): Promise<boolean> {
-  const user = await getUser(id);
-  const currentDaily = user.daily || 0;
-  await updateUser(id, { daily: currentDaily + 1 });
-  return true;
-}
-
 export async function setGender(id: number, gender: string): Promise<void> {
   await updateUser(id, { gender });
 }
@@ -1055,30 +1048,6 @@ export async function getUserReports(userId: number): Promise<Report[]> {
   }));
 }
 
-// Atomically increment user's report count to prevent race conditions
-export async function incrementReportCount(userId: number): Promise<number> {
-  if (useMongoDB && !isFallbackMode) {
-    try {
-      const collection = await getUsersCollection();
-      await collection.updateOne(
-        { telegramId: userId },
-        { $inc: { reports: 1 } }
-      );
-      const user = await getUser(userId);
-      return user.reports || 0;
-    } catch (error) {
-      console.error("[ERROR] - MongoDB incrementReportCount error:", error);
-    }
-  }
-  
-  // JSON/file fallback with read-modify-write (locked)
-  const dbObj = await readJson<JsonUsersDb>(JSON_FILE);
-  const currentReports = dbObj[userId]?.reports || 0;
-  dbObj[userId] = { ...(dbObj[userId] || {}), reports: currentReports + 1 };
-  await writeJson(JSON_FILE, dbObj);
-  return currentReports + 1;
-}
-
 // Reset all report data for one user (scalable + legacy)
 export async function resetUserReports(userId: number): Promise<void> {
   if (useMongoDB && !isFallbackMode) {
@@ -1227,39 +1196,6 @@ export async function incrementTotalChats(): Promise<void> {
   await writeJson(statsFile, stats);
 }
 
-// Reset daily chat count for all users (call at midnight)
-export async function resetDailyCounts(): Promise<number> {
-  if (useMongoDB && !isFallbackMode) {
-    try {
-      const collection = await getUsersCollection();
-      const result = await collection.updateMany(
-        { premium: false },  // Only reset for non-premium users
-        { $set: { daily: 0 } }
-      );
-      console.log(`[DAILY] - Reset daily counts for ${result.modifiedCount} non-premium users`);
-      return result.modifiedCount;
-    } catch (error) {
-      console.error("[ERROR] - MongoDB resetDailyCounts error:", error);
-    }
-  }
-  
-  // JSON fallback (locked)
-  const dbObj = await readJson<JsonUsersDb>(JSON_FILE);
-  if (!dbObj) return 0;
-  let count = 0;
-  
-  for (const id in dbObj) {
-    if (!dbObj[id].premium) {  // Only reset for non-premium users
-      dbObj[id].daily = 0;
-      count++;
-    }
-  }
-  
-  await writeJson(JSON_FILE, dbObj);
-  console.log(`[DAILY] - Reset daily counts for ${count} non-premium users (JSON)`);
-  return count;
-}
-
 export async function migrateAgeRangesToExactAges(): Promise<number> {
   let updated = 0;
 
@@ -1302,22 +1238,6 @@ export async function migrateAgeRangesToExactAges(): Promise<number> {
   }
 
   return updated;
-}
-
-// Check and reset daily count if it's a new day
-export async function checkAndResetDaily(id: number): Promise<boolean> {
-  const user = await getUser(id);
-  
-  const now = Date.now();
-  const lastActive = user.lastActive || 0;
-  
-  // Reset if more than 24 hours since last activity
-  const ONE_DAY = 24 * 60 * 60 * 1000;
-  if (now - lastActive > ONE_DAY) {
-    await updateUser(id, { daily: 0 });
-  }
-  
-  return true;
 }
 
 // Increment user's total chats count
@@ -1771,3 +1691,4 @@ export async function closeDatabase(): Promise<void> {
     console.log("[INFO] - MongoDB connection closed");
   }
 }
+

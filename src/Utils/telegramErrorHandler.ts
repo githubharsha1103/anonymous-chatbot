@@ -134,32 +134,6 @@ export async function endChatDueToError(bot: ExtraTelegraf, userId: number, part
 }
 
 /**
- * Clean up all tracking maps for a user and their partner
- * Call this whenever a chat ends or a user disconnects
- */
-export function cleanupUserMaps(bot: ExtraTelegraf, userId: number, partnerId: number | null): void {
-  // Clean up message maps for both users
-  bot.messageMap.delete(userId);
-  if (partnerId) {
-    bot.messageMap.delete(partnerId);
-  }
-
-  // Clean up message count maps for both users
-  bot.messageCountMap.delete(userId);
-  if (partnerId) {
-    bot.messageCountMap.delete(partnerId);
-  }
-
-  // Clean up rate limit entries for both users
-  bot.rateLimitMap.delete(userId);
-  if (partnerId) {
-    bot.rateLimitMap.delete(partnerId);
-  }
-
-  console.log(`[CLEANUP] - User maps cleaned: ${userId}, ${partnerId || 'none'}`);
-}
-
-/**
  * Handle a Telegram error, returning true if it was handled (e.g., bot blocked)
  * If partnerId is provided, the partner will be notified that the chat ended
  */
@@ -543,3 +517,4 @@ async function broadcastSequential(
   
   return { success, failed, failedUserIds };
 }
+

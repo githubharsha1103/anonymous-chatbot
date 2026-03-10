@@ -9,10 +9,10 @@ export const setupGenderKeyboard = Markup.inlineKeyboard([
 ]);
 
 export const setupAgeKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("13-17", "SETUP_AGE_13_17")],
-    [Markup.button.callback("18-25", "SETUP_AGE_18_25")],
-    [Markup.button.callback("26-40", "SETUP_AGE_26_40")],
-    [Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
+    [Markup.button.callback("15", "SETUP_AGE_13_17")],
+    [Markup.button.callback("22", "SETUP_AGE_18_25")],
+    [Markup.button.callback("33", "SETUP_AGE_26_40")],
+    [Markup.button.callback("45", "SETUP_AGE_40_PLUS")],
     [Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")]
 ]);
 
@@ -44,8 +44,8 @@ export function getSetupStepPrompt(step: SetupStep): { text: string; keyboard?: 
             return {
                 text:
                     "📝 *Step 2 of 3*\n\n" +
-                    "🎂 *Select your age range:*\n" +
-                    "(This helps us match you with people in similar age groups)",
+                    "🎂 *Select your age:*\n" +
+                    "(Choose the option closest to your age)",
                 keyboard: setupAgeKeyboard
             };
         case "age_manual":
@@ -94,8 +94,8 @@ export function getSetupRequiredPrompt(user: Pick<User, "gender" | "age" | "stat
                 "📝 *Setup Required*\n\n" +
                 "⚠️ You must complete your profile before using the bot.\n\n" +
                 "👤 *Step 2 of 3*\n" +
-                "🎂 *Select your age range:*\n" +
-                "(This helps us match you with people in similar age groups)",
+                "🎂 *Select your age:*\n" +
+                "(Choose the option closest to your age)",
             keyboard: setupAgeKeyboard
         };
     }

@@ -166,7 +166,7 @@ ${message}
 /start`;
 
         const keyboard = Markup.inlineKeyboard([
-            [Markup.button.callback("🚀 Start Chatting", "START_SEARCH")]
+            [Markup.button.callback("Find a Partner", "START_SEARCH")]
         ]);
 
         // Use broadcastWithRateLimit for sequential safe sending
@@ -212,7 +212,7 @@ ${message}
 /start`;
 
         const keyboard = Markup.inlineKeyboard([
-            [Markup.button.callback("🚀 Let's Chat!", "START_SEARCH")]
+            [Markup.button.callback("Find a Partner", "START_SEARCH")]
         ]);
 
         // Use broadcastWithRateLimit for sequential safe sending
@@ -233,4 +233,7 @@ ${message}
         );
     });
 }
+
+
+
 

@@ -1,13 +1,10 @@
-﻿import { Context, Telegraf } from "telegraf";
+import { Context, Telegraf } from "telegraf";
 import { Command } from "../Utils/commandHandler";
 import { ExtraTelegraf } from "..";
 import { getUser, updateUser, updateLastActive, processReferral } from "../storage/db";
 import { getSetupStepPrompt, SetupStep } from "../Utils/setupFlow";
 
-export const SETUP_STEP_GENDER = "gender";
-export const SETUP_STEP_AGE = "age";
-export const SETUP_STEP_STATE = "state";
-export const SETUP_STEP_DONE = "done";
+const SETUP_STEP_DONE = "done";
 
 type StartContext = Context & {
   startPayload?: string;
@@ -95,3 +92,4 @@ export default {
     );
   }
 } as Command;
+

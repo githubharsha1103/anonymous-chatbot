@@ -253,7 +253,7 @@ bot.action("WELCOME_BACK", async (ctx) => {
         "💬 Chat freely and safely\n\n" +
         "Tap *Get Started* to begin!",
         { parse_mode: "Markdown", ...Markup.inlineKeyboard([
-            [Markup.button.callback("🌟 Get Started", "SETUP_GENDER_MALE")]
+            [Markup.button.callback("🌟 Get Started", "SETUP_BACK_GENDER")]
         ]) }
     );
 });
@@ -266,10 +266,10 @@ const setupGenderKeyboard = Markup.inlineKeyboard([
 
 // Setup age keyboard with ranges and manual input option (NO BACK/CANCEL)
 const setupAgeKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("13-17", "SETUP_AGE_13_17")],
-    [Markup.button.callback("18-25", "SETUP_AGE_18_25")],
-    [Markup.button.callback("26-40", "SETUP_AGE_26_40")],
-    [Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
+    [Markup.button.callback("15", "SETUP_AGE_13_17")],
+    [Markup.button.callback("22", "SETUP_AGE_18_25")],
+    [Markup.button.callback("33", "SETUP_AGE_26_40")],
+    [Markup.button.callback("45", "SETUP_AGE_40_PLUS")],
     [Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")]
 ]);
 
@@ -288,8 +288,8 @@ bot.action("SETUP_GENDER_MALE", async (ctx) => {
     await updateUser(ctx.from.id, { gender: "male", setupStep: "age" });
     await safeEditMessageText(ctx,
         "📝 *Step 2 of 3*\n\n" +
-        "🎂 *Select your age range:*\n" +
-        "(This helps us match you with people in similar age groups)",
+        "🎂 *Select your age:*\n" +
+        "(Choose the option closest to your age)",
         { parse_mode: "Markdown", ...setupAgeKeyboard }
     );
 });
@@ -300,18 +300,18 @@ bot.action("SETUP_GENDER_FEMALE", async (ctx) => {
     await updateUser(ctx.from.id, { gender: "female", setupStep: "age" });
     await safeEditMessageText(ctx,
         "📝 *Step 2 of 3*\n\n" +
-        "🎂 *Select your age range:*\n" +
-        "(This helps us match you with people in similar age groups)",
+        "🎂 *Select your age:*\n" +
+        "(Choose the option closest to your age)",
         { parse_mode: "Markdown", ...setupAgeKeyboard }
     );
 });
 
 // Age range selected - ask for state
 const ageToGenderMap: Record<string, string> = {
-    "SETUP_AGE_13_17": "13-17",
-    "SETUP_AGE_18_25": "18-25",
-    "SETUP_AGE_26_40": "26-40",
-    "SETUP_AGE_40_PLUS": "40+"
+    "SETUP_AGE_13_17": "15",
+    "SETUP_AGE_18_25": "22",
+    "SETUP_AGE_26_40": "33",
+    "SETUP_AGE_40_PLUS": "45"
 };
 
 for (const [action, ageLabel] of Object.entries(ageToGenderMap)) {
@@ -389,8 +389,8 @@ bot.action("SETUP_BACK_AGE", async (ctx) => {
     await safeAnswerCbQuery(ctx);
     await safeEditMessageText(ctx,
         "📝 *Step 2 of 3*\n\n" +
-        "🎂 *Select your age range:*\n" +
-        "(This helps us match you with people in similar age groups)",
+        "🎂 *Select your age:*\n" +
+        "(Choose the option closest to your age)",
         { parse_mode: "Markdown", ...setupAgeKeyboard }
     );
 });
@@ -425,8 +425,8 @@ bot.action("SETUP_CANCEL", async (ctx) => {
             "📝 *Setup Required*\n\n" +
             "⚠️ You must complete your profile before using the bot.\n\n" +
             "👤 *Step 2 of 3*\n" +
-            "🎂 *Select your age range:*\n" +
-            "(This helps us match you with people in similar age groups)",
+            "🎂 *Select your age:*\n" +
+            "(Choose the option closest to your age)",
             { parse_mode: "Markdown", ...setupAgeKeyboard }
         );
     } else if (!user.state) {
@@ -475,17 +475,17 @@ bot.action("GENDER_FEMALE", async (ctx) => {
 
 // Age selection keyboard for settings
 const ageSelectionKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("13-17", "AGE_13_17")],
-    [Markup.button.callback("18-25", "AGE_18_25")],
-    [Markup.button.callback("26-40", "AGE_26_40")],
-    [Markup.button.callback("40+", "AGE_40_PLUS")],
+    [Markup.button.callback("15", "AGE_13_17")],
+    [Markup.button.callback("22", "AGE_18_25")],
+    [Markup.button.callback("33", "AGE_26_40")],
+    [Markup.button.callback("45", "AGE_40_PLUS")],
     [Markup.button.callback("🔙 Back", "OPEN_SETTINGS")]
 ]);
 
 // Age actions
 bot.action("SET_AGE", async (ctx) => {
     await safeAnswerCbQuery(ctx);
-    await safeEditMessageText(ctx, "Select your age range:", ageSelectionKeyboard);
+    await safeEditMessageText(ctx, "Select your age:", ageSelectionKeyboard);
 });
 
 // State actions
@@ -522,7 +522,7 @@ bot.action("SET_PREFERENCE", async (ctx) => {
             "✨ *Premium Benefits:*\n" +
             "• Set gender preference (Male/Female)\n" +
             "• See partner's gender\n" +
-            "• Unlimited daily chats\n" +
+            "• Better profile control\n" +
             "• And more!\n\n" +
             "📞 Contact admin @demonhunter1511 to purchase\n" +
             "🎁 Or use /settings → Referrals to earn free Premium!",
@@ -585,7 +585,7 @@ bot.action("BUY_PREMIUM", async (ctx) => {
         "Upgrade to Premium to unlock:\n" +
         "• Set your chat preference (Male/Female/Any)\n" +
         "• Priority matching\n" +
-        "• Unlimited daily chats\n" +
+        "• Better profile control\n" +
         "• And more!\n\n" +
         "Use /premium to upgrade!",
         { parse_mode: "Markdown" }
@@ -1041,27 +1041,32 @@ bot.action("RATE_OKAY", async (ctx) => {
 bot.action("AGE_13_17", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
-    await updateUser(ctx.from.id, { age: "13-17" });
+    await updateUser(ctx.from.id, { age: "15" });
     await showSettings(ctx);
 });
 
 bot.action("AGE_18_25", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
-    await updateUser(ctx.from.id, { age: "18-25" });
+    await updateUser(ctx.from.id, { age: "22" });
     await showSettings(ctx);
 });
 
 bot.action("AGE_26_40", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
-    await updateUser(ctx.from.id, { age: "26-40" });
+    await updateUser(ctx.from.id, { age: "33" });
     await showSettings(ctx);
 });
 
 bot.action("AGE_40_PLUS", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
-    await updateUser(ctx.from.id, { age: "40+" });
+    await updateUser(ctx.from.id, { age: "45" });
     await showSettings(ctx);
 });
+
+
+
+
+
