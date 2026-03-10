@@ -18,21 +18,21 @@ const PREMIUM_PLANS: Record<PremiumPlanId, PremiumPlan> = {
     name: "Weekly Premium",
     days: 7,
     stars: 100,
-    amount: 10000
+    amount: 100
   },
   premium_monthly: {
     id: "premium_monthly",
     name: "Monthly Premium",
     days: 30,
     stars: 250,
-    amount: 25000
+    amount: 250
   },
   premium_yearly: {
     id: "premium_yearly",
     name: "Yearly Premium",
     days: 365,
     stars: 1000,
-    amount: 100000
+    amount: 1000
   }
 };
 
