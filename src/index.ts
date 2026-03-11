@@ -263,22 +263,87 @@ export class ExtraTelegraf extends Telegraf<Context> {
   }
 
   // Match from queue - call within mutex lock for thread safety
+  // Priority matching:
+  // 1. If premiumQueue.length >= 2: match premium users together
+  // 2. If premiumQueue.length >= 1 && waitingQueue.length >= 1: match premium with normal
+  // 3. Else: match normal users
   matchFromQueue(userId: number, matchData: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }): { matched: boolean; partnerId: number | null } {
-    const matchIndex = this.waitingQueue.findIndex(w => {
-      // Use Set for O(1) existence check first
-      if (!this.queueSet.has(w.id)) return false;
+    // Helper to check if two users match
+    const usersMatch = (u1: { gender: string; preference: string; blockedUsers?: number[] }, u2Id: number, u2: { gender: string; preference: string; blockedUsers?: number[] }, u1Id: number): boolean => {
+      const u1Gender = u1.gender || "any";
+      const u1Pref = u1.preference || "any";
+      const u2Gender = u2.gender || "any";
+      const u2Pref = u2.preference || "any";
+      const u1Blocked = u1.blockedUsers || [];
+      const u2Blocked = u2.blockedUsers || [];
       
-      const waitingGender = w.gender || "any";
-      const waitingPref = w.preference || "any";
-      const waitingBlocked = w.blockedUsers || [];
-      const currentBlocked = matchData.blockedUsers || [];
-      const matchPreference = (matchData.isPremium && matchData.preference !== "any") ? matchData.preference : null;
+      const genderMatches = u1Pref === "any" || u1Pref === u2Gender;
+      const preferenceMatches = u2Pref === "any" || u2Pref === u1Gender;
+      const notBlocked = !u1Blocked.includes(u2Id) && !u2Blocked.includes(u1Id);
       
-      const genderMatches = !matchPreference || waitingGender === matchPreference;
-      const preferenceMatches = waitingPref === "any" || waitingPref === matchData.gender;
-      
-      const notBlocked = !currentBlocked.includes(w.id) && !waitingBlocked.includes(userId);
       return genderMatches && preferenceMatches && notBlocked;
+    };
+    
+    // Priority 1: Match premium users together (premiumQueue >= 2)
+    if (matchData.isPremium && this.premiumQueue.length >= 2) {
+      const matchIndex = this.premiumQueue.findIndex(w => {
+        if (!this.premiumQueueSet.has(w.id)) return false;
+        if (w.id === userId) return false;
+        return usersMatch(matchData, w.id, w, userId);
+      });
+      
+      if (matchIndex !== -1) {
+        const match = this.premiumQueue.splice(matchIndex, 1)[0];
+        this.premiumQueueSet.delete(match.id);
+        
+        this.runningChats.set(match.id, userId);
+        this.runningChats.set(userId, match.id);
+        
+        return { matched: true, partnerId: match.id };
+      }
+    }
+    
+    // Priority 2: Match premium with normal (premiumQueue >= 1 && waitingQueue >= 1)
+    if (matchData.isPremium && this.premiumQueue.length >= 1) {
+      const matchIndex = this.premiumQueue.findIndex(w => {
+        if (!this.premiumQueueSet.has(w.id)) return false;
+        return usersMatch(matchData, w.id, w, userId);
+      });
+      
+      if (matchIndex !== -1) {
+        const match = this.premiumQueue.splice(matchIndex, 1)[0];
+        this.premiumQueueSet.delete(match.id);
+        
+        this.runningChats.set(match.id, userId);
+        this.runningChats.set(userId, match.id);
+        
+        return { matched: true, partnerId: match.id };
+      }
+    }
+    
+    // Priority 3: If current user is premium but no match in premium queue, try normal queue
+    if (matchData.isPremium && this.waitingQueue.length >= 1) {
+      const matchIndex = this.waitingQueue.findIndex(w => {
+        if (!this.queueSet.has(w.id)) return false;
+        return usersMatch(matchData, w.id, w, userId);
+      });
+      
+      if (matchIndex !== -1) {
+        const match = this.waitingQueue.splice(matchIndex, 1)[0];
+        this.queueSet.delete(match.id);
+        
+        this.runningChats.set(match.id, userId);
+        this.runningChats.set(userId, match.id);
+        
+        return { matched: true, partnerId: match.id };
+      }
+    }
+    
+    // Priority 4: Match normal users (non-premium or couldn't match premium)
+    const matchIndex = this.waitingQueue.findIndex(w => {
+      if (!this.queueSet.has(w.id)) return false;
+      if (w.id === userId) return false;
+      return usersMatch(matchData, w.id, w, userId);
     });
     
     if (matchIndex === -1) {
@@ -286,7 +351,7 @@ export class ExtraTelegraf extends Telegraf<Context> {
     }
     
     const match = this.waitingQueue.splice(matchIndex, 1)[0];
-    this.queueSet.delete(match.id); // O(1) removal
+    this.queueSet.delete(match.id);
     
     this.runningChats.set(match.id, userId);
     this.runningChats.set(userId, match.id);
