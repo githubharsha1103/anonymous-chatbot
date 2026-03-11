@@ -1,6 +1,6 @@
 import { Context, Markup } from "telegraf";
 import { ExtraTelegraf } from "..";
-import { getUser, updateUser, User, createPremiumPaymentOrder, addProcessedPaymentChargeId } from "../storage/db";
+import { getUser, updateUser, User, createPremiumPaymentOrder, addProcessedPaymentChargeId, getPremiumPaymentOrder, finalizePremiumPayment } from "../storage/db";
 
 // Rate limiting for invoice creation
 const invoiceCooldown = new Map<number, number>();
@@ -279,6 +279,116 @@ export async function handleSuccessfulPaymentMessage(ctx: Context): Promise<bool
   }
 
   const payload = successfulPayment.invoice_payload;
+  const userId = ctx.from?.id;
+  
+  if (!userId) {
+    await ctx.reply("Payment received, but user identity is missing. Please contact support.");
+    return true;
+  }
+
+  // Try order-based payment first
+  const orderId = extractOrderIdFromPayload(payload);
+  
+  if (orderId) {
+    // Order-based payment flow
+    const order = await getPremiumPaymentOrder(orderId);
+    
+    // Validate order exists
+    if (!order) {
+      console.error(JSON.stringify({
+        type: "PAYMENT_ORDER_NOT_FOUND",
+        userId,
+        orderId,
+        chargeId: successfulPayment.telegram_payment_charge_id,
+        timestamp: new Date().toISOString()
+      }));
+      await ctx.reply("Payment received, but order not found. Please contact support.");
+      return true;
+    }
+
+    // Validate user owns the order
+    if (order.userId !== userId) {
+      console.error(JSON.stringify({
+        type: "PAYMENT_USER_MISMATCH",
+        userId,
+        orderUserId: order.userId,
+        orderId,
+        timestamp: new Date().toISOString()
+      }));
+      await ctx.reply("Payment received, but user mismatch. Please contact support.");
+      return true;
+    }
+
+    // Validate order is pending
+    if (order.status !== "pending") {
+      console.error(JSON.stringify({
+        type: "PAYMENT_ORDER_NOT_PENDING",
+        userId,
+        orderId,
+        orderStatus: order.status,
+        timestamp: new Date().toISOString()
+      }));
+      await ctx.reply("Payment already processed or invalid. Please contact support.");
+      return true;
+    }
+
+    // Validate amount matches
+    if (order.starsAmount !== successfulPayment.total_amount) {
+      console.error(JSON.stringify({
+        type: "PAYMENT_AMOUNT_MISMATCH",
+        userId,
+        orderId,
+        expected: order.starsAmount,
+        received: successfulPayment.total_amount,
+        timestamp: new Date().toISOString()
+      }));
+      await ctx.reply("Payment received, but amount mismatch. Please contact support.");
+      return true;
+    }
+
+    // Use finalizePremiumPayment from db.ts to process the order atomically
+    const result = await finalizePremiumPayment(
+      orderId,
+      successfulPayment.telegram_payment_charge_id,
+      undefined
+    );
+
+    if (!result.success) {
+      await ctx.reply("Payment processing failed. Please contact support.");
+      return true;
+    }
+
+    if (result.alreadyProcessed) {
+      await ctx.reply(
+        `Payment already processed.\n\n⏳ Valid until: ${formatDate(result.premiumUntil || Date.now())}`
+      );
+      return true;
+    }
+
+    // Update analytics
+    incrementPaymentAnalytics(order.starsAmount);
+
+    // Success - send confirmation
+    await ctx.reply(
+      `🎉 Premium Activated!\n\n⭐ Plan: ${order.premiumDays} days\n⏳ Valid until: ${formatDate(result.premiumUntil || Date.now())}\n\nEnjoy premium features!`
+    );
+
+    // Structured logging
+    console.log(JSON.stringify({
+      type: "PAYMENT_SUCCESS",
+      userId,
+      chargeId: successfulPayment.telegram_payment_charge_id,
+      orderId,
+      plan: order.planId,
+      amount: order.starsAmount,
+      premiumDays: order.premiumDays,
+      timestamp: new Date().toISOString()
+    }));
+
+    return true;
+  }
+
+  // Legacy payment flow (direct plan payload)
   const plan = getPlanFromPayload(payload);
   
   // Validate payload
@@ -291,20 +401,14 @@ export async function handleSuccessfulPaymentMessage(ctx: Context): Promise<bool
   if (successfulPayment.total_amount !== plan.amount) {
     console.error(JSON.stringify({
       type: "PAYMENT_AMOUNT_MISMATCH",
-      userId: ctx.from?.id,
+      userId,
       expected: plan.amount,
       received: successfulPayment.total_amount,
-      payload: payload,
+      payload,
       chargeId: successfulPayment.telegram_payment_charge_id,
       timestamp: new Date().toISOString()
     }));
     await ctx.reply("Payment received, but amount mismatch. Please contact support.");
-    return true;
-  }
-
-  const userId = ctx.from?.id;
-  if (!userId) {
-    await ctx.reply("Payment received, but user identity is missing. Please contact support.");
     return true;
   }
 

@@ -2049,6 +2049,7 @@ export async function finalizePremiumPayment(
 }
 
 // Atomic operation to add processed payment charge ID (prevents race conditions)
+// Uses MongoDB $addToSet for true atomic operation
 export async function addProcessedPaymentChargeId(
   userId: number,
   chargeId: string
@@ -2058,6 +2059,8 @@ export async function addProcessedPaymentChargeId(
   if (useMongoDB && !isFallbackMode) {
     try {
       const collection = await getUsersCollection();
+      
+      // First, get current state to check for existing ID
       const user = await collection.findOne({ id: userId });
       
       if (!user) {
@@ -2066,21 +2069,38 @@ export async function addProcessedPaymentChargeId(
 
       const existingIds = user.processedPaymentChargeIds || [];
       
-      // Check if already exists
+      // If already exists, return early
       if (existingIds.includes(chargeId)) {
         return { success: true, alreadyExists: true };
       }
 
-      // Trim to max size and add new ID
-      const trimmedIds = existingIds.slice(-(MAX_IDS - 1));
-      trimmedIds.push(chargeId);
-
-      await collection.updateOne(
-        { id: userId },
+      // Use atomic $addToSet operation - this is truly atomic
+      // If the chargeId already exists from another request, nothing is added
+      const result = await collection.updateOne(
+        { id: userId, processedPaymentChargeIds: { $ne: chargeId } },
         { 
-          $set: { processedPaymentChargeIds: trimmedIds, premium: true }
+          $addToSet: { processedPaymentChargeIds: chargeId },
+          $set: { premium: true }
         }
       );
+
+      // If nothing was modified, the chargeId was added by another request
+      if (result.modifiedCount === 0) {
+        return { success: true, alreadyExists: true };
+      }
+
+      // After successful insert, trim array to latest 50 entries using aggregation pipeline
+      const updatedUser = await collection.findOne({ id: userId });
+      if (updatedUser && updatedUser.processedPaymentChargeIds) {
+        const currentIds = updatedUser.processedPaymentChargeIds;
+        if (currentIds.length > MAX_IDS) {
+          const trimmedIds = currentIds.slice(-MAX_IDS);
+          await collection.updateOne(
+            { id: userId },
+            { $set: { processedPaymentChargeIds: trimmedIds } }
+          );
+        }
+      }
 
       return { success: true, alreadyExists: false };
     } catch (error) {
@@ -2089,7 +2109,7 @@ export async function addProcessedPaymentChargeId(
     }
   }
 
-  // Fallback to JSON storage
+  // Fallback to JSON storage (with locking)
   const users = await readJson<JsonUsersDb>(JSON_FILE);
   if (!users[userId]) {
     return { success: false, alreadyExists: false };

@@ -101,6 +101,11 @@ export class ExtraTelegraf extends Telegraf<Context> {
   premiumQueueSet: Set<number> = new Set();
   // Premium user set for O(1) lookups
   premiumUsers: Set<number> = new Set();
+  // Message queue for rate-limited sending
+  private _messageQueue: Array<{ userId: number; text: string; extra?: unknown }> = [];
+  private _isProcessingQueue = false;
+  private readonly MESSAGE_DELAY_MS = 40; // 40ms between messages = 25 msg/sec
+  
   runningChats: Map<number, number> = new Map();
   messageMap: Map<number, { [key: number]: number }> = new Map();
   messageCountMap: Map<number, number> = new Map();
@@ -344,6 +349,68 @@ export class ExtraTelegraf extends Telegraf<Context> {
     this.premiumQueue.splice(idx, 1);
     this.premiumQueueSet.delete(userId);
     return true;
+  }
+
+  // ==================== Message Queue for Rate Limiting ====================
+  
+  // Queue a message to be sent with rate limiting
+  queueMessage(userId: number, text: string, extra?: unknown): void {
+    this._messageQueue.push({ userId, text, extra });
+    
+    // Start processing if not already
+    if (!this._isProcessingQueue) {
+      this._processMessageQueue();
+    }
+  }
+
+  private async _processMessageQueue(): Promise<void> {
+    if (this._isProcessingQueue) return;
+    
+    this._isProcessingQueue = true;
+    
+    while (this._messageQueue.length > 0) {
+      const item = this._messageQueue.shift();
+      if (!item) continue;
+      
+      try {
+        await this.telegram.sendMessage(item.userId, item.text, item.extra as any);
+      } catch (error) {
+        console.error("[ERROR] Message queue send error:", error);
+      }
+      
+      // Rate limiting delay
+      await new Promise(resolve => setTimeout(resolve, this.MESSAGE_DELAY_MS));
+    }
+    
+    this._isProcessingQueue = false;
+  }
+
+  // ==================== Stale Queue Cleanup ====================
+  
+  // Remove users from queues who have been waiting too long or have inconsistencies
+  cleanupStaleQueueUsers(): number {
+    let removed = 0;
+    
+    // Sync queue states to ensure consistency - removes users in running chats
+    this.syncQueueState();
+    
+    // Also sync premium queue
+    const seenPremium = new Set<number>();
+    const normalizedPremiumQueue = this.premiumQueue.filter(u => {
+      if (!u || seenPremium.has(u.id) || this.runningChats.has(u.id)) {
+        removed++;
+        return false;
+      }
+      seenPremium.add(u.id);
+      return true;
+    });
+    
+    if (removed > 0) {
+      this.premiumQueue = normalizedPremiumQueue;
+      this.premiumQueueSet = seenPremium;
+    }
+    
+    return removed;
   }
 
   syncQueueState(): void {
