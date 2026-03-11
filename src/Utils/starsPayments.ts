@@ -1,14 +1,32 @@
 import { Context, Markup } from "telegraf";
 import { ExtraTelegraf } from "..";
-import { getUser, updateUser, User } from "../storage/db";
+import { getUser, updateUser, User, createPremiumPaymentOrder, addProcessedPaymentChargeId } from "../storage/db";
 
 // Rate limiting for invoice creation
 const invoiceCooldown = new Map<number, number>();
 const COOLDOWN_MS = 30000; // 30 seconds
 const COOLDOWN_CLEANUP_MS = 10 * 60 * 1000; // 10 minutes
 
-// Maximum number of processed payment charge IDs to keep
-const MAX_PROCESSED_IDS = 50;
+// Maximum number of processed payment charge IDs to keep (exported for reference)
+export const MAX_PROCESSED_CHARGE_IDS = 50;
+
+// Analytics tracking - exported for monitoring
+export const paymentAnalytics = {
+  totalPurchases: 0,
+  totalRevenueStars: 0,
+  premiumUserCount: 0
+};
+
+// Increment purchase count
+export function incrementPaymentAnalytics(amount: number): void {
+  paymentAnalytics.totalPurchases++;
+  paymentAnalytics.totalRevenueStars += amount;
+}
+
+// Get analytics snapshot
+export function getPaymentAnalytics(): typeof paymentAnalytics {
+  return { ...paymentAnalytics };
+}
 
 // Cleanup stale invoice cooldowns to prevent memory leaks
 function cleanupInvoiceCooldowns(): void {
@@ -58,6 +76,14 @@ const PREMIUM_PLANS: Record<PremiumPlanId, PremiumPlan> = {
 };
 
 function getPlanFromPayload(payload: string): PremiumPlan | null {
+  // First check if it's an order-based payload
+  const orderId = extractOrderIdFromPayload(payload);
+  if (orderId) {
+    // For order-based, return null - handled separately in payment handler
+    return null;
+  }
+
+  // Legacy format: premium_weekly, premium_monthly, premium_yearly
   if (payload in PREMIUM_PLANS) {
     return PREMIUM_PLANS[payload as PremiumPlanId];
   }
@@ -93,18 +119,45 @@ Premium Plans:
   );
 }
 
-async function createPremiumInvoice(ctx: Context, plan: PremiumPlan): Promise<void> {
+async function createPremiumInvoice(ctx: Context, plan: PremiumPlan): Promise<boolean> {
   const userId = ctx.from?.id;
-  if (!userId) return;
+  if (!userId) return false;
 
-  await ctx.telegram.sendInvoice(userId, {
-    title: "Premium Subscription",
-    description: "Unlock premium features in the anonymous chat bot",
-    payload: plan.id,
-    provider_token: "",
-    currency: "XTR",
-    prices: [{ label: `${plan.name}`, amount: plan.amount }]
-  });
+  try {
+    // Create order in database first - this is the secure approach
+    const order = await createPremiumPaymentOrder(
+      userId,
+      plan.id,
+      plan.days,
+      plan.amount
+    );
+
+    // Use order ID as payload for security
+    const payload = `order_${order.orderId}`;
+
+    await ctx.telegram.sendInvoice(userId, {
+      title: "Premium Subscription",
+      description: `Unlock premium features - ${plan.name}`,
+      payload: payload,
+      provider_token: "",
+      currency: "XTR",
+      prices: [{ label: `${plan.name}`, amount: plan.amount }]
+    });
+
+    return true;
+  } catch (error) {
+    console.error("[ERROR] - Failed to create premium invoice:", error);
+    await ctx.reply("Failed to create invoice. Please try again.");
+    return false;
+  }
+}
+
+// Get order ID from payload (new format: order_<orderId> or legacy: premium_<plan>)
+function extractOrderIdFromPayload(payload: string): string | null {
+  if (payload.startsWith("order_")) {
+    return payload.substring(6); // Remove "order_" prefix
+  }
+  return null; // Legacy format - no order ID
 }
 
 async function activatePremium(
@@ -115,8 +168,20 @@ async function activatePremium(
   const user = await getUser(userId);
   const processed = user.processedPaymentChargeIds || [];
 
-  // Check if already processed using atomic addToSet logic
+  // Check if already processed using atomic operation
   if (processed.includes(paymentChargeId)) {
+    const existingExpiry = user.premiumExpires || user.premiumExpiry || Date.now();
+    return {
+      activated: true,
+      premiumUntil: existingExpiry,
+      alreadyProcessed: true
+    };
+  }
+
+  // Use atomic MongoDB operation to add charge ID and prevent race conditions
+  const result = await addProcessedPaymentChargeId(userId, paymentChargeId);
+  
+  if (result.alreadyExists) {
     const existingExpiry = user.premiumExpires || user.premiumExpiry || Date.now();
     return {
       activated: true,
@@ -131,15 +196,14 @@ async function activatePremium(
   const extensionMs = plan.days * 24 * 60 * 60 * 1000;
   const newExpiry = base + extensionMs;
 
-  // Limit array size to prevent unbounded growth
-  const trimmedIds = processed.slice(-(MAX_PROCESSED_IDS - 1));
-
   await updateUser(userId, {
     premium: true,
     premiumExpires: newExpiry,
-    premiumExpiry: newExpiry,
-    processedPaymentChargeIds: [...trimmedIds, paymentChargeId]
+    premiumExpiry: newExpiry
   });
+
+  // Update analytics
+  incrementPaymentAnalytics(plan.amount);
 
   return {
     activated: true,

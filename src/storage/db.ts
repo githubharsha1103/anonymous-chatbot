@@ -2048,6 +2048,69 @@ export async function finalizePremiumPayment(
   return { success: true, alreadyProcessed: false, premiumUntil };
 }
 
+// Atomic operation to add processed payment charge ID (prevents race conditions)
+export async function addProcessedPaymentChargeId(
+  userId: number,
+  chargeId: string
+): Promise<{ success: boolean; alreadyExists: boolean }> {
+  const MAX_IDS = 50;
+
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getUsersCollection();
+      const user = await collection.findOne({ id: userId });
+      
+      if (!user) {
+        return { success: false, alreadyExists: false };
+      }
+
+      const existingIds = user.processedPaymentChargeIds || [];
+      
+      // Check if already exists
+      if (existingIds.includes(chargeId)) {
+        return { success: true, alreadyExists: true };
+      }
+
+      // Trim to max size and add new ID
+      const trimmedIds = existingIds.slice(-(MAX_IDS - 1));
+      trimmedIds.push(chargeId);
+
+      await collection.updateOne(
+        { id: userId },
+        { 
+          $set: { processedPaymentChargeIds: trimmedIds, premium: true }
+        }
+      );
+
+      return { success: true, alreadyExists: false };
+    } catch (error) {
+      console.error("[ERROR] - MongoDB addProcessedPaymentChargeId error:", error);
+      return { success: false, alreadyExists: false };
+    }
+  }
+
+  // Fallback to JSON storage
+  const users = await readJson<JsonUsersDb>(JSON_FILE);
+  if (!users[userId]) {
+    return { success: false, alreadyExists: false };
+  }
+
+  const existingIds = users[userId].processedPaymentChargeIds || [];
+  
+  if (existingIds.includes(chargeId)) {
+    return { success: true, alreadyExists: true };
+  }
+
+  const trimmedIds = existingIds.slice(-(MAX_IDS - 1));
+  trimmedIds.push(chargeId);
+
+  users[userId].processedPaymentChargeIds = trimmedIds;
+  users[userId].premium = true;
+
+  await writeJson(JSON_FILE, users);
+  return { success: true, alreadyExists: false };
+}
+
 export async function revokeExpiredPremiumUsers(): Promise<number> {
   const now = Date.now();
 

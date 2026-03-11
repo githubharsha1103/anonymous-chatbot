@@ -94,8 +94,13 @@ class Mutex {
 
 export class ExtraTelegraf extends Telegraf<Context> {
   waitingQueue: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }[] = [];
-  // Set for O(1) queue membership checks - prevents duplicates and enables fast lookup
+  // Premium users queue - gets priority matching
+  premiumQueue: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }[] = [];
+  // Set for O(1) queue membership checks
   queueSet: Set<number> = new Set();
+  premiumQueueSet: Set<number> = new Set();
+  // Premium user set for O(1) lookups
+  premiumUsers: Set<number> = new Set();
   runningChats: Map<number, number> = new Map();
   messageMap: Map<number, { [key: number]: number }> = new Map();
   messageCountMap: Map<number, number> = new Map();
@@ -107,6 +112,7 @@ export class ExtraTelegraf extends Telegraf<Context> {
   
   ACTION_COOLDOWN = 1000;
   MAX_QUEUE_SIZE = 10000;
+  MAX_PREMIUM_QUEUE_SIZE = 5000;
   RATE_LIMIT_WINDOW = 1000;
 
   chatMutex = new Mutex();
@@ -300,6 +306,44 @@ export class ExtraTelegraf extends Telegraf<Context> {
   // Clear queue set - for cleanup purposes
   clearQueueSet(): void {
     this.queueSet.clear();
+    this.premiumQueueSet.clear();
+    this.premiumUsers.clear();
+  }
+
+  // Add user to premium tracking
+  addPremiumUser(userId: number): void {
+    this.premiumUsers.add(userId);
+  }
+
+  // Remove user from premium tracking
+  removePremiumUser(userId: number): void {
+    this.premiumUsers.delete(userId);
+  }
+
+  // Check if user is premium
+  isPremiumUser(userId: number): boolean {
+    return this.premiumUsers.has(userId);
+  }
+
+  // Add to premium queue
+  addToPremiumQueue(user: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }): boolean {
+    if (this.premiumQueueSet.has(user.id)) return false;
+    if (this.premiumQueue.length >= this.MAX_PREMIUM_QUEUE_SIZE) return false;
+    
+    this.premiumQueue.push({ ...user, isPremium: true });
+    this.premiumQueueSet.add(user.id);
+    this.premiumUsers.add(user.id);
+    return true;
+  }
+
+  // Remove from premium queue
+  removeFromPremiumQueue(userId: number): boolean {
+    const idx = this.premiumQueue.findIndex(w => w.id === userId);
+    if (idx === -1) return false;
+    
+    this.premiumQueue.splice(idx, 1);
+    this.premiumQueueSet.delete(userId);
+    return true;
   }
 
   syncQueueState(): void {
