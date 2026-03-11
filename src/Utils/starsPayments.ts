@@ -218,6 +218,38 @@ export function initStarsPaymentHandlers(bot: ExtraTelegraf): void {
     const query = ctx.update.pre_checkout_query;
     const payload = query.invoice_payload;
 
+    // Try order-based payment first
+    const orderId = extractOrderIdFromPayload(payload);
+    
+    if (orderId) {
+      // Order-based payment validation
+      const order = await getPremiumPaymentOrder(orderId);
+      
+      if (!order) {
+        await ctx.answerPreCheckoutQuery(false, "Order not found.");
+        return;
+      }
+
+      if (order.userId !== query.from.id) {
+        await ctx.answerPreCheckoutQuery(false, "Order user mismatch.");
+        return;
+      }
+
+      if (order.status !== "pending") {
+        await ctx.answerPreCheckoutQuery(false, "Order is not pending.");
+        return;
+      }
+
+      if (order.starsAmount !== query.total_amount) {
+        await ctx.answerPreCheckoutQuery(false, "Invalid payment amount.");
+        return;
+      }
+
+      await ctx.answerPreCheckoutQuery(true);
+      return;
+    }
+
+    // Legacy payment validation (direct plan payload)
     const plan = getPlanFromPayload(payload);
 
     if (!plan) {

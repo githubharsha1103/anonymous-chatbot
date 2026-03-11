@@ -105,6 +105,9 @@ export class ExtraTelegraf extends Telegraf<Context> {
   private _messageQueue: Array<{ userId: number; text: string; extra?: unknown }> = [];
   private _isProcessingQueue = false;
   private readonly MESSAGE_DELAY_MS = 40; // 40ms between messages = 25 msg/sec
+  private readonly MAX_MESSAGE_QUEUE_SIZE = 5000;
+  private readonly MESSAGE_RETRY_COUNT = 2;
+  private readonly MESSAGE_RETRY_DELAY_MS = 1000;
   
   runningChats: Map<number, number> = new Map();
   messageMap: Map<number, { [key: number]: number }> = new Map();
@@ -355,6 +358,12 @@ export class ExtraTelegraf extends Telegraf<Context> {
   
   // Queue a message to be sent with rate limiting
   queueMessage(userId: number, text: string, extra?: unknown): void {
+    // Queue size protection - drop oldest if too many messages
+    if (this._messageQueue.length > this.MAX_MESSAGE_QUEUE_SIZE) {
+      this._messageQueue.shift(); // Drop oldest
+      console.warn("[WARN] Message queue full, dropping oldest message");
+    }
+    
     this._messageQueue.push({ userId, text, extra });
     
     // Start processing if not already
@@ -372,10 +381,20 @@ export class ExtraTelegraf extends Telegraf<Context> {
       const item = this._messageQueue.shift();
       if (!item) continue;
       
-      try {
-        await this.telegram.sendMessage(item.userId, item.text, item.extra as any);
-      } catch (error) {
-        console.error("[ERROR] Message queue send error:", error);
+      // Try sending with retry logic
+      let sent = false;
+      for (let attempt = 0; attempt <= this.MESSAGE_RETRY_COUNT && !sent; attempt++) {
+        try {
+          await this.telegram.sendMessage(item.userId, item.text, item.extra as any);
+          sent = true;
+        } catch (error) {
+          if (attempt < this.MESSAGE_RETRY_COUNT) {
+            // Wait before retry
+            await new Promise(resolve => setTimeout(resolve, this.MESSAGE_RETRY_DELAY_MS));
+          } else {
+            console.error("[ERROR] Message queue send error after retries:", error);
+          }
+        }
       }
       
       // Rate limiting delay
