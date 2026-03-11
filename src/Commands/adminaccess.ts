@@ -65,20 +65,29 @@ const premiumUserDetailsKeyboard = (userId: number, backPage?: number) => {
     const backCallback = backPage !== undefined 
         ? `ADMIN_BACK_TO_PREMIUM_PAGE_${backPage}` 
         : "ADMIN_PREMIUM_USERS";
+    const baseCallback = backPage !== undefined 
+        ? `_PAGE_${backPage}` 
+        : "";
     return Markup.inlineKeyboard([
-        [Markup.button.callback("➕ Extend Premium", `ADMIN_EXTEND_MENU_${userId}`)],
-        [Markup.button.callback("❌ Remove Premium", `ADMIN_REMOVE_PREMIUM_${userId}`)],
-        [Markup.button.callback("📜 Payment History", `ADMIN_PAYMENT_HISTORY_${userId}`)],
+        [Markup.button.callback("➕ Extend Premium", `ADMIN_EXTEND_MENU_${userId}${baseCallback}`)],
+        [Markup.button.callback("❌ Remove Premium", `ADMIN_REMOVE_PREMIUM_${userId}${baseCallback}`)],
+        [Markup.button.callback("📜 Payment History", `ADMIN_PAYMENT_HISTORY_${userId}${baseCallback}`)],
         [Markup.button.callback("⬅️ Back", backCallback)]
     ]);
 };
 
-const extendPremiumKeyboard = (userId: number) => Markup.inlineKeyboard([
-    [Markup.button.callback("+7 Days", `ADMIN_EXTEND_7_${userId}`)],
-    [Markup.button.callback("+30 Days", `ADMIN_EXTEND_30_${userId}`)],
-    [Markup.button.callback("+365 Days", `ADMIN_EXTEND_365_${userId}`)],
-    [Markup.button.callback("⬅️ Back", `ADMIN_PREMIUM_USER_${userId}`)]
-]);
+const extendPremiumKeyboard = (userId: number, backPage?: number) => {
+    const backCallback = backPage !== undefined 
+        ? `ADMIN_PREMIUM_USER_${userId}_PAGE_${backPage}` 
+        : "ADMIN_PREMIUM_USERS";
+    const pageSuffix = backPage !== undefined ? `_PAGE_${backPage}` : "";
+    return Markup.inlineKeyboard([
+        [Markup.button.callback("+7 Days", `ADMIN_EXTEND_7_${userId}${pageSuffix}`)],
+        [Markup.button.callback("+30 Days", `ADMIN_EXTEND_30_${userId}${pageSuffix}`)],
+        [Markup.button.callback("+365 Days", `ADMIN_EXTEND_365_${userId}${pageSuffix}`)],
+        [Markup.button.callback("⬅️ Back", backCallback)]
+    ]);
+};
 
 const paymentOrdersBackKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("⬅️ Back to Payments", "ADMIN_PAYMENTS")]
@@ -88,9 +97,10 @@ const orderDetailsKeyboard = (orderId: string, backPage?: number) => {
     const backCallback = backPage !== undefined 
         ? `ADMIN_BACK_TO_ORDERS_PAGE_${backPage}` 
         : "ADMIN_PAYMENT_ORDERS";
+    const pageSuffix = backPage !== undefined ? `_PAGE_${backPage}` : "";
     return Markup.inlineKeyboard([
-        [Markup.button.callback("👤 View User", `ADMIN_VIEW_ORDER_USER_${orderId}`)],
-        [Markup.button.callback("❌ Mark Failed", `ADMIN_MARK_ORDER_FAILED_${orderId}`)],
+        [Markup.button.callback("👤 View User", `ADMIN_VIEW_ORDER_USER_${orderId}${pageSuffix}`)],
+        [Markup.button.callback("❌ Mark Failed", `ADMIN_MARK_ORDER_FAILED_${orderId}${pageSuffix}`)],
         [Markup.button.callback("⬅️ Back", backCallback)]
     ]);
 };
@@ -1037,7 +1047,8 @@ export function initAdminActions(bot: ExtraTelegraf) {
     });
 
     // Extend Premium Menu
-    bot.action(/ADMIN_EXTEND_MENU_(\d+)/, async (ctx) => {
+    // Extend Premium Menu (supports with and without page)
+    bot.action(/ADMIN_EXTEND_MENU_(\d+)(?:_PAGE_(\d+))?/, async (ctx) => {
         if (!validateAdmin(ctx)) {
             await unauthorizedResponse(ctx, "Unauthorized");
             return;
@@ -1045,15 +1056,16 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await safeAnswerCbQuery(ctx);
         
         const userId = parseInt(ctx.match[1]);
+        const backPage = ctx.match[2] ? parseInt(ctx.match[2]) : undefined;
         
         await safeEditMessageText(ctx,
             `➕ *Extend Premium*\n\nUser: \`${userId}\`\n\nSelect extension period:`,
-            { parse_mode: "Markdown", reply_markup: extendPremiumKeyboard(userId) }
+            { parse_mode: "Markdown", reply_markup: extendPremiumKeyboard(userId, backPage) }
         );
     });
 
-    // Extend Premium Actions
-    bot.action(/ADMIN_EXTEND_(\d+)_(\d+)/, async (ctx) => {
+    // Extend Premium Actions (supports with and without page)
+    bot.action(/ADMIN_EXTEND_(\d+)_(\d+)(?:_PAGE_(\d+))?/, async (ctx) => {
         if (!validateAdmin(ctx)) {
             await unauthorizedResponse(ctx, "Unauthorized");
             return;
@@ -1062,6 +1074,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         const days = parseInt(ctx.match[1]);
         const userId = parseInt(ctx.match[2]);
+        const backPage = ctx.match[3] ? parseInt(ctx.match[3]) : undefined;
         
         const user = await getUser(userId);
         if (!user) {
@@ -1093,12 +1106,12 @@ export function initAdminActions(bot: ExtraTelegraf) {
             `✅ *Premium Extended*\n\nUser: \`${userId}\`\n` +
             `Added: +${days} days\n` +
             `New expiry: ${newExpiryDate}`,
-            { parse_mode: "Markdown", reply_markup: premiumUserDetailsKeyboard(userId) }
+            { parse_mode: "Markdown", reply_markup: premiumUserDetailsKeyboard(userId, backPage) }
         );
     });
 
-    // Remove Premium
-    bot.action(/ADMIN_REMOVE_PREMIUM_(\d+)/, async (ctx) => {
+    // Remove Premium (supports with and without page)
+    bot.action(/ADMIN_REMOVE_PREMIUM_(\d+)(?:_PAGE_(\d+))?/, async (ctx) => {
         if (!validateAdmin(ctx)) {
             await unauthorizedResponse(ctx, "Unauthorized");
             return;
@@ -1106,6 +1119,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await safeAnswerCbQuery(ctx);
         
         const userId = parseInt(ctx.match[1]);
+        const backPage = ctx.match[2] ? parseInt(ctx.match[2]) : undefined;
         
         await updateUser(userId, {
             premium: false,
@@ -1122,12 +1136,12 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         await safeEditMessageText(ctx,
             `❌ *Premium Removed*\n\nUser \`${userId}\` no longer has premium status.`,
-            { parse_mode: "Markdown", reply_markup: premiumUsersBackKeyboard }
+            { parse_mode: "Markdown", reply_markup: backPage !== undefined ? premiumUserDetailsKeyboard(userId, backPage) : premiumUsersBackKeyboard }
         );
     });
 
-    // Payment History
-    bot.action(/ADMIN_PAYMENT_HISTORY_(\d+)/, async (ctx) => {
+    // Payment History (supports with and without page)
+    bot.action(/ADMIN_PAYMENT_HISTORY_(\d+)(?:_PAGE_(\d+))?/, async (ctx) => {
         if (!validateAdmin(ctx)) {
             await unauthorizedResponse(ctx, "Unauthorized");
             return;
@@ -1135,12 +1149,13 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await safeAnswerCbQuery(ctx);
         
         const userId = parseInt(ctx.match[1]);
+        const backPage = ctx.match[2] ? parseInt(ctx.match[2]) : undefined;
         const history = await getUserPaymentHistory(userId);
         
         if (history.length === 0) {
             await safeEditMessageText(ctx,
                 `📜 *Payment History*\n\nUser: \`${userId}\`\n\nNo payment history found.`,
-                { parse_mode: "Markdown", reply_markup: premiumUserDetailsKeyboard(userId) }
+                { parse_mode: "Markdown", reply_markup: premiumUserDetailsKeyboard(userId, backPage) }
             );
             return;
         }
@@ -1157,7 +1172,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         await safeEditMessageText(ctx, message, {
             parse_mode: "Markdown",
-            reply_markup: premiumUserDetailsKeyboard(userId)
+            reply_markup: premiumUserDetailsKeyboard(userId, backPage)
         });
     });
 
@@ -1382,8 +1397,8 @@ export function initAdminActions(bot: ExtraTelegraf) {
         });
     });
 
-    // View Order User
-    bot.action(/ADMIN_VIEW_ORDER_USER_(.+)/, async (ctx) => {
+    // View Order User (supports with and without page)
+    bot.action(/ADMIN_VIEW_ORDER_USER_(.+?)(?:_PAGE_(\d+))?$/, async (ctx) => {
         if (!validateAdmin(ctx)) {
             await unauthorizedResponse(ctx, "Unauthorized");
             return;
@@ -1391,6 +1406,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await safeAnswerCbQuery(ctx);
         
         const orderId = ctx.match[1];
+        const backPage = ctx.match[2] ? parseInt(ctx.match[2]) : undefined;
         const order = await getPremiumPaymentOrder(orderId);
         
         if (!order) {
@@ -1415,14 +1431,22 @@ export function initAdminActions(bot: ExtraTelegraf) {
         message += `Premium Status: ${user.premium ? "✅ Active" : "❌ Inactive"}\n`;
         message += `Premium Expiry: ${expiryDate}\n`;
         
+        // Create keyboard with back to order
+        const backToOrderCallback = backPage !== undefined 
+            ? `ADMIN_ORDER_DETAILS_${orderId}_PAGE_${backPage}` 
+            : `ADMIN_ORDER_DETAILS_${orderId}`;
+        const keyboard = Markup.inlineKeyboard([
+            [Markup.button.callback("⬅️ Back to Order", backToOrderCallback)]
+        ]);
+        
         await safeEditMessageText(ctx, message, {
             parse_mode: "Markdown",
-            reply_markup: premiumUserDetailsKeyboard(userId)
+            reply_markup: keyboard
         });
     });
 
-    // Mark Order Failed
-    bot.action(/ADMIN_MARK_ORDER_FAILED_(.+)/, async (ctx) => {
+    // Mark Order Failed (supports with and without page)
+    bot.action(/ADMIN_MARK_ORDER_FAILED_(.+?)(?:_PAGE_(\d+))?$/, async (ctx) => {
         if (!validateAdmin(ctx)) {
             await unauthorizedResponse(ctx, "Unauthorized");
             return;
@@ -1430,6 +1454,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await safeAnswerCbQuery(ctx);
         
         const orderId = ctx.match[1];
+        const backPage = ctx.match[2] ? parseInt(ctx.match[2]) : undefined;
         const order = await getPremiumPaymentOrder(orderId);
         
         if (!order) {
@@ -1460,7 +1485,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         await safeEditMessageText(ctx,
             `❌ *Order Marked as Failed*\n\nOrder \`${orderId}\` has been marked as failed.`,
-            { parse_mode: "Markdown", ...paymentOrdersBackKeyboard }
+            { parse_mode: "Markdown", reply_markup: orderDetailsKeyboard(orderId, backPage) }
         );
     });
 
