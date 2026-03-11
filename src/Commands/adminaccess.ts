@@ -1580,7 +1580,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
             const expiryTime = user.premiumExpires || 0;
             const hoursLeft = Math.max(Math.round((expiryTime - Date.now()) / (1000 * 60 * 60)), 0);
             message += `User ${user.telegramId} – expires in ${hoursLeft}h\n`;
-            buttons.push([Markup.button.callback(`User ${user.telegramId}`, `ADMIN_PREMIUM_USER_${user.telegramId}`)]);
+            buttons.push([Markup.button.callback(`User ${user.telegramId}`, `ADMIN_PREMIUM_USER_${user.telegramId}_PAGE_0`)]);
         }
         
         // Navigation buttons
@@ -1595,7 +1595,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
             buttons.push(navButtons);
         }
         
-        buttons.push([Markup.button.callback("⬅️ Back", "ADMIN_PAYMENTS")]);
+        buttons.push([Markup.button.callback("⬅️ Back to Payments", "ADMIN_PAYMENTS")]);
         
         await safeEditMessageText(ctx, message, {
             parse_mode: "Markdown",
@@ -1650,7 +1650,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
             const expiryTime = user.premiumExpires || 0;
             const hoursLeft = Math.max(Math.round((expiryTime - Date.now()) / (1000 * 60 * 60)), 0);
             message += `User ${user.telegramId} – expires in ${hoursLeft}h\n`;
-            buttons.push([Markup.button.callback(`User ${user.telegramId}`, `ADMIN_PREMIUM_USER_${user.telegramId}`)]);
+            buttons.push([Markup.button.callback(`User ${user.telegramId}`, `ADMIN_PREMIUM_USER_${user.telegramId}_PAGE_${page}`)]);
         }
         
         // Navigation buttons
