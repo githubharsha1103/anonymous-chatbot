@@ -2,6 +2,27 @@ import { Context, Markup } from "telegraf";
 import { ExtraTelegraf } from "..";
 import { getUser, updateUser, User } from "../storage/db";
 
+// Rate limiting for invoice creation
+const invoiceCooldown = new Map<number, number>();
+const COOLDOWN_MS = 30000; // 30 seconds
+const COOLDOWN_CLEANUP_MS = 10 * 60 * 1000; // 10 minutes
+
+// Maximum number of processed payment charge IDs to keep
+const MAX_PROCESSED_IDS = 50;
+
+// Cleanup stale invoice cooldowns to prevent memory leaks
+function cleanupInvoiceCooldowns(): void {
+  const now = Date.now();
+  for (const [userId, timestamp] of invoiceCooldown.entries()) {
+    if (now - timestamp > COOLDOWN_CLEANUP_MS) {
+      invoiceCooldown.delete(userId);
+    }
+  }
+}
+
+// Run cleanup every 5 minutes
+setInterval(cleanupInvoiceCooldowns, 5 * 60 * 1000);
+
 type PremiumPlanId = "premium_weekly" | "premium_monthly" | "premium_yearly";
 
 type PremiumPlan = {
@@ -94,6 +115,7 @@ async function activatePremium(
   const user = await getUser(userId);
   const processed = user.processedPaymentChargeIds || [];
 
+  // Check if already processed using atomic addToSet logic
   if (processed.includes(paymentChargeId)) {
     const existingExpiry = user.premiumExpires || user.premiumExpiry || Date.now();
     return {
@@ -109,11 +131,14 @@ async function activatePremium(
   const extensionMs = plan.days * 24 * 60 * 60 * 1000;
   const newExpiry = base + extensionMs;
 
+  // Limit array size to prevent unbounded growth
+  const trimmedIds = processed.slice(-(MAX_PROCESSED_IDS - 1));
+
   await updateUser(userId, {
     premium: true,
     premiumExpires: newExpiry,
     premiumExpiry: newExpiry,
-    processedPaymentChargeIds: [...processed, paymentChargeId]
+    processedPaymentChargeIds: [...trimmedIds, paymentChargeId]
   });
 
   return {
@@ -124,8 +149,40 @@ async function activatePremium(
 }
 
 export function initStarsPaymentHandlers(bot: ExtraTelegraf): void {
+  // Pre-checkout validation - verify payload and amount before payment
+  bot.on("pre_checkout_query", async (ctx) => {
+    const query = ctx.update.pre_checkout_query;
+    const payload = query.invoice_payload;
+
+    const plan = getPlanFromPayload(payload);
+
+    if (!plan) {
+      await ctx.answerPreCheckoutQuery(false, "Invalid plan selected.");
+      return;
+    }
+
+    if (query.total_amount !== plan.amount) {
+      await ctx.answerPreCheckoutQuery(false, "Invalid payment amount.");
+      return;
+    }
+
+    await ctx.answerPreCheckoutQuery(true);
+  });
+
+  // Invoice creation with rate limiting
   bot.action(/premium_(weekly|monthly|yearly)/, async (ctx) => {
     await ctx.answerCbQuery();
+    
+    const userId = ctx.from?.id || 0;
+    const lastInvoice = invoiceCooldown.get(userId);
+
+    if (lastInvoice && Date.now() - lastInvoice < COOLDOWN_MS) {
+      await ctx.reply("Please wait before creating another invoice.");
+      return;
+    }
+
+    invoiceCooldown.set(userId, Date.now());
+
     const match = ctx.match as RegExpExecArray | undefined;
     const payload = match ? `premium_${match[1]}` : "";
     const plan = getPlanFromPayload(payload);
@@ -136,10 +193,6 @@ export function initStarsPaymentHandlers(bot: ExtraTelegraf): void {
     }
 
     await createPremiumInvoice(ctx, plan);
-  });
-
-  bot.on("pre_checkout_query", async (ctx) => {
-    await ctx.answerPreCheckoutQuery(true);
   });
 }
 
@@ -152,6 +205,7 @@ export async function handleSuccessfulPaymentMessage(ctx: Context): Promise<bool
     successful_payment?: {
       invoice_payload: string;
       telegram_payment_charge_id: string;
+      total_amount: number;
     };
   };
 
@@ -162,8 +216,25 @@ export async function handleSuccessfulPaymentMessage(ctx: Context): Promise<bool
 
   const payload = successfulPayment.invoice_payload;
   const plan = getPlanFromPayload(payload);
+  
+  // Validate payload
   if (!plan) {
     await ctx.reply("Payment received, but payload is invalid. Please contact support.");
+    return true;
+  }
+
+  // Validate payment amount
+  if (successfulPayment.total_amount !== plan.amount) {
+    console.error(JSON.stringify({
+      type: "PAYMENT_AMOUNT_MISMATCH",
+      userId: ctx.from?.id,
+      expected: plan.amount,
+      received: successfulPayment.total_amount,
+      payload: payload,
+      chargeId: successfulPayment.telegram_payment_charge_id,
+      timestamp: new Date().toISOString()
+    }));
+    await ctx.reply("Payment received, but amount mismatch. Please contact support.");
     return true;
   }
 
@@ -181,6 +252,18 @@ export async function handleSuccessfulPaymentMessage(ctx: Context): Promise<bool
 
   const premiumUntil = formatDate(result.premiumUntil);
   const planName = plan.name;
+
+  // Structured logging for payment success
+  console.log(JSON.stringify({
+    type: result.alreadyProcessed ? "PAYMENT_DUPLICATE" : "PAYMENT_SUCCESS",
+    userId: userId,
+    chargeId: successfulPayment.telegram_payment_charge_id,
+    payload: payload,
+    amount: successfulPayment.total_amount,
+    plan: planName,
+    premiumUntil: result.premiumUntil,
+    timestamp: new Date().toISOString()
+  }));
 
   if (result.alreadyProcessed) {
     await ctx.reply(

@@ -10,6 +10,7 @@ import {
   exitChatKeyboard
 } from "../Utils/chatFlow";
 import { cleanupBlockedUser, endChatDueToError, sendMessageWithRetry } from "../Utils/telegramErrorHandler";
+import { isPremium as checkPremiumStatus } from "../Utils/starsPayments";
 
 interface WaitingUser {
   id: number;
@@ -121,7 +122,7 @@ export default {
         bot.incrementChatCount();
 
         const userPartnerInfo = buildPartnerMatchMessage(isPremium, matchUser);
-        const matchPartnerInfo = buildPartnerMatchMessage(!!user.premium, user);
+        const matchPartnerInfo = buildPartnerMatchMessage(checkPremiumStatus(user), user);
 
         const matchSent = await sendMessageWithRetry(bot, match.id, matchPartnerInfo);
         if (!matchSent) {

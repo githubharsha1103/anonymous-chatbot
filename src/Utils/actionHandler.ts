@@ -11,7 +11,7 @@ import searchCommand from "../Commands/search";
 import referralCommand from "../Commands/referral";
 import endCommand from "../Commands/end";
 import { getSetupCompleteText } from "./setupFlow";
-import { showPremiumPurchaseMenu } from "./starsPayments";
+import { showPremiumPurchaseMenu, isPremium } from "./starsPayments";
 
 // Because it doesn't know that ctx has a match property. by default, Context<Update> doesn't include match, but telegraf adds it dynamically when using regex triggers.
 export interface ActionContext extends Context {
@@ -231,7 +231,8 @@ async function showBlockedUsersMenu(ctx: ActionContext) {
     if (!ctx.from) return;
 
     const user = await getUser(ctx.from.id);
-    if (!user.premium) {
+    // Use isPremium to check both premium flag AND expiry
+    if (!isPremium(user)) {
         await safeEditMessageText(
             ctx,
             premiumBlockMessage,
@@ -584,7 +585,8 @@ bot.action("SET_PREFERENCE", async (ctx) => {
     if (!ctx.from) return;
     const user = await getUser(ctx.from.id);
     
-    if (!user.premium) {
+    // Use isPremium to check both premium flag AND expiry
+    if (!isPremium(user)) {
         // Show premium message for non-premium users
         await safeAnswerCbQuery(ctx);
         return ctx.reply(
@@ -610,7 +612,8 @@ bot.action("PREF_MALE", async (ctx) => {
     if (!ctx.from) return;
     const user = await getUser(ctx.from.id);
     
-    if (!user.premium) {
+    // Use isPremium to check both premium flag AND expiry
+    if (!isPremium(user)) {
         await safeAnswerCbQuery(ctx);
         return ctx.reply(premiumMessage, { parse_mode: "Markdown" });
     }
@@ -624,7 +627,8 @@ bot.action("PREF_ANY", async (ctx) => {
     if (!ctx.from) return;
     const user = await getUser(ctx.from.id);
     
-    if (!user.premium) {
+    // Use isPremium to check both premium flag AND expiry
+    if (!isPremium(user)) {
         await safeAnswerCbQuery(ctx);
         return ctx.reply(premiumMessage, { parse_mode: "Markdown" });
     }
@@ -638,7 +642,8 @@ bot.action("PREF_FEMALE", async (ctx) => {
     if (!ctx.from) return;
     const user = await getUser(ctx.from.id);
     
-    if (!user.premium) {
+    // Use isPremium to check both premium flag AND expiry
+    if (!isPremium(user)) {
         await safeAnswerCbQuery(ctx);
         return ctx.reply(premiumMessage, { parse_mode: "Markdown" });
     }
@@ -666,7 +671,8 @@ bot.action("BLOCK_LAST_PARTNER", async (ctx) => {
     await safeAnswerCbQuery(ctx);
 
     const user = await getUser(ctx.from.id);
-    if (!user.premium) {
+    // Use isPremium to check both premium flag AND expiry
+    if (!isPremium(user)) {
         return ctx.reply(premiumBlockMessage, {
             parse_mode: "Markdown",
             ...Markup.inlineKeyboard([[Markup.button.callback("Open Settings", "OPEN_SETTINGS")]])
@@ -713,7 +719,8 @@ bot.action(/UNBLOCK_USER_(\d+)/, async (ctx) => {
     await safeAnswerCbQuery(ctx);
 
     const user = await getUser(ctx.from.id);
-    if (!user.premium) {
+    // Use isPremium to check both premium flag AND expiry
+    if (!isPremium(user)) {
         return ctx.reply(premiumBlockMessage, {
             parse_mode: "Markdown",
             ...Markup.inlineKeyboard([[Markup.button.callback("Open Settings", "OPEN_SETTINGS")]])

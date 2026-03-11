@@ -1370,10 +1370,59 @@ export async function incUserTotalChats(id: number): Promise<void> {
 
 // ==================== RE-ENGAGEMENT FUNCTIONS ====================
 
-// Update user's last active timestamp
+// Update user's last active timestamp - with debouncing to prevent DB flooding
+const lastActiveUpdateQueue = new Map<number, number>();
+const LAST_ACTIVE_FLUSH_INTERVAL = 5000; // 5 seconds
+const MAX_QUEUE_SIZE = 1000;
+
 export async function updateLastActive(id: number): Promise<void> {
-  await updateUser(id, { lastActive: Date.now() });
+  lastActiveUpdateQueue.set(id, Date.now());
+  
+  // If queue is too large, flush immediately
+  if (lastActiveUpdateQueue.size >= MAX_QUEUE_SIZE) {
+    await flushLastActiveUpdates();
+  }
 }
+
+async function flushLastActiveUpdates(): Promise<void> {
+  if (lastActiveUpdateQueue.size === 0) return;
+  
+  const updates = new Map<number, number>();
+  for (const [id, timestamp] of lastActiveUpdateQueue) {
+    updates.set(id, timestamp);
+  }
+  lastActiveUpdateQueue.clear();
+  
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getUsersCollection();
+      const bulkOps = Array.from(updates.entries()).map(([userId, lastActive]) => ({
+        updateOne: {
+          filter: { id: userId },
+          update: { $set: { lastActive } }
+        }
+      }));
+      
+      if (bulkOps.length > 0) {
+        await collection.bulkWrite(bulkOps);
+      }
+    } catch (error) {
+      console.error("[ERROR] - MongoDB flushLastActiveUpdates error:", error);
+    }
+  } else {
+    // Fallback to individual updates for JSON storage
+    const users = await readJson<JsonUsersDb>(JSON_FILE);
+    for (const [userId, lastActive] of updates) {
+      if (users[userId]) {
+        users[userId].lastActive = lastActive;
+      }
+    }
+    await writeJson(JSON_FILE, users);
+  }
+}
+
+// Flush updates every interval
+setInterval(flushLastActiveUpdates, LAST_ACTIVE_FLUSH_INTERVAL);
 
 // Get users who haven't been active for X days
 export async function getInactiveUsers(daysInactive: number): Promise<string[]> {

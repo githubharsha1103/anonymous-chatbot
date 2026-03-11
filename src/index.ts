@@ -23,6 +23,9 @@ import {
   incrementTotalChats
 } from "./storage/db";
 
+// ==================== PAYMENT HELPERS ====================
+import { isPremium } from "./Utils/starsPayments";
+
 // ==================== ERROR HANDLING ====================
 // Error handlers are now in telegramErrorHandler module
 
@@ -415,7 +418,8 @@ bot.use(async (ctx, next) => {
 bot.command("setgender", async (ctx) => {
   const user = await getUser(ctx.from.id);
   
-  if (!user.premium) {
+  // Use isPremium function to check both premium flag AND expiry
+  if (!isPremium(user)) {
     return ctx.reply("🔒 This feature is only available for Premium users.\n\nUpgrade to Premium to set your gender preference!");
   }
   
