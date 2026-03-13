@@ -13,7 +13,7 @@
 
 import { Context, Markup } from "telegraf";
 import { ExtraTelegraf } from "../index";
-import { isAdmin, unauthorizedResponse } from "../Utils/adminAuth";
+import { isAdminContext, unauthorizedResponse } from "../Utils/adminAuth";
 import { safeAnswerCbQuery, safeEditMessageText, getErrorMessage } from "../Utils/telegramUi";
 import { logAdminAction } from "./adminLogs";
 
@@ -121,6 +121,15 @@ export async function safeRemoveFromQueue(
             bot.premiumQueueSet.delete(userId);
         }
         
+        // Verify user is removed from all queue structures
+        const stillInWaiting = bot.queueSet.has(userId);
+        const stillInPremium = bot.premiumQueueSet.has(userId);
+        
+        if (stillInWaiting || stillInPremium) {
+            console.error(`[queueMonitor] Warning: User ${userId} still in queue after removal attempt`);
+            return { success: false, message: "Failed to fully remove user from queue" };
+        }
+        
         // Log the action
         await logAdminAction(adminId, "queue_remove", userId, {
             removedFrom: isInPremiumQueue ? "premium" : "waiting"
@@ -156,13 +165,14 @@ const backKeyboard = Markup.inlineKeyboard([
  * Display queue monitor in admin panel.
  */
 export async function showQueueMonitor(ctx: Context, bot: ExtraTelegraf): Promise<void> {
-    const adminId = ctx.from?.id;
-    
-    // Admin validation
-    if (!adminId || !isAdmin(adminId)) {
+    // Admin validation using context-based check
+    if (!isAdminContext(ctx)) {
         await unauthorizedResponse(ctx, "Unauthorized");
         return;
     }
+    
+    const adminId = ctx.from?.id;
+    if (!adminId) return;
     
     try {
         await safeAnswerCbQuery(ctx);
@@ -260,13 +270,14 @@ export async function handleQueueRemove(
     bot: ExtraTelegraf,
     userId: number
 ): Promise<void> {
-    const adminId = ctx.from?.id;
-    
-    // Admin validation
-    if (!adminId || !isAdmin(adminId)) {
+    // Admin validation using context-based check
+    if (!isAdminContext(ctx)) {
         await unauthorizedResponse(ctx, "Unauthorized");
         return;
     }
+    
+    const adminId = ctx.from?.id;
+    if (!adminId) return;
     
     try {
         await safeAnswerCbQuery(ctx);

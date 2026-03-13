@@ -12,7 +12,7 @@
  */
 
 import { Context, Markup } from "telegraf";
-import { isAdmin, unauthorizedResponse } from "../Utils/adminAuth";
+import { isAdminContext, unauthorizedResponse } from "../Utils/adminAuth";
 import { safeAnswerCbQuery, safeEditMessageText, getErrorMessage } from "../Utils/telegramUi";
 import { getDatabaseStatus, pingDatabase, getTotalChats, getAllUsers } from "../storage/db";
 import os from "os";
@@ -197,13 +197,14 @@ function formatMemory(mb: number): string {
  * Display health dashboard in admin panel.
  */
 export async function showHealthDashboard(ctx: Context): Promise<void> {
-    const adminId = ctx.from?.id;
-    
-    // Admin validation
-    if (!adminId || !isAdmin(adminId)) {
+    // Admin validation using context-based check
+    if (!isAdminContext(ctx)) {
         await unauthorizedResponse(ctx, "Unauthorized");
         return;
     }
+    
+    const adminId = ctx.from?.id;
+    if (!adminId) return;
     
     try {
         await safeAnswerCbQuery(ctx);

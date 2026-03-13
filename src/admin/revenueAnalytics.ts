@@ -12,7 +12,7 @@
  */
 
 import { Context, Markup } from "telegraf";
-import { isAdmin, unauthorizedResponse } from "../Utils/adminAuth";
+import { isAdminContext, unauthorizedResponse } from "../Utils/adminAuth";
 import { safeAnswerCbQuery, safeEditMessageText, getErrorMessage } from "../Utils/telegramUi";
 import { 
     getPaymentOrders, 
@@ -61,7 +61,8 @@ export async function getRevenueAnalytics(days: number = 30): Promise<RevenueAna
         ]);
         
         // Get recent orders for revenue calculation
-        const { orders } = await getPaymentOrders(0, 1000);
+        // Limit to 500 to avoid loading too many records
+        const { orders } = await getPaymentOrders(0, 500);
         
         // Filter orders by date
         const cutoffDate = new Date();
@@ -126,7 +127,8 @@ export async function getRevenueAnalytics(days: number = 30): Promise<RevenueAna
  */
 export async function getRevenueTrend(days: number): Promise<RevenueTrend[]> {
     try {
-        const { orders } = await getPaymentOrders(0, 1000);
+        // Limit to 500 to avoid loading too many records
+        const { orders } = await getPaymentOrders(0, 500);
         
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - days);
@@ -191,13 +193,14 @@ export async function showRevenueDashboard(
     ctx: Context,
     days: number = 30
 ): Promise<void> {
-    const adminId = ctx.from?.id;
-    
-    // Admin validation
-    if (!adminId || !isAdmin(adminId)) {
+    // Admin validation using context-based check
+    if (!isAdminContext(ctx)) {
         await unauthorizedResponse(ctx, "Unauthorized");
         return;
     }
+    
+    const adminId = ctx.from?.id;
+    if (!adminId) return;
     
     try {
         await safeAnswerCbQuery(ctx);

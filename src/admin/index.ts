@@ -14,7 +14,7 @@
 
 import { Context } from "telegraf";
 import { ExtraTelegraf } from "../index";
-import { isAdmin, unauthorizedResponse } from "../Utils/adminAuth";
+import { isAdminContext, unauthorizedResponse } from "../Utils/adminAuth";
 import { safeAnswerCbQuery, getErrorMessage } from "../Utils/telegramUi";
 
 // Export all modules
@@ -41,8 +41,7 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     // Dashboard callbacks
     bot.action("ADMIN_HEALTH_DASHBOARD", async (ctx: Context) => {
         try {
-            const adminId = ctx.from?.id;
-            if (!adminId || !isAdmin(adminId)) {
+            if (!isAdminContext(ctx)) {
                 await unauthorizedResponse(ctx, "Unauthorized");
                 return;
             }
@@ -58,8 +57,7 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     // Queue Monitor callbacks
     bot.action("ADMIN_QUEUE_MONITOR", async (ctx: Context) => {
         try {
-            const adminId = ctx.from?.id;
-            if (!adminId || !isAdmin(adminId)) {
+            if (!isAdminContext(ctx)) {
                 await unauthorizedResponse(ctx, "Unauthorized");
                 return;
             }
@@ -78,8 +76,7 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
             if (!match) return;
             const userId = parseInt(match[1], 10);
             
-            const adminId = ctx.from?.id;
-            if (!adminId || !isAdmin(adminId)) {
+            if (!isAdminContext(ctx)) {
                 await unauthorizedResponse(ctx, "Unauthorized");
                 return;
             }
@@ -96,8 +93,7 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     // Revenue Analytics callbacks
     bot.action("ADMIN_REVENUE_DASHBOARD", async (ctx: Context) => {
         try {
-            const adminId = ctx.from?.id;
-            if (!adminId || !isAdmin(adminId)) {
+            if (!isAdminContext(ctx)) {
                 await unauthorizedResponse(ctx, "Unauthorized");
                 return;
             }
@@ -112,8 +108,7 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     // Revenue period callbacks
     bot.action(/^ADMIN_REVENUE_PERIOD_(\d+)$/, async (ctx: Context) => {
         try {
-            const adminId = ctx.from?.id;
-            if (!adminId || !isAdmin(adminId)) {
+            if (!isAdminContext(ctx)) {
                 await unauthorizedResponse(ctx, "Unauthorized");
                 return;
             }
@@ -132,8 +127,7 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     // Audit Logs callbacks
     bot.action("ADMIN_AUDIT_LOGS", async (ctx: Context) => {
         try {
-            const adminId = ctx.from?.id;
-            if (!adminId || !isAdmin(adminId)) {
+            if (!isAdminContext(ctx)) {
                 await unauthorizedResponse(ctx, "Unauthorized");
                 return;
             }
@@ -148,8 +142,7 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     // Audit logs pagination
     bot.action(/^ADMIN_AUDIT_LOGS_PAGE_(\d+)$/, async (ctx: Context) => {
         try {
-            const adminId = ctx.from?.id;
-            if (!adminId || !isAdmin(adminId)) {
+            if (!isAdminContext(ctx)) {
                 await unauthorizedResponse(ctx, "Unauthorized");
                 return;
             }
@@ -168,8 +161,7 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     // Moderation Settings callbacks
     bot.action("ADMIN_MODERATION_SETTINGS", async (ctx: Context) => {
         try {
-            const adminId = ctx.from?.id;
-            if (!adminId || !isAdmin(adminId)) {
+            if (!isAdminContext(ctx)) {
                 await unauthorizedResponse(ctx, "Unauthorized");
                 return;
             }
@@ -184,8 +176,7 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     // Moderation toggle
     bot.action("ADMIN_MODERATION_TOGGLE", async (ctx: Context) => {
         try {
-            const adminId = ctx.from?.id;
-            if (!adminId || !isAdmin(adminId)) {
+            if (!isAdminContext(ctx)) {
                 await unauthorizedResponse(ctx, "Unauthorized");
                 return;
             }
@@ -200,8 +191,7 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     // Moderation reset
     bot.action("ADMIN_MODERATION_RESET", async (ctx: Context) => {
         try {
-            const adminId = ctx.from?.id;
-            if (!adminId || !isAdmin(adminId)) {
+            if (!isAdminContext(ctx)) {
                 await unauthorizedResponse(ctx, "Unauthorized");
                 return;
             }

@@ -11,7 +11,7 @@
  */
 
 import { Context, Markup } from "telegraf";
-import { isAdmin, unauthorizedResponse } from "../Utils/adminAuth";
+import { isAdminContext, unauthorizedResponse } from "../Utils/adminAuth";
 import { safeAnswerCbQuery, safeEditMessageText, getErrorMessage } from "../Utils/telegramUi";
 import { logAdminAction } from "./adminLogs";
 import { getSettings, saveSettings } from "../storage/db";
@@ -177,13 +177,14 @@ function formatDuration(ms: number): string {
  * Display moderation settings panel.
  */
 export async function showModerationSettings(ctx: Context): Promise<void> {
-    const adminId = ctx.from?.id;
-    
-    // Admin validation
-    if (!adminId || !isAdmin(adminId)) {
+    // Admin validation using context-based check
+    if (!isAdminContext(ctx)) {
         await unauthorizedResponse(ctx, "Unauthorized");
         return;
     }
+    
+    const adminId = ctx.from?.id;
+    if (!adminId) return;
     
     try {
         await safeAnswerCbQuery(ctx);
@@ -234,12 +235,14 @@ export async function showModerationSettings(ctx: Context): Promise<void> {
  * Handle moderation toggle callback.
  */
 export async function handleModerationToggle(ctx: Context): Promise<void> {
-    const adminId = ctx.from?.id;
-    
-    if (!adminId || !isAdmin(adminId)) {
+    // Admin validation using context-based check
+    if (!isAdminContext(ctx)) {
         await unauthorizedResponse(ctx, "Unauthorized");
         return;
     }
+    
+    const adminId = ctx.from?.id;
+    if (!adminId) return;
     
     try {
         const settings = getModerationSettings();
@@ -264,12 +267,14 @@ export async function handleModerationToggle(ctx: Context): Promise<void> {
  * Handle moderation reset callback.
  */
 export async function handleModerationReset(ctx: Context): Promise<void> {
-    const adminId = ctx.from?.id;
-    
-    if (!adminId || !isAdmin(adminId)) {
+    // Admin validation using context-based check
+    if (!isAdminContext(ctx)) {
         await unauthorizedResponse(ctx, "Unauthorized");
         return;
     }
+    
+    const adminId = ctx.from?.id;
+    if (!adminId) return;
     
     try {
         const result = await resetToDefaults(adminId);

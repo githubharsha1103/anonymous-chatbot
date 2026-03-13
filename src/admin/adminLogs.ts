@@ -10,7 +10,7 @@
  */
 
 import { Context, Markup } from "telegraf";
-import { isAdmin, unauthorizedResponse } from "../Utils/adminAuth";
+import { isAdminContext, unauthorizedResponse } from "../Utils/adminAuth";
 import { safeAnswerCbQuery, safeEditMessageText, getErrorMessage } from "../Utils/telegramUi";
 import { saveAdminLog as dbSaveAdminLog, getAdminLogs as dbGetAdminLogs } from "../storage/db"; // eslint-disable-line @typescript-eslint/no-unused-vars
 
@@ -48,7 +48,7 @@ export interface AdminLog {
 }
 
 // In-memory storage for logs (with max size for memory efficiency)
-const MAX_LOG_ENTRIES = 1000;
+const MAX_LOG_ENTRIES = 500;
 const adminLogs: AdminLog[] = [];
 
 // ==================== Core Logging Function ====================
@@ -191,13 +191,14 @@ const logsPerPage = 10;
  * Display audit log viewer in admin panel.
  */
 export async function showAdminLogs(ctx: Context, page: number = 0): Promise<void> {
-    const adminId = ctx.from?.id;
-    
-    // Admin validation
-    if (!adminId || !isAdmin(adminId)) {
+    // Admin validation using context-based check
+    if (!isAdminContext(ctx)) {
         await unauthorizedResponse(ctx, "Unauthorized");
         return;
     }
+    
+    const adminId = ctx.from?.id;
+    if (!adminId) return;
     
     try {
         await safeAnswerCbQuery(ctx);
