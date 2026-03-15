@@ -138,15 +138,15 @@ export class ExtraTelegraf extends Telegraf<Context> {
   queueMutex = new Mutex();
   matchMutex = new Mutex();
 
-  // Re-entrant mutex tracking for safe nested locking
-  // Allows the same execution flow to acquire the lock multiple times
-  // depth tracks how many times the lock is held; owner tracks who's holding it
-  private chatLockOwner: number | null = null;
+  // Re-entrant mutex tracking - uses symbol for unique owner identification
+  // This prevents unrelated async flows from bypassing the mutex
+  private chatLockOwner: symbol | null = null;
   private chatLockDepth = 0;
 
   async withChatStateLock<T>(fn: () => Promise<T>): Promise<T> {
-    // Re-entrant: if we already hold the lock, just increment depth and proceed
-    if (this.chatLockDepth > 0) {
+    // Check if we already own the lock (re-entrant call from same execution flow)
+    if (this.chatLockDepth > 0 && this.chatLockOwner !== null) {
+      // We're in the same execution flow - increment depth and proceed
       this.chatLockDepth++;
       console.log(`[LOCK] Re-entrant lock acquired (depth: ${this.chatLockDepth})`);
       try {
@@ -159,9 +159,9 @@ export class ExtraTelegraf extends Telegraf<Context> {
       }
     }
 
-    // Not currently locked - acquire mutex
+    // Different execution flow - must wait for mutex
     await this.chatMutex.acquire();
-    this.chatLockOwner = Date.now();
+    this.chatLockOwner = Symbol("chatLock");
     this.chatLockDepth = 1;
     console.log(`[LOCK] Acquired chat mutex (depth: 1)`);
     
