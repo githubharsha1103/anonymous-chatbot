@@ -68,7 +68,7 @@ export function buildSelfSkippedMessage(): string {
     );
 }
 
-export function clearChatRuntime(bot: ExtraTelegraf, userId: number, partnerId: number | null): void {
+export async function clearChatRuntime(bot: ExtraTelegraf, userId: number, partnerId: number | null): Promise<void> {
     const ids = [userId, partnerId].filter((value): value is number => typeof value === "number");
 
     for (const id of ids) {
@@ -76,19 +76,24 @@ export function clearChatRuntime(bot: ExtraTelegraf, userId: number, partnerId: 
         bot.messageMap.delete(id);
         bot.messageCountMap.delete(id);
         bot.rateLimitMap.delete(id);
-        bot.removeFromQueue(id);
+        await bot.removeFromQueue(id);
     }
 
-    for (const [adminId, chat] of bot.spectatingChats) {
-        if (ids.includes(chat.user1) || ids.includes(chat.user2)) {
-            bot.spectatingChats.delete(adminId);
+    // Clean up spectator sessions for these users
+    for (const [sessionKey, spectators] of bot.spectatingChats) {
+        const [u1, u2] = sessionKey.split('_').map(Number);
+        if (ids.includes(u1) || ids.includes(u2)) {
+            // Remove all spectators for this session
+            for (const adminId of spectators) {
+                bot.removeSpectator(adminId);
+            }
         }
     }
 }
 
-export function beginChatRuntime(bot: ExtraTelegraf, userId: number, partnerId: number): void {
-    bot.removeFromQueue(userId);
-    bot.removeFromQueue(partnerId);
+export async function beginChatRuntime(bot: ExtraTelegraf, userId: number, partnerId: number): Promise<void> {
+    await bot.removeFromQueue(userId);
+    await bot.removeFromQueue(partnerId);
     bot.runningChats.set(userId, partnerId);
     bot.runningChats.set(partnerId, userId);
     bot.messageCountMap.set(userId, 0);

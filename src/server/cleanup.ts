@@ -25,18 +25,22 @@ export function cleanupStaleData(bot: ExtraTelegraf): void {
     // Note: Iterating a Map while deleting is safe in JavaScript - the iterator is not affected
     // by deletions that occur after the current entry was visited
     let spectatorCount = 0;
-    for (const [adminId, session] of bot.spectatingChats) {
-      spectatorCount++;
+    for (const [sessionKey, spectators] of bot.spectatingChats) {
+      spectatorCount += spectators.size;
       // Check if either user is still in an active chat
       // Note: This captures state at iteration time; a user could theoretically rejoin between
       // check and delete, but that's acceptable - stale sessions will be cleaned on next run
-      const user1Active = bot.runningChats.has(session.user1);
-      const user2Active = bot.runningChats.has(session.user2);
+      const [user1, user2] = sessionKey.split('_').map(Number);
+      const user1Active = bot.runningChats.has(user1);
+      const user2Active = bot.runningChats.has(user2);
       
       // Remove if neither user is active anymore
       if (!user1Active && !user2Active) {
-        bot.spectatingChats.delete(adminId);
-        console.log(`[CLEANUP] - Removed stale spectator session for admin ${adminId}`);
+        // Remove all spectators for this session
+        for (const adminId of spectators) {
+          bot.removeSpectator(adminId);
+        }
+        console.log(`[CLEANUP] - Removed stale spectator session: ${sessionKey}`);
       }
     }
     

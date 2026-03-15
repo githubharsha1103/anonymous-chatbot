@@ -74,7 +74,7 @@ export function getRetryDelay(error: unknown): number {
  * Clean up user state when they block the bot or bot loses rights
  * This removes the user from waiting queues, active chats, etc.
  */
-export function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): void {
+export async function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): Promise<void> {
   if (bot.queueSet.has(userId)) {
     bot.queueSet.delete(userId);
     const queueIndex = bot.waitingQueue.findIndex(w => w.id === userId);
@@ -86,7 +86,7 @@ export function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): void {
 
   if (bot.runningChats.has(userId)) {
     const partner = bot.getPartner(userId);
-    clearChatRuntime(bot, userId, partner);
+    await clearChatRuntime(bot, userId, partner);
     console.log(`[CLEANUP] - User ${userId} removed from running chats (partner: ${partner})`);
     return;
   }
@@ -107,7 +107,7 @@ export async function cleanupBlockedUserAsync(bot: ExtraTelegraf, userId: number
     }
   }
 
-  cleanupBlockedUser(bot, userId);
+  await cleanupBlockedUser(bot, userId);
   await updateUser(userId, { chatStartTime: null });
   if (partner) {
     await updateUser(partner, { chatStartTime: null, reportingPartner: userId });
@@ -126,7 +126,7 @@ export async function endChatDueToError(bot: ExtraTelegraf, userId: number, part
     console.log(`[CLEANUP] - Could not notify partner ${partnerId}:`, error);
   }
 
-  clearChatRuntime(bot, userId, partnerId);
+  await clearChatRuntime(bot, userId, partnerId);
   await updateUser(userId, { chatStartTime: null });
   await updateUser(partnerId, { chatStartTime: null });
 

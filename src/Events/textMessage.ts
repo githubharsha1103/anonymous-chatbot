@@ -435,37 +435,38 @@ export default {
          FORWARD TO SPECTATORS
       ================================= */
 
-      // Check if any admin is spectating this chat
-      const spectatorInfo = bot.getSpectatorChatForUser(ctx.from.id);
-      if (spectatorInfo) {
-        const { adminId, chat } = spectatorInfo;
-        
+      // Check if any admin is spectating this chat (supports multiple spectators)
+      const spectators = bot.getSpectatorsForUser(ctx.from.id);
+      if (spectators.length > 0) {
         // Determine which user sent the message
         const senderId = ctx.from.id;
-        const senderLabel = senderId === chat.user1 ? "User 1" : "User 2";
         
-        // Forward the message to the admin
-        try {
-          // Timeout wrapper for spectator messages
-          const withTimeout = async <T>(promise: Promise<T>, ms: number = 10000): Promise<T> => {
-            const timeout = new Promise<never>((_, reject) => 
-              setTimeout(() => reject(new Error("Telegram API timeout")), ms)
-            );
-            return Promise.race([promise, timeout]) as Promise<T>;
-          };
+        for (const { adminId, chat } of spectators) {
+          const senderLabel = senderId === chat.user1 ? "User 1" : "User 2";
           
-          await withTimeout(bot.telegram.sendMessage(
-            adminId,
-            `<b>👁️ Spectator Update</b>\n\n${senderLabel} (<code>${senderId}</code>) sent a message:`,
-            { parse_mode: "HTML" }
-          ));
-          
-          // Forward the actual message
-          await withTimeout(ctx.forwardMessage(adminId));
-        } catch {
-          // Admin might have exited spectator mode, remove from spectating chats
-          console.log(`[SPECTATOR] - Admin ${adminId} no longer available, removing spectator`);
-          bot.spectatingChats.delete(adminId);
+          // Forward the message to each admin spectator
+          try {
+            // Timeout wrapper for spectator messages
+            const withTimeout = async <T>(promise: Promise<T>, ms: number = 10000): Promise<T> => {
+              const timeout = new Promise<never>((_, reject) => 
+                setTimeout(() => reject(new Error("Telegram API timeout")), ms)
+              );
+              return Promise.race([promise, timeout]) as Promise<T>;
+            };
+            
+            await withTimeout(bot.telegram.sendMessage(
+              adminId,
+              `<b>👁️ Spectator Update</b>\n\n${senderLabel} (<code>${senderId}</code>) sent a message:`,
+              { parse_mode: "HTML" }
+            ));
+            
+            // Forward the actual message
+            await withTimeout(ctx.forwardMessage(adminId));
+          } catch {
+            // Admin might have exited spectator mode, remove from spectating chats
+            console.log(`[SPECTATOR] - Admin ${adminId} no longer available, removing spectator`);
+            bot.removeSpectator(adminId);
+          }
         }
       }
     } catch (error: unknown) {
@@ -494,7 +495,7 @@ export default {
         console.log(`[CHAT] - Partner ${partner} restricted bot, ending chat`);
         
         // Clean up the chat state (cleanupBlockedUser handles runningChats deletion)
-        cleanupBlockedUser(bot, partner);
+        await cleanupBlockedUser(bot, partner);
         
         // Clean up message maps
         bot.messageMap.delete(ctx.from.id);
@@ -526,7 +527,7 @@ export default {
         } catch (retryError: unknown) {
           // If retry also fails, check if it's a block/not enough rights error
           if (isBotBlockedError(retryError) || isNotEnoughRightsError(retryError)) {
-            cleanupBlockedUser(bot, partner);
+            await cleanupBlockedUser(bot, partner);
             
             // Clean up message maps
             bot.messageMap.delete(ctx.from.id);

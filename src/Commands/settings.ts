@@ -10,6 +10,6 @@ export default {
     
     // Use the shared showSettings function for consistent UI
     // The function handles both callback queries and regular commands
-    await showSettings(ctx as any);
+    await showSettings(ctx);
   }
 } as Command;

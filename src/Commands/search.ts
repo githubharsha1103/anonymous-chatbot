@@ -99,7 +99,7 @@ export default {
         }
 
         if (matchIndex === -1) {
-          const added = bot.addToQueueAtomic({
+          const added = await bot.addToQueueAtomic({
             id: userId,
             preference,
             gender,
@@ -115,7 +115,7 @@ export default {
         const match = bot.waitingQueue[matchIndex] as WaitingUser;
         bot.waitingQueue.splice(matchIndex, 1);
         bot.queueSet.delete(match.id);
-        beginChatRuntime(bot, userId, match.id);
+        await beginChatRuntime(bot, userId, match.id);
 
         const chatStartTime = Date.now();
         await updateUser(userId, { lastPartner: match.id, chatStartTime });
@@ -133,7 +133,7 @@ export default {
           await endChatDueToError(bot, userId, match.id);
 
           if (partnerStillThere) {
-            const requeued = bot.addToQueueAtomic({
+            const requeued = await bot.addToQueueAtomic({
               id: userId,
               preference,
               gender,

@@ -28,7 +28,10 @@ export type AdminAction =
     | "payment_refund" 
     | "settings_change" 
     | "queue_remove"
-    | "broadcast";
+    | "broadcast"
+    | "spectate_chat"
+    | "terminate_chat"
+    | "stop_spectating";
 
 export interface AdminLogFilter {
     adminId?: number;

@@ -49,7 +49,7 @@ export default {
 
         if (bot.runningChats.has(userId)) {
           const partner = bot.getPartner(userId);
-          clearChatRuntime(bot, userId, partner);
+          await clearChatRuntime(bot, userId, partner);
 
           if (partner) {
             await updateUser(userId, { reportingPartner: partner, chatStartTime: null });
@@ -61,7 +61,7 @@ export default {
             : false;
 
           if (!notifySent && partner) {
-            cleanupBlockedUser(bot, partner);
+            await cleanupBlockedUser(bot, partner);
             await endChatDueToError(bot, userId, partner);
             return ctx.reply("⏳ Partner left the chat");
           }
@@ -69,7 +69,7 @@ export default {
           await ctx.reply(buildSelfSkippedMessage(), exitChatKeyboard);
         }
 
-        bot.removeFromQueue(userId);
+        await bot.removeFromQueue(userId);
 
         const preference = user.preference || "any";
         const isPremium = user.premium || false;
@@ -96,7 +96,7 @@ export default {
         }
 
         if (matchIndex === -1) {
-          const added = bot.addToQueueAtomic({
+          const added = await bot.addToQueueAtomic({
             id: userId,
             preference,
             gender,
@@ -112,7 +112,7 @@ export default {
         const match = bot.waitingQueue[matchIndex] as WaitingUser;
         bot.waitingQueue.splice(matchIndex, 1);
         bot.queueSet.delete(match.id);
-        beginChatRuntime(bot, userId, match.id);
+        await beginChatRuntime(bot, userId, match.id);
 
         const chatStartTime = Date.now();
         await updateUser(userId, { lastPartner: match.id, chatStartTime });
@@ -131,7 +131,7 @@ export default {
 
           if (partnerStillThere) {
             const refreshedUser = await getUser(userId);
-            const requeued = bot.addToQueueAtomic({
+            const requeued = await bot.addToQueueAtomic({
               id: userId,
               preference,
               gender: refreshedUser.gender || "any",

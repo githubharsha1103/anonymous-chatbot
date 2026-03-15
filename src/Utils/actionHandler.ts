@@ -1174,7 +1174,7 @@ bot.action("CANCEL_SEARCH", async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
     
-    bot.removeFromQueue(userId);
+    await bot.removeFromQueue(userId);
     
     const mainMenuKeyboard = Markup.inlineKeyboard([
         [Markup.button.callback("🔍 Find Partner", "START_SEARCH")],

@@ -35,7 +35,7 @@ export default {
     try {
       return await bot.withChatStateLock(async () => {
         if (!bot.runningChats.has(id)) {
-          if (bot.removeFromQueue(id)) {
+          if (await bot.removeFromQueue(id)) {
             return ctx.reply("🔍 Search cancelled. Use /search when you want to find a partner again.");
           }
           return ctx.reply("⚠️ You are not in a chat. Use /search to find a partner!");
@@ -47,7 +47,7 @@ export default {
         const durationText = formatDuration(chatStartTime ? Date.now() - chatStartTime : 0);
         const messageCount = bot.messageCountMap.get(id) || 0;
 
-        clearChatRuntime(bot, id, partner);
+        await clearChatRuntime(bot, id, partner);
 
         if (partner) {
           await updateUser(id, { reportingPartner: partner, chatStartTime: null });
@@ -63,7 +63,7 @@ export default {
           : false;
 
         if (!notifySent && partner) {
-          cleanupBlockedUser(bot, partner);
+          await cleanupBlockedUser(bot, partner);
         }
 
         return ctx.reply(buildSelfEndedMessage(durationText, messageCount), {

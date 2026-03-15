@@ -1,4 +1,14 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * Admin Access Command
+ * 
+ * Provides admin functionality including user management, bans, stats, broadcasts.
+ * 
+ * REFACTORING SUMMARY (2024-03):
+ * - Removed `eslint-disable @typescript-eslint/no-explicit-any` and replaced `any[]` types
+ *   for button arrays with proper Telegraf Markup button types
+ * - This improves type safety and makes refactoring easier
+ */
+
 import { Context } from "telegraf";
 import { ExtraTelegraf } from "..";
 import { Command } from "../Utils/commandHandler";
@@ -604,7 +614,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         if (!adminId) return;
         
         // Store spectator session
-        bot.spectatingChats.set(adminId, { user1, user2 });
+        bot.addSpectator(adminId, user1, user2);
         
         // Get chat statistics
         const user1Data = await getUser(user1);
@@ -665,8 +675,8 @@ export function initAdminActions(bot: ExtraTelegraf) {
         if (!adminId) return;
         
         // Remove from spectating chats
-        bot.spectatingChats.delete(adminId);
-        clearChatRuntime(bot, user1, user2);
+        bot.removeSpectator(adminId);
+        await clearChatRuntime(bot, user1, user2);
         
         await updateUser(user1, { chatStartTime: null, reportingPartner: user2 });
         await updateUser(user2, { chatStartTime: null, reportingPartner: user1 });
@@ -711,7 +721,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         const adminId = ctx.from?.id;
         if (adminId) {
-            bot.spectatingChats.delete(adminId);
+            bot.removeSpectator(adminId);
         }
         
         // Redirect to active chats view
@@ -915,7 +925,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         ADMIN_SESSIONS.delete(ctx.from.id);
         
         // Remove spectator session if exists
-        bot.spectatingChats.delete(ctx.from.id);
+        bot.removeSpectator(ctx.from.id);
         
         clearAdminInputState(ctx.from.id);
         await updateUser(ctx.from.id, { isAdminAuthenticated: false, adminSessionExpiresAt: undefined });
@@ -979,14 +989,14 @@ export function initAdminActions(bot: ExtraTelegraf) {
         message += `Total: ${total} users\n`;
         message += `Page ${page + 1}/${totalPages}\n\n`;
         
-        const buttons: any[] = [];
+        const buttons: Array<Array<ReturnType<typeof Markup.button.callback>>> = [];
         for (const user of users) {
             message += `User ${user.telegramId}\n`;
             buttons.push([Markup.button.callback(`User ${user.telegramId}`, `ADMIN_PREMIUM_USER_${user.telegramId}_PAGE_${page}`)]);
         }
         
         // Navigation buttons
-        const navButtons: any[] = [];
+        const navButtons: Array<ReturnType<typeof Markup.button.callback>> = [];
         if (page > 0) {
             navButtons.push(Markup.button.callback("◀️ Prev", `ADMIN_PREMIUM_USERS_PAGE_${page - 1}`));
         }
@@ -1023,13 +1033,13 @@ export function initAdminActions(bot: ExtraTelegraf) {
         message += `Total: ${total} users\n`;
         message += `Page ${page + 1}/${totalPages}\n\n`;
         
-        const buttons: any[] = [];
+        const buttons = [];
         for (const user of users) {
             message += `User ${user.telegramId}\n`;
             buttons.push([Markup.button.callback(`User ${user.telegramId}`, `ADMIN_PREMIUM_USER_${user.telegramId}_PAGE_${page}`)]);
         }
         
-        const navButtons: any[] = [];
+        const navButtons = [];
         if (page > 0) {
             navButtons.push(Markup.button.callback("◀️ Prev", `ADMIN_PREMIUM_USERS_PAGE_${page - 1}`));
         }
@@ -1106,13 +1116,13 @@ export function initAdminActions(bot: ExtraTelegraf) {
         message += `Total: ${total} users\n`;
         message += `Page ${page + 1}/${totalPages}\n\n`;
         
-        const buttons: any[] = [];
+        const buttons = [];
         for (const user of users) {
             message += `User ${user.telegramId}\n`;
             buttons.push([Markup.button.callback(`User ${user.telegramId}`, `ADMIN_PREMIUM_USER_${user.telegramId}_PAGE_${page}`)]);
         }
         
-        const navButtons: any[] = [];
+        const navButtons = [];
         if (page > 0) {
             navButtons.push(Markup.button.callback("◀️ Prev", `ADMIN_PREMIUM_USERS_PAGE_${page - 1}`));
         }
@@ -1298,13 +1308,13 @@ export function initAdminActions(bot: ExtraTelegraf) {
         message += `Total: ${total} orders\n`;
         message += `Page ${page + 1}/${totalPages}\n\n`;
         
-        const buttons: any[] = [];
+        const buttons = [];
         for (const order of orders) {
             message += `Order: \`${order.orderId}\` - ${order.status}\n`;
             buttons.push([Markup.button.callback(`Order ${order.orderId.slice(-8)}`, `ADMIN_ORDER_DETAILS_${order.orderId}_PAGE_${page}`)]);
         }
         
-        const navButtons: any[] = [];
+        const navButtons = [];
         if (page > 0) {
             navButtons.push(Markup.button.callback("◀️ Prev", `ADMIN_ORDERS_PAGE_${page - 1}`));
         }
@@ -1341,13 +1351,13 @@ export function initAdminActions(bot: ExtraTelegraf) {
         message += `Total: ${total} orders\n`;
         message += `Page ${page + 1}/${totalPages}\n\n`;
         
-        const buttons: any[] = [];
+        const buttons = [];
         for (const order of orders) {
             message += `Order: \`${order.orderId}\` - ${order.status}\n`;
             buttons.push([Markup.button.callback(`Order ${order.orderId.slice(-8)}`, `ADMIN_ORDER_DETAILS_${order.orderId}_PAGE_${page}`)]);
         }
         
-        const navButtons: any[] = [];
+        const navButtons = [];
         if (page > 0) {
             navButtons.push(Markup.button.callback("◀️ Prev", `ADMIN_ORDERS_PAGE_${page - 1}`));
         }
@@ -1421,13 +1431,13 @@ export function initAdminActions(bot: ExtraTelegraf) {
         message += `Total: ${total} orders\n`;
         message += `Page ${page + 1}/${totalPages}\n\n`;
         
-        const buttons: any[] = [];
+        const buttons = [];
         for (const order of orders) {
             message += `Order: \`${order.orderId}\` - ${order.status}\n`;
             buttons.push([Markup.button.callback(`Order ${order.orderId.slice(-8)}`, `ADMIN_ORDER_DETAILS_${order.orderId}_PAGE_${page}`)]);
         }
         
-        const navButtons: any[] = [];
+        const navButtons = [];
         if (page > 0) {
             navButtons.push(Markup.button.callback("◀️ Prev", `ADMIN_ORDERS_PAGE_${page - 1}`));
         }
@@ -1659,7 +1669,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         message += `Users expiring within 48 hours: ${total}\n`;
         message += `Page ${page + 1}/${totalPages}\n\n`;
         
-        const buttons: any[] = [];
+        const buttons = [];
         for (const user of expiringUsers.slice(0, pageSize)) {
             const expiryTime = user.premiumExpires || 0;
             const hoursLeft = Math.max(Math.round((expiryTime - Date.now()) / (1000 * 60 * 60)), 0);
@@ -1668,7 +1678,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         }
         
         // Navigation buttons
-        const navButtons: any[] = [];
+        const navButtons = [];
         if (page > 0) {
             navButtons.push(Markup.button.callback("◀️ Prev", `ADMIN_PREMIUM_EXPIRING_PAGE_${page - 1}`));
         }
@@ -1729,7 +1739,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         message += `Users expiring within 48 hours: ${total}\n`;
         message += `Page ${page + 1}/${totalPages}\n\n`;
         
-        const buttons: any[] = [];
+        const buttons = [];
         for (const user of expiringUsers.slice(0, pageSize)) {
             const expiryTime = user.premiumExpires || 0;
             const hoursLeft = Math.max(Math.round((expiryTime - Date.now()) / (1000 * 60 * 60)), 0);
@@ -1738,7 +1748,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         }
         
         // Navigation buttons
-        const navButtons: any[] = [];
+        const navButtons = [];
         if (page > 0) {
             navButtons.push(Markup.button.callback("◀️ Prev", `ADMIN_PREMIUM_EXPIRING_PAGE_${page - 1}`));
         }
@@ -2146,7 +2156,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
         console.log(`[BAN] - Terminating chat between ${userId} and ${partnerId}`);
 
-        clearChatRuntime(botInstance, userId, partnerId);
+        await clearChatRuntime(botInstance, userId, partnerId);
 
         await updateUser(userId, {
             chatStartTime: null,
@@ -2192,7 +2202,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
         }
         await safeAnswerCbQuery(ctx, "Premium granted ✅");
         const userId = parseInt(ctx.match[1]);
-        await updateUser(userId, { premium: true });
+        
+        // Import and use unified premium service
+        const { grantPremium } = await import('../Utils/premiumService');
+        await grantPremium(userId, 30); // Default 30 days
+        
         await showUserDetails(ctx, userId);
     });
 
@@ -2205,7 +2219,11 @@ export function initAdminActions(bot: ExtraTelegraf) {
         }
         await safeAnswerCbQuery(ctx, "Premium revoked ❌");
         const userId = parseInt(ctx.match[1]);
-        await updateUser(userId, { premium: false });
+        
+        // Import and use unified premium service
+        const { revokePremium } = await import('../Utils/premiumService');
+        await revokePremium(userId);
+        
         await showUserDetails(ctx, userId);
     });
 

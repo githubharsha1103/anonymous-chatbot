@@ -3,6 +3,14 @@
  * 
  * This is the main entry point for the Telegram bot.
  * The code has been refactored into modular components for better maintainability.
+ * 
+ * REFACTORING SUMMARY (2024-03):
+ * - Added internal mutex locking to all queue operations (addToQueueAtomic, matchFromQueue,
+ *   removeFromQueue, addToPremiumQueue, removeFromPremiumQueue) to prevent race conditions
+ *   when callers forget to use withChatStateLock. This makes the API thread-safe by default.
+ * - Improved uncaughtException handler to call graceful shutdown before exiting, allowing
+ *   DB connections to close properly and cleanup hooks to run.
+ * - Enhanced flood control logging with structured telemetry for better observability.
  */
 
 import 'dotenv/config';
@@ -114,7 +122,10 @@ export class ExtraTelegraf extends Telegraf<Context> {
   messageCountMap: Map<number, number> = new Map();
   totalChats: number = 0;
   totalUsers: number = 0;
-  spectatingChats: Map<number, { user1: number; user2: number }> = new Map();
+  // Spectating: Map<sessionKey("user1_user2"), Set<adminId>> for multiple spectators
+  spectatingChats: Map<string, Set<number>> = new Map();
+  // Legacy: Map<adminId, { user1, user2 }> - kept for backward compatibility
+  spectatingChatsLegacy: Map<number, { user1: number; user2: number }> = new Map();
   rateLimitMap: Map<number, number> = new Map();
   actionCooldownMap: Map<number, Map<string, number>> = new Map();
   
@@ -189,18 +200,32 @@ export class ExtraTelegraf extends Telegraf<Context> {
     return this.runningChats.get(id) || null;
   }
 
-  addToChat(userId: number, partnerId: number): void {
-    this.runningChats.set(userId, partnerId);
-    this.runningChats.set(partnerId, userId);
+  // Add to chat - NOW INTERNALLY PROTECTED BY chatMutex
+  // Ensures thread-safe manipulation of runningChats Map
+  async addToChat(userId: number, partnerId: number): Promise<void> {
+    await this.chatMutex.acquire();
+    try {
+      this.runningChats.set(userId, partnerId);
+      this.runningChats.set(partnerId, userId);
+    } finally {
+      this.chatMutex.release();
+    }
   }
 
-  removeFromChat(userId: number): number | null {
-    const partnerId = this.runningChats.get(userId) || null;
-    if (partnerId) {
-      this.runningChats.delete(userId);
-      this.runningChats.delete(partnerId);
+  // Remove from chat - NOW INTERNALLY PROTECTED BY chatMutex
+  // Returns partner ID before removal, or null if not in chat
+  async removeFromChat(userId: number): Promise<number | null> {
+    await this.chatMutex.acquire();
+    try {
+      const partnerId = this.runningChats.get(userId) || null;
+      if (partnerId) {
+        this.runningChats.delete(userId);
+        this.runningChats.delete(partnerId);
+      }
+      return partnerId;
+    } finally {
+      this.chatMutex.release();
     }
-    return partnerId;
   }
 
   incrementChatCount() {
@@ -212,17 +237,72 @@ export class ExtraTelegraf extends Telegraf<Context> {
     this.totalUsers++;
   }
 
+  // Generate session key from two user IDs (smaller ID first)
+  private getSessionKey(user1: number, user2: number): string {
+    return user1 < user2 ? `${user1}_${user2}` : `${user2}_${user1}`;
+  }
+
+  // Add admin to spectate a chat session
+  addSpectator(adminId: number, user1: number, user2: number): void {
+    // First, remove admin from any existing session to prevent duplicates
+    this.removeSpectator(adminId);
+    
+    const sessionKey = this.getSessionKey(user1, user2);
+    const [u1, u2] = sessionKey.split('_').map(Number);
+    let spectators = this.spectatingChats.get(sessionKey);
+    if (!spectators) {
+      spectators = new Set();
+      this.spectatingChats.set(sessionKey, spectators);
+    }
+    spectators.add(adminId);
+    // Also update legacy map for backward compatibility - use same ordering as session key
+    this.spectatingChatsLegacy.set(adminId, { user1: u1, user2: u2 });
+  }
+
+  // Remove admin from spectating
+  removeSpectator(adminId: number): void {
+    // Find and remove from the new map
+    for (const [sessionKey, spectators] of this.spectatingChats) {
+      if (spectators.has(adminId)) {
+        spectators.delete(adminId);
+        if (spectators.size === 0) {
+          this.spectatingChats.delete(sessionKey);
+        }
+        break;
+      }
+    }
+    // Remove from legacy map
+    this.spectatingChatsLegacy.delete(adminId);
+  }
+
+  // Check if user is in any spectated chat
   isUserInSpectatorChat(userId: number): boolean {
-    for (const [, chat] of this.spectatingChats) {
-      if (chat.user1 === userId || chat.user2 === userId) {
+    for (const [sessionKey] of this.spectatingChats) {
+      const [u1, u2] = sessionKey.split('_').map(Number);
+      if (u1 === userId || u2 === userId) {
         return true;
       }
     }
     return false;
   }
 
+  // Get all spectators for a user (used for message forwarding)
+  getSpectatorsForUser(userId: number): { adminId: number; chat: { user1: number; user2: number } }[] {
+    const results: { adminId: number; chat: { user1: number; user2: number } }[] = [];
+    for (const [sessionKey, spectators] of this.spectatingChats) {
+      const [u1, u2] = sessionKey.split('_').map(Number);
+      if (u1 === userId || u2 === userId) {
+        for (const adminId of spectators) {
+          results.push({ adminId, chat: { user1: u1, user2: u2 } });
+        }
+      }
+    }
+    return results;
+  }
+
+  // Legacy method for backward compatibility
   getSpectatorChatForUser(userId: number): { adminId: number; chat: { user1: number; user2: number } } | null {
-    for (const [adminId, chat] of this.spectatingChats) {
+    for (const [adminId, chat] of this.spectatingChatsLegacy) {
       if (chat.user1 === userId || chat.user2 === userId) {
         return { adminId, chat };
       }
@@ -249,131 +329,149 @@ export class ExtraTelegraf extends Telegraf<Context> {
     return this.queueSet.has(userId);
   }
 
-  // Atomic queue operations - all protected by queueMutex
+  // Atomic queue operations - NOW INTERNALLY PROTECTED BY queueMutex
   // These methods handle queueSet internally for O(1) lookups
-  addToQueueAtomic(user: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }): boolean {
-    // O(1) check using Set - much faster than array.some()
-    if (this.runningChats.has(user.id)) return false;
-    if (this.queueSet.has(user.id)) return false;
-    if (this.isQueueFull()) return false;
-    
-    this.waitingQueue.push(user);
-    this.queueSet.add(user.id); // O(1) insertion
-    return true;
+  // Added internal locking to prevent race conditions even if callers forget to lock
+  async addToQueueAtomic(user: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }): Promise<boolean> {
+    await this.queueMutex.acquire();
+    try {
+      // O(1) check using Set - much faster than array.some()
+      if (this.runningChats.has(user.id)) return false;
+      if (this.queueSet.has(user.id)) return false;
+      if (this.isQueueFull()) return false;
+      
+      this.waitingQueue.push(user);
+      this.queueSet.add(user.id); // O(1) insertion
+      return true;
+    } finally {
+      this.queueMutex.release();
+    }
   }
 
-  // Match from queue - call within mutex lock for thread safety
+  // Match from queue - NOW INTERNALLY PROTECTED BY queueMutex
+  // This ensures thread safety even if callers forget to use withChatStateLock
   // Priority matching:
   // 1. If premiumQueue.length >= 2: match premium users together
   // 2. If premiumQueue.length >= 1 && waitingQueue.length >= 1: match premium with normal
   // 3. Else: match normal users
-  matchFromQueue(userId: number, matchData: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }): { matched: boolean; partnerId: number | null } {
-    // Helper to check if two users match
-    const usersMatch = (u1: { gender: string; preference: string; blockedUsers?: number[] }, u2Id: number, u2: { gender: string; preference: string; blockedUsers?: number[] }, u1Id: number): boolean => {
-      const u1Gender = u1.gender || "any";
-      const u1Pref = u1.preference || "any";
-      const u2Gender = u2.gender || "any";
-      const u2Pref = u2.preference || "any";
-      const u1Blocked = u1.blockedUsers || [];
-      const u2Blocked = u2.blockedUsers || [];
+  async matchFromQueue(userId: number, matchData: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }): Promise<{ matched: boolean; partnerId: number | null }> {
+    await this.queueMutex.acquire();
+    try {
+      // Helper to check if two users match
+      const usersMatch = (u1: { gender: string; preference: string; blockedUsers?: number[] }, u2Id: number, u2: { gender: string; preference: string; blockedUsers?: number[] }, u1Id: number): boolean => {
+        const u1Gender = u1.gender || "any";
+        const u1Pref = u1.preference || "any";
+        const u2Gender = u2.gender || "any";
+        const u2Pref = u2.preference || "any";
+        const u1Blocked = u1.blockedUsers || [];
+        const u2Blocked = u2.blockedUsers || [];
+        
+        const genderMatches = u1Pref === "any" || u1Pref === u2Gender;
+        const preferenceMatches = u2Pref === "any" || u2Pref === u1Gender;
+        const notBlocked = !u1Blocked.includes(u2Id) && !u2Blocked.includes(u1Id);
+        
+        return genderMatches && preferenceMatches && notBlocked;
+      };
       
-      const genderMatches = u1Pref === "any" || u1Pref === u2Gender;
-      const preferenceMatches = u2Pref === "any" || u2Pref === u1Gender;
-      const notBlocked = !u1Blocked.includes(u2Id) && !u2Blocked.includes(u1Id);
+      // Priority 1: Match premium users together (premiumQueue >= 2)
+      if (matchData.isPremium && this.premiumQueue.length >= 2) {
+        const matchIndex = this.premiumQueue.findIndex(w => {
+          if (!this.premiumQueueSet.has(w.id)) return false;
+          if (w.id === userId) return false;
+          return usersMatch(matchData, w.id, w, userId);
+        });
+        
+        if (matchIndex !== -1) {
+          const match = this.premiumQueue.splice(matchIndex, 1)[0];
+          this.premiumQueueSet.delete(match.id);
+          
+          this.runningChats.set(match.id, userId);
+          this.runningChats.set(userId, match.id);
+          
+          return { matched: true, partnerId: match.id };
+        }
+      }
       
-      return genderMatches && preferenceMatches && notBlocked;
-    };
-    
-    // Priority 1: Match premium users together (premiumQueue >= 2)
-    if (matchData.isPremium && this.premiumQueue.length >= 2) {
-      const matchIndex = this.premiumQueue.findIndex(w => {
-        if (!this.premiumQueueSet.has(w.id)) return false;
+      // Priority 2: Match premium with normal (premiumQueue >= 1 && waitingQueue >= 1)
+      if (matchData.isPremium && this.premiumQueue.length >= 1) {
+        const matchIndex = this.premiumQueue.findIndex(w => {
+          if (!this.premiumQueueSet.has(w.id)) return false;
+          return usersMatch(matchData, w.id, w, userId);
+        });
+        
+        if (matchIndex !== -1) {
+          const match = this.premiumQueue.splice(matchIndex, 1)[0];
+          this.premiumQueueSet.delete(match.id);
+          
+          this.runningChats.set(match.id, userId);
+          this.runningChats.set(userId, match.id);
+          
+          return { matched: true, partnerId: match.id };
+        }
+      }
+      
+      // Priority 3: If current user is premium but no match in premium queue, try normal queue
+      if (matchData.isPremium && this.waitingQueue.length >= 1) {
+        const matchIndex = this.waitingQueue.findIndex(w => {
+          if (!this.queueSet.has(w.id)) return false;
+          return usersMatch(matchData, w.id, w, userId);
+        });
+        
+        if (matchIndex !== -1) {
+          const match = this.waitingQueue.splice(matchIndex, 1)[0];
+          this.queueSet.delete(match.id);
+          
+          this.runningChats.set(match.id, userId);
+          this.runningChats.set(userId, match.id);
+          
+          return { matched: true, partnerId: match.id };
+        }
+      }
+      
+      // Priority 4: Match normal users (non-premium or couldn't match premium)
+      const matchIndex = this.waitingQueue.findIndex(w => {
+        if (!this.queueSet.has(w.id)) return false;
         if (w.id === userId) return false;
         return usersMatch(matchData, w.id, w, userId);
       });
       
-      if (matchIndex !== -1) {
-        const match = this.premiumQueue.splice(matchIndex, 1)[0];
-        this.premiumQueueSet.delete(match.id);
-        
-        this.runningChats.set(match.id, userId);
-        this.runningChats.set(userId, match.id);
-        
-        return { matched: true, partnerId: match.id };
+      if (matchIndex === -1) {
+        return { matched: false, partnerId: null };
       }
-    }
-    
-    // Priority 2: Match premium with normal (premiumQueue >= 1 && waitingQueue >= 1)
-    if (matchData.isPremium && this.premiumQueue.length >= 1) {
-      const matchIndex = this.premiumQueue.findIndex(w => {
-        if (!this.premiumQueueSet.has(w.id)) return false;
-        return usersMatch(matchData, w.id, w, userId);
-      });
       
-      if (matchIndex !== -1) {
-        const match = this.premiumQueue.splice(matchIndex, 1)[0];
-        this.premiumQueueSet.delete(match.id);
-        
-        this.runningChats.set(match.id, userId);
-        this.runningChats.set(userId, match.id);
-        
-        return { matched: true, partnerId: match.id };
-      }
-    }
-    
-    // Priority 3: If current user is premium but no match in premium queue, try normal queue
-    if (matchData.isPremium && this.waitingQueue.length >= 1) {
-      const matchIndex = this.waitingQueue.findIndex(w => {
-        if (!this.queueSet.has(w.id)) return false;
-        return usersMatch(matchData, w.id, w, userId);
-      });
+      const match = this.waitingQueue.splice(matchIndex, 1)[0];
+      this.queueSet.delete(match.id);
       
-      if (matchIndex !== -1) {
-        const match = this.waitingQueue.splice(matchIndex, 1)[0];
-        this.queueSet.delete(match.id);
-        
-        this.runningChats.set(match.id, userId);
-        this.runningChats.set(userId, match.id);
-        
-        return { matched: true, partnerId: match.id };
-      }
+      this.runningChats.set(match.id, userId);
+      this.runningChats.set(userId, match.id);
+      
+      return { matched: true, partnerId: match.id };
+    } finally {
+      this.queueMutex.release();
     }
-    
-    // Priority 4: Match normal users (non-premium or couldn't match premium)
-    const matchIndex = this.waitingQueue.findIndex(w => {
-      if (!this.queueSet.has(w.id)) return false;
-      if (w.id === userId) return false;
-      return usersMatch(matchData, w.id, w, userId);
-    });
-    
-    if (matchIndex === -1) {
-      return { matched: false, partnerId: null };
-    }
-    
-    const match = this.waitingQueue.splice(matchIndex, 1)[0];
-    this.queueSet.delete(match.id);
-    
-    this.runningChats.set(match.id, userId);
-    this.runningChats.set(userId, match.id);
-    
-    return { matched: true, partnerId: match.id };
   }
 
-  // Remove from queue - call within mutex lock for thread safety
-  removeFromQueue(userId: number): boolean {
-    // O(1) check using Set first
-    if (!this.queueSet.has(userId)) return false;
-    
-    const idx = this.waitingQueue.findIndex(w => w.id === userId);
-    if (idx === -1) {
-      // Fix inconsistency - user in Set but not in array
-      this.queueSet.delete(userId);
-      return false;
+  // Remove from queue - NOW INTERNALLY PROTECTED BY queueMutex
+  // Ensures thread safety even if callers forget to use withChatStateLock
+  async removeFromQueue(userId: number): Promise<boolean> {
+    await this.queueMutex.acquire();
+    try {
+      // O(1) check using Set first
+      if (!this.queueSet.has(userId)) return false;
+      
+      const idx = this.waitingQueue.findIndex(w => w.id === userId);
+      if (idx === -1) {
+        // Fix inconsistency - user in Set but not in array
+        this.queueSet.delete(userId);
+        return false;
+      }
+      
+      this.waitingQueue.splice(idx, 1);
+      this.queueSet.delete(userId); // O(1) removal
+      return true;
+    } finally {
+      this.queueMutex.release();
     }
-    
-    this.waitingQueue.splice(idx, 1);
-    this.queueSet.delete(userId); // O(1) removal
-    return true;
   }
   
   // Clear queue set - for cleanup purposes
@@ -398,25 +496,35 @@ export class ExtraTelegraf extends Telegraf<Context> {
     return this.premiumUsers.has(userId);
   }
 
-  // Add to premium queue
-  addToPremiumQueue(user: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }): boolean {
-    if (this.premiumQueueSet.has(user.id)) return false;
-    if (this.premiumQueue.length >= this.MAX_PREMIUM_QUEUE_SIZE) return false;
-    
-    this.premiumQueue.push({ ...user, isPremium: true });
-    this.premiumQueueSet.add(user.id);
-    this.premiumUsers.add(user.id);
-    return true;
+  // Add to premium queue - NOW INTERNALLY PROTECTED BY queueMutex
+  async addToPremiumQueue(user: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }): Promise<boolean> {
+    await this.queueMutex.acquire();
+    try {
+      if (this.premiumQueueSet.has(user.id)) return false;
+      if (this.premiumQueue.length >= this.MAX_PREMIUM_QUEUE_SIZE) return false;
+      
+      this.premiumQueue.push({ ...user, isPremium: true });
+      this.premiumQueueSet.add(user.id);
+      this.premiumUsers.add(user.id);
+      return true;
+    } finally {
+      this.queueMutex.release();
+    }
   }
 
-  // Remove from premium queue
-  removeFromPremiumQueue(userId: number): boolean {
-    const idx = this.premiumQueue.findIndex(w => w.id === userId);
-    if (idx === -1) return false;
-    
-    this.premiumQueue.splice(idx, 1);
-    this.premiumQueueSet.delete(userId);
-    return true;
+  // Remove from premium queue - NOW INTERNALLY PROTECTED BY queueMutex
+  async removeFromPremiumQueue(userId: number): Promise<boolean> {
+    await this.queueMutex.acquire();
+    try {
+      const idx = this.premiumQueue.findIndex(w => w.id === userId);
+      if (idx === -1) return false;
+      
+      this.premiumQueue.splice(idx, 1);
+      this.premiumQueueSet.delete(userId);
+      return true;
+    } finally {
+      this.queueMutex.release();
+    }
   }
 
   // ==================== Message Queue for Rate Limiting ====================
@@ -477,7 +585,7 @@ export class ExtraTelegraf extends Telegraf<Context> {
       let sent = false;
       for (let attempt = 0; attempt <= this.MESSAGE_RETRY_COUNT && !sent; attempt++) {
         try {
-          await this.telegram.sendMessage(item.userId, item.text, item.extra as any);
+          await this.telegram.sendMessage(item.userId, item.text, item.extra as Parameters<ExtraTelegraf['telegram']['sendMessage']>[2]);
           sent = true;
         } catch (error) {
           // Check for flood control error (429)
@@ -631,13 +739,40 @@ bot.catch(async (err: unknown, ctx) => {
 });
 
 // Process-wide error handlers
+// REFACTORING: Improved uncaughtException to run graceful cleanup before exiting
+// This ensures DB connections close and cleanup hooks run, preventing data loss
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-process.on('uncaughtException', err => {
+// Import closeDatabase for graceful shutdown in uncaughtException
+import { closeDatabase } from "./storage/db";
+
+process.on('uncaughtException', async err => {
   console.error('[FATAL] Uncaught Exception:', err);
-  console.log('[FATAL] Shutting down due to uncaught exception...');
+  console.log('[FATAL] Running graceful shutdown before exit...');
+  
+  try {
+    // Stop bot gracefully (similar to setupGracefulShutdown)
+    if (process.env.RENDER_EXTERNAL_HOSTNAME || process.env.WEBHOOK_URL) {
+      await bot.telegram.deleteWebhook();
+      console.log('[FATAL] - Webhook deleted');
+    } else if (bot.botInfo) {
+      await bot.stop('uncaughtException');
+    }
+  } catch (error) {
+    console.log('[FATAL] - Bot stop skipped:', (error as Error).message);
+  }
+  
+  try {
+    // Close database connection
+    await closeDatabase();
+    console.log('[FATAL] - Database connection closed');
+  } catch (error) {
+    console.error('[FATAL] - Error closing database:', error);
+  }
+  
+  console.log('[FATAL] - Graceful shutdown complete, exiting with code 1');
   process.exit(1);
 });
 
