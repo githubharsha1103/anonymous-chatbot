@@ -45,7 +45,7 @@ describe("chatFlow", () => {
       }
     };
 
-    beginChatRuntime(bot, 1, 2);
+    await beginChatRuntime(bot, 1, 2);
     expect(bot.runningChats.get(1)).toBe(2);
     expect(bot.messageCountMap.get(1)).toBe(0);
     expect(bot.queueSet.has(1)).toBe(false);
