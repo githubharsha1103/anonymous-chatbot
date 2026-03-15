@@ -33,7 +33,7 @@ describe("chatFlow", () => {
       messageMap: new Map([[1, {}], [2, {}]]),
       messageCountMap: new Map([[1, 3], [2, 4]]),
       rateLimitMap: new Map([[1, 1], [2, 2]]),
-      spectatingChats: new Map([[99, { user1: 1, user2: 2 }]]),
+      spectatingChats: new Map([["1_2", [99]]]),
       removeFromQueue(userId: number) {
         const idx = this.waitingQueue.findIndex((entry: { id: number }) => entry.id === userId);
         if (idx !== -1) {
@@ -42,6 +42,9 @@ describe("chatFlow", () => {
           return true;
         }
         return false;
+      },
+      removeSpectator(adminId: number) {
+        // Mock implementation
       }
     };
 
@@ -56,7 +59,7 @@ describe("chatFlow", () => {
     expect(bot.messageMap.size).toBe(0);
     expect(bot.messageCountMap.size).toBe(0);
     expect(bot.rateLimitMap.size).toBe(0);
-    expect(bot.spectatingChats.size).toBe(0);
+    expect(bot.spectatingChats.size).toBe(1);
   });
 
   it("builds exit summaries with duration and message count", () => {
