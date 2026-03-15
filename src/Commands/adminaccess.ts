@@ -430,21 +430,39 @@ export function initAdminActions(bot: ExtraTelegraf) {
 
     // Back to main menu - uses centralized admin navigation
     bot.action("ADMIN_BACK", async (ctx) => {
+        console.log("[ADMIN] Returning to admin menu");
         try {
             await ctx.answerCbQuery();
 
-            // Try to delete the previous message to clean up
+            // Try to edit the existing message first
             try {
-                if (ctx.callbackQuery?.message) {
-                    await ctx.deleteMessage();
+                await ctx.editMessageText(
+                    "🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:",
+                    { parse_mode: "Markdown", ...mainKeyboard }
+                );
+            } catch (editError) {
+                // If edit fails, try to send new message
+                const errorMsg = editError instanceof Error ? editError.message : String(editError);
+                if (errorMsg.includes("message is not modified")) {
+                    // Already at the menu, no need to do anything
+                    return;
                 }
-            } catch {
-                // Ignore if message can't be deleted
-            }
 
-            // Render the main admin menu using centralized function
-            const { renderAdminMenu } = await import("../Utils/adminNavigation");
-            await renderAdminMenu(ctx);
+                // Try to delete the message and send new one
+                try {
+                    if (ctx.callbackQuery?.message) {
+                        await ctx.deleteMessage();
+                    }
+                } catch {
+                    // Ignore if message can't be deleted
+                }
+
+                // Send new admin panel message
+                await ctx.reply(
+                    "🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:",
+                    { parse_mode: "Markdown", ...mainKeyboard }
+                );
+            }
         } catch (error) {
             console.error("[ADMIN_NAV] Failed to return to admin menu:", error);
             try {
@@ -947,16 +965,23 @@ export function initAdminActions(bot: ExtraTelegraf) {
     
     // Payment Management Menu
     bot.action("ADMIN_PAYMENTS", async (ctx) => {
-        if (!validateAdmin(ctx)) {
-            await unauthorizedResponse(ctx, "Unauthorized");
-            return;
+        console.log("[ADMIN] Payments button clicked");
+        try {
+            if (!validateAdmin(ctx)) {
+                await unauthorizedResponse(ctx, "Unauthorized");
+                return;
+            }
+            await safeAnswerCbQuery(ctx);
+            
+            await safeEditMessageText(ctx,
+                "💰 *Payment Management*\n\nManage premium users, payment orders, and analytics.",
+                { parse_mode: "Markdown", ...paymentManagementKeyboard }
+            );
+            console.log("[ADMIN] Payments menu rendered successfully");
+        } catch (error) {
+            console.error("[ADMIN PAYMENTS ERROR]", error);
+            await safeAnswerCbQuery(ctx, "Error loading payments");
         }
-        await safeAnswerCbQuery(ctx);
-        
-        await safeEditMessageText(ctx,
-            "💰 *Payment Management*\n\nManage premium users, payment orders, and analytics.",
-            { parse_mode: "Markdown", ...paymentManagementKeyboard }
-        );
     });
 
     // Premium Users List

@@ -59,17 +59,35 @@ export function registerAdminNavigation(bot: ExtraTelegraf): void {
             // Answer the callback query to stop loading state
             await ctx.answerCbQuery();
 
-            // Try to delete the previous message to clean up
+            // Try to edit the existing message first
             try {
-                if (ctx.callbackQuery?.message) {
-                    await ctx.deleteMessage();
+                await ctx.editMessageText(
+                    "🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:",
+                    { parse_mode: "Markdown", ...mainKeyboard }
+                );
+            } catch (editError) {
+                // If edit fails, try to delete and send new message
+                const errorMsg = editError instanceof Error ? editError.message : String(editError);
+                if (errorMsg.includes("message is not modified")) {
+                    // Already at the menu, no need to do anything
+                    return;
                 }
-            } catch {
-                // Ignore if message can't be deleted (too old, not found, etc.)
-            }
 
-            // Render the main admin menu
-            await renderAdminMenu(ctx);
+                // Try to delete the message and send new one
+                try {
+                    if (ctx.callbackQuery?.message) {
+                        await ctx.deleteMessage();
+                    }
+                } catch {
+                    // Ignore if message can't be deleted
+                }
+
+                // Send new admin panel message
+                await ctx.reply(
+                    "🔐 *Admin Panel*\n\nWelcome, Admin!\n\nSelect an option below:",
+                    { parse_mode: "Markdown", ...mainKeyboard }
+                );
+            }
         } catch (error) {
             console.error("[ADMIN_NAV] Failed to return to admin menu:", error);
             try {
