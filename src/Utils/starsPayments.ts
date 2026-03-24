@@ -46,7 +46,7 @@ function cleanupInvoiceCooldowns(): void {
 // Run cleanup every 5 minutes
 setInterval(cleanupInvoiceCooldowns, 5 * 60 * 1000);
 
-type PremiumPlanId = "premium_weekly" | "premium_monthly" | "premium_yearly";
+type PremiumPlanId = "premium_daily" | "premium_weekly" | "premium_monthly" | "premium_yearly";
 
 type PremiumPlan = {
   id: PremiumPlanId;
@@ -57,6 +57,13 @@ type PremiumPlan = {
 };
 
 const PREMIUM_PLANS: Record<PremiumPlanId, PremiumPlan> = {
+  premium_daily: {
+    id: "premium_daily",
+    name: "Daily Premium",
+    days: 1,
+    stars: 1,
+    amount: 1
+  },
   premium_weekly: {
     id: "premium_weekly",
     name: "Weekly Premium",
@@ -111,6 +118,7 @@ export async function showPremiumPurchaseMenu(ctx: Context): Promise<void> {
 `⭐ Buy Premium
 
 Premium Plans:
+⭐ Daily Premium - 1 Star
 ⭐ Weekly Premium - 100 Stars
 ⭐ Monthly Premium - 250 Stars
 ⭐ Yearly Premium - 1000 Stars`;
@@ -118,6 +126,7 @@ Premium Plans:
   await ctx.reply(
     text,
     Markup.inlineKeyboard([
+      [Markup.button.callback("⭐ Daily - 1 Star", "premium_daily")],
       [Markup.button.callback("⭐ Weekly - 100 Stars", "premium_weekly")],
       [Markup.button.callback("⭐ Monthly - 250 Stars", "premium_monthly")],
       [Markup.button.callback("⭐ Yearly - 1000 Stars", "premium_yearly")]
@@ -380,7 +389,7 @@ export function initStarsPaymentHandlers(bot: ExtraTelegraf): void {
   });
 
   // Invoice creation with rate limiting
-  bot.action(/premium_(weekly|monthly|yearly)/, async (ctx) => {
+  bot.action(/premium_(daily|weekly|monthly|yearly)/, async (ctx) => {
     await ctx.answerCbQuery();
     
     const userId = ctx.from?.id || 0;

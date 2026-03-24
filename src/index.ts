@@ -766,7 +766,17 @@ export class ExtraTelegraf extends Telegraf<Context> {
   }
 }
 
+// TEMPORARY DEBUG: Log bot token and get bot info
+console.log("RUNTIME BOT TOKEN:", process.env.BOT_TOKEN ? process.env.BOT_TOKEN.slice(0, -6) + "******" : "undefined");
+
 export const bot = new ExtraTelegraf(process.env.BOT_TOKEN!);
+
+// TEMPORARY DEBUG: Get bot info from Telegram
+bot.telegram.getMe().then((me) => {
+  console.log("DEBUG - BOT USERNAME:", me.username);
+  console.log("DEBUG - BOT ID:", me.id);
+  console.log("DEBUG - BOT FIRST NAME:", me.first_name);
+});
 
 // Global catch handler
 bot.catch(async (err: unknown, ctx) => {
