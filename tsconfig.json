@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "es2016",
+    "target": "es2022",
     "module": "CommonJS",
     "moduleResolution": "node",
     "rootDir": "./src",
@@ -25,9 +25,9 @@
   },
   "exclude": [
     "./dist",
-    "./__tests__"
+    "__tests__"
   ],
   "include": [
-    "./src/**/*.ts"
+    "src"
   ]
 }

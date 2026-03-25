@@ -3,6 +3,7 @@ import { Command } from "../Utils/commandHandler";
 import { ExtraTelegraf } from "..";
 import { getUser, updateUser, updateLastActive, processReferral } from "../storage/db";
 import { getSetupStepPrompt, SetupStep } from "../Utils/setupFlow";
+import { getIsBroadcasting } from "../index";
 
 const SETUP_STEP_DONE = "done";
 
@@ -19,6 +20,12 @@ export default {
   execute: async (ctx: Context, bot: Telegraf<Context>) => {
     if (!ctx.from) {
       await ctx.reply("⚠️ Could not identify your account. Please try /start again.");
+      return;
+    }
+
+    // Check if broadcast is in progress - block matching during broadcast
+    if (getIsBroadcasting()) {
+      await ctx.reply("⚠️ Server busy due to update. Please try again in a few seconds.");
       return;
     }
 

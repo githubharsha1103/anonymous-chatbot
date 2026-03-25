@@ -17,6 +17,18 @@ import 'dotenv/config';
 import { Context, Telegraf } from "telegraf";
 import { AsyncLocalStorage } from "async_hooks";
 
+// ==================== GLOBAL STATE ====================
+// Broadcast state flag - blocks matching during broadcast operations
+let isBroadcasting = false;
+
+export function getIsBroadcasting(): boolean {
+  return isBroadcasting;
+}
+
+export function setIsBroadcasting(value: boolean): void {
+  isBroadcasting = value;
+}
+
 // Lock context interface for re-entrant mutex
 interface ChatLockContext {
   token: symbol;
@@ -151,7 +163,25 @@ export class ExtraTelegraf extends Telegraf<Context> {
   // Re-entrant mutex using AsyncLocalStorage with context-based depth tracking
   // Depth is stored per async execution flow, not globally
   
-  async withChatStateLock<T>(fn: () => Promise<T>): Promise<T> {
+  // Track pending lock requests per user to prevent duplicate requests
+  private pendingLockRequests: Map<number, boolean> = new Map();
+
+  // Check if user has a pending lock request (prevent duplicates)
+  hasPendingLockRequest(userId: number): boolean {
+    return this.pendingLockRequests.get(userId) === true;
+  }
+
+  // Mark user as having a pending lock request
+  setPendingLockRequest(userId: number): void {
+    this.pendingLockRequests.set(userId, true);
+  }
+
+  // Clear user's pending lock request
+  clearPendingLockRequest(userId: number): void {
+    this.pendingLockRequests.delete(userId);
+  }
+
+  async withChatStateLock<T>(fn: () => Promise<T>, userId?: number): Promise<T> {
     const context = chatLockStorage.getStore();
     
     if (context) {
@@ -165,9 +195,20 @@ export class ExtraTelegraf extends Telegraf<Context> {
       }
     }
 
-    // First call — acquire mutex
+    // First call — acquire mutex with timeout handling
     console.log("[LOCK] acquiring chat lock");
-    await this.chatMutex.acquire();
+    
+    try {
+      await this.chatMutex.acquire();
+    } catch (lockError) {
+      console.error("[LOCK] Failed to acquire chat lock:", lockError);
+      // Clear pending request if userId provided
+      if (userId) {
+        this.clearPendingLockRequest(userId);
+      }
+      // Error with lock failure - caller will handle gracefully via withChatStateLockSafe
+      throw new Error("LOCK_TIMEOUT", { cause: lockError });
+    }
 
     const newContext: ChatLockContext = {
       token: Symbol("chatLock"),
@@ -181,6 +222,31 @@ export class ExtraTelegraf extends Telegraf<Context> {
     } finally {
       console.log("[LOCK] releasing chat lock");
       this.chatMutex.release();
+      // Clear pending request if userId provided
+      if (userId) {
+        this.clearPendingLockRequest(userId);
+      }
+    }
+  }
+
+  // Wrapper for withChatStateLock that handles lock timeout gracefully
+  async withChatStateLockSafe<T>(fn: () => Promise<T>, userId: number, errorMessage: string = "⚠️ Server busy, please try again in a few seconds"): Promise<{ success: true; result: T } | { success: false; error: string }> {
+    // Check for duplicate request first
+    if (this.hasPendingLockRequest(userId)) {
+      return { success: false, error: "⏳ Your request is already being processed. Please wait." };
+    }
+    
+    this.setPendingLockRequest(userId);
+    
+    try {
+      const result = await this.withChatStateLock(fn, userId);
+      return { success: true, result };
+    } catch (lockError) {
+      const errorMsg = lockError instanceof Error ? lockError.message : String(lockError);
+      console.error("[LOCK] Lock error:", errorMsg);
+      return { success: false, error: errorMessage };
+    } finally {
+      this.clearPendingLockRequest(userId);
     }
   }
 

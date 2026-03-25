@@ -1,6 +1,7 @@
 import { ExtraTelegraf } from "../index";
 import { updateUser } from "../storage/db";
 import { buildPartnerLeftMessage, clearChatRuntime, exitChatKeyboard } from "./chatFlow";
+import { setIsBroadcasting } from "../index";
 
 /**
  * Telegram API Error types
@@ -94,43 +95,72 @@ export async function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): Pr
 
 /**
  * Async version of cleanupBlockedUser that also notifies the partner
+ * Wrapped in try/catch to prevent unhandled rejections
  */
 export async function cleanupBlockedUserAsync(bot: ExtraTelegraf, userId: number): Promise<void> {
-  const partner = bot.getPartner(userId);
+  try {
+    const partner = bot.getPartner(userId);
 
-  if (partner) {
-    try {
-      await bot.telegram.sendMessage(partner, buildPartnerLeftMessage(), { ...exitChatKeyboard });
-      console.log(`[CLEANUP] - Notified partner ${partner} that user ${userId} left`);
-    } catch (error) {
-      console.log(`[CLEANUP] - Could not notify partner ${partner}:`, error);
+    if (partner) {
+      try {
+        await bot.telegram.sendMessage(partner, buildPartnerLeftMessage(), { ...exitChatKeyboard });
+        console.log(`[CLEANUP] - Notified partner ${partner} that user ${userId} left`);
+      } catch (notifyError) {
+        console.log(`[CLEANUP] - Could not notify partner ${partner}:`, notifyError);
+      }
     }
-  }
 
-  await cleanupBlockedUser(bot, userId);
-  await updateUser(userId, { chatStartTime: null });
-  if (partner) {
-    await updateUser(partner, { chatStartTime: null, reportingPartner: userId });
+    await cleanupBlockedUser(bot, userId);
+    await updateUser(userId, { chatStartTime: null });
+    if (partner) {
+      await updateUser(partner, { chatStartTime: null, reportingPartner: userId });
+    }
+  } catch (error) {
+    console.error(`[CLEANUP] - Critical error in cleanupBlockedUserAsync for user ${userId}:`, error);
+    // Force cleanup even on error - prevent stuck users
+    try {
+      bot.runningChats.delete(userId);
+      bot.queueSet.delete(userId);
+      bot.premiumQueueSet.delete(userId);
+    } catch (forceError) {
+      console.error(`[CLEANUP] - Force cleanup failed for user ${userId}:`, forceError);
+    }
   }
 }
 
 /**
  * End a chat properly when an error occurs with the partner
  * Notifies both users that the chat has ended due to an error
+ * Wrapped in try/catch to prevent unhandled rejections
  */
 export async function endChatDueToError(bot: ExtraTelegraf, userId: number, partnerId: number): Promise<void> {
   try {
-    await bot.telegram.sendMessage(partnerId, buildPartnerLeftMessage(), { ...exitChatKeyboard });
-    console.log(`[CLEANUP] - Notified partner ${partnerId} about chat ending`);
+    try {
+      await bot.telegram.sendMessage(partnerId, buildPartnerLeftMessage(), { ...exitChatKeyboard });
+      console.log(`[CLEANUP] - Notified partner ${partnerId} about chat ending`);
+    } catch (notifyError) {
+      console.log(`[CLEANUP] - Could not notify partner ${partnerId}:`, notifyError);
+    }
+
+    await clearChatRuntime(bot, userId, partnerId);
+    await updateUser(userId, { chatStartTime: null });
+    await updateUser(partnerId, { chatStartTime: null });
+
+    console.log(`[CLEANUP] - Chat ended due to error: user ${userId}, partner ${partnerId}`);
   } catch (error) {
-    console.log(`[CLEANUP] - Could not notify partner ${partnerId}:`, error);
+    console.error(`[CLEANUP] - Critical error in endChatDueToError for users ${userId}, ${partnerId}:`, error);
+    // Force cleanup even on error - prevent stuck users
+    try {
+      bot.runningChats.delete(userId);
+      bot.runningChats.delete(partnerId);
+      bot.queueSet.delete(userId);
+      bot.queueSet.delete(partnerId);
+      bot.premiumQueueSet.delete(userId);
+      bot.premiumQueueSet.delete(partnerId);
+    } catch (forceError) {
+      console.error(`[CLEANUP] - Force cleanup failed for users ${userId}, ${partnerId}:`, forceError);
+    }
   }
-
-  await clearChatRuntime(bot, userId, partnerId);
-  await updateUser(userId, { chatStartTime: null });
-  await updateUser(partnerId, { chatStartTime: null });
-
-  console.log(`[CLEANUP] - Chat ended due to error: user ${userId}, partner ${partnerId}`);
 }
 
 /**
@@ -362,6 +392,11 @@ export async function broadcastWithRateLimit(
   
   console.log(`[BROADCAST] - Starting broadcast to ${userIds.length} users (chunk size: ${CHUNK_SIZE})`);
   
+  // Set broadcast flag to block matching operations
+  try {
+    setIsBroadcasting(true);
+    console.log("[BROADCAST] - Broadcast flag set to true");
+  
   // For small broadcasts, use the original sequential approach
   if (userIds.length <= CHUNK_SIZE) {
     return await broadcastSequential(bot, userIds, text, extra);
@@ -411,6 +446,14 @@ export async function broadcastWithRateLimit(
   
   console.log(`[BROADCAST] - Complete! Sent: ${success}, Failed: ${failed} out of ${userIds.length} users`);
   return { success, failed, failedUserIds };
+  } catch (broadcastError) {
+    console.error("[BROADCAST] - Error during broadcast:", broadcastError);
+    throw broadcastError;
+  } finally {
+    // Always clear broadcast flag
+    setIsBroadcasting(false);
+    console.log("[BROADCAST] - Broadcast flag set to false (complete)");
+  }
 }
 
 /**

@@ -5,6 +5,7 @@ import { beginChatRuntime, buildPartnerMatchMessage } from "../Utils/chatFlow";
 import { cleanupBlockedUserAsync, endChatDueToError, sendMessageWithRetry } from "../Utils/telegramErrorHandler";
 import { getSetupRequiredPrompt } from "../Utils/setupFlow";
 import { isPremium as checkPremiumStatus } from "../Utils/starsPayments";
+import { getIsBroadcasting } from "../index";
 
 interface WaitingUser {
   id: number;
@@ -38,8 +39,18 @@ export default {
   execute: async (ctx: Context, bot: ExtraTelegraf) => {
     const userId = ctx.from?.id as number;
 
+    // Check if broadcast is in progress - block matching during broadcast
+    if (getIsBroadcasting()) {
+      return ctx.reply("⚠️ Server busy due to update. Please try again in a few seconds.");
+    }
+
     if (bot.isRateLimited(userId)) {
       return ctx.reply("⏳ Please wait a moment before searching again.");
+    }
+
+    // Check for duplicate request BEFORE acquiring lock
+    if (bot.hasPendingLockRequest(userId)) {
+      return ctx.reply("⏳ Your search request is already being processed. Please wait.");
     }
 
     bot.syncQueueState();
@@ -59,14 +70,26 @@ export default {
       return redirectToSetup(ctx);
     }
 
-    try {
-      return await bot.withChatStateLock(async () => {
+    // Check if user is already in a chat or queue BEFORE lock (outside lock for performance)
+    if (bot.runningChats.has(userId) || (user.lastPartner && user.chatStartTime)) {
+      return ctx.reply(
+        "You are already in a chat!\n\nUse /end to leave the chat or use /next to skip the current chat."
+      );
+    }
+
+    if (bot.isInQueue(userId)) {
+      return ctx.reply("⚠️ You are already in the queue!");
+    }
+
+    // Use safe lock wrapper with timeout handling
+    const lockResult = await bot.withChatStateLockSafe(
+      async () => {
         const gender = user.gender || "any";
         const preference = user.preference || "any";
         const isPremium = user.premium || false;
         const myBlockedUsers = user.blockedUsers || [];
 
-        // Check both runtime state AND database state to prevent stale session issues after bot restart
+        // Double-check state inside lock (could have changed while waiting for lock)
         if (bot.runningChats.has(userId) || (user.lastPartner && user.chatStartTime)) {
           return ctx.reply(
             "You are already in a chat!\n\nUse /end to leave the chat or use /next to skip the current chat."
@@ -160,10 +183,16 @@ export default {
         }
 
         return ctx.reply(userPartnerInfo);
-      });
-    } catch (error) {
-      console.error("[Search command] Match flow failed:", error);
-      return ctx.reply("⚠️ Server is busy. Please try again in a moment.");
+      },
+      userId,
+      "⚠️ Server busy, please try again in a few seconds"
+    );
+
+    if (!lockResult.success) {
+      console.error("[Search] Lock failed for user", userId, lockResult.error);
+      return ctx.reply(lockResult.error);
     }
+
+    return lockResult.result;
   }
 };

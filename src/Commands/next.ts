@@ -11,6 +11,7 @@ import {
 } from "../Utils/chatFlow";
 import { cleanupBlockedUser, cleanupBlockedUserAsync, endChatDueToError, sendMessageWithRetry } from "../Utils/telegramErrorHandler";
 import { isPremium as checkPremiumStatus } from "../Utils/starsPayments";
+import { getIsBroadcasting } from "../index";
 
 interface WaitingUser {
   id: number;
@@ -26,8 +27,18 @@ export default {
   execute: async (ctx: Context, bot: ExtraTelegraf) => {
     const userId = ctx.from?.id as number;
 
+    // Check if broadcast is in progress - block matching during broadcast
+    if (getIsBroadcasting()) {
+      return ctx.reply("⚠️ Server busy due to update. Please try again in a few seconds.");
+    }
+
     if (bot.isRateLimited(userId)) {
       return ctx.reply("⏳ Please wait a moment before trying again.");
+    }
+
+    // Check for duplicate request
+    if (bot.hasPendingLockRequest(userId)) {
+      return ctx.reply("⏳ Your request is already being processed. Please wait.");
     }
 
     bot.syncQueueState();
@@ -42,8 +53,9 @@ export default {
       console.log(`[QUEUE] - Queue size limit enforced, removed ${removeCount} oldest users`);
     }
 
-    try {
-      return await bot.withChatStateLock(async () => {
+    // Use safe lock wrapper
+    const lockResult = await bot.withChatStateLockSafe(
+      async () => {
         const user = await getUser(userId);
         const gender = user.gender || "any";
 
@@ -158,10 +170,16 @@ export default {
         }
 
         return ctx.reply(userPartnerInfo);
-      });
-    } catch (error) {
-      console.error("[Next command] Match flow failed:", error);
-      return ctx.reply("⏳ Server is busy. Please try again in a moment.");
+      },
+      userId,
+      "⚠️ Server busy, please try again in a few seconds"
+    );
+
+    if (!lockResult.success) {
+      console.error("[Next] Lock failed for user", userId, lockResult.error);
+      return ctx.reply(lockResult.error);
     }
+
+    return lockResult.result;
   }
 };
