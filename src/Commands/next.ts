@@ -11,7 +11,7 @@ import {
 } from "../Utils/chatFlow";
 import { cleanupBlockedUser, cleanupBlockedUserAsync, endChatDueToError, sendMessageWithRetry } from "../Utils/telegramErrorHandler";
 import { isPremium as checkPremiumStatus } from "../Utils/starsPayments";
-import { getIsBroadcasting } from "../index";
+import { getIsBroadcasting, getIsSystemBusy, checkUserRateLimit } from "../index";
 
 interface WaitingUser {
   id: number;
@@ -26,6 +26,16 @@ export default {
   description: "Skip current chat and find new partner",
   execute: async (ctx: Context, bot: ExtraTelegraf) => {
     const userId = ctx.from?.id as number;
+
+    // Check system load - graceful degradation
+    if (getIsSystemBusy()) {
+      return ctx.reply("⚠️ High server load. Please try again in a few seconds.");
+    }
+
+    // Check user rate limit
+    if (checkUserRateLimit(userId)) {
+      return ctx.reply("⏳ Please slow down. Wait a moment before trying again.");
+    }
 
     // Check if broadcast is in progress - block matching during broadcast
     if (getIsBroadcasting()) {

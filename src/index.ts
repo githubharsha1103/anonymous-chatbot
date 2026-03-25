@@ -29,6 +29,60 @@ export function setIsBroadcasting(value: boolean): void {
   isBroadcasting = value;
 }
 
+// ==================== SYSTEM MONITORING ====================
+// Event loop lag monitoring for overload detection
+let isSystemBusy = false;
+export function getIsSystemBusy(): boolean {
+  return isSystemBusy;
+}
+
+// Per-user action timestamps for rate limiting
+const userLastAction: Map<number, number> = new Map();
+const ACTION_COOLDOWN_MS = 1500; // 1.5 seconds between commands
+export function checkUserRateLimit(userId: number): boolean {
+  const lastAction = userLastAction.get(userId);
+  if (lastAction && Date.now() - lastAction < ACTION_COOLDOWN_MS) {
+    return true; // Rate limited
+  }
+  userLastAction.set(userId, Date.now());
+  return false;
+}
+
+// Start event loop monitoring
+let lastEventLoopCheck = Date.now();
+const EVENT_LOOP_CHECK_MS = 1000;
+const LAG_THRESHOLD_MS = 300; // Flag as busy if lag exceeds 300ms
+
+if (process.env.NODE_ENV !== "test") {
+  setInterval(() => {
+    const now = Date.now();
+    const expectedDiff = EVENT_LOOP_CHECK_MS;
+    const actualDiff = now - lastEventLoopCheck;
+    const lag = actualDiff - expectedDiff;
+    
+    if (lag > LAG_THRESHOLD_MS && !isSystemBusy) {
+      isSystemBusy = true;
+      console.warn(`[PERF] High event loop lag detected: ${lag}ms, system marked busy`);
+    } else if (lag < 100 && isSystemBusy) {
+      isSystemBusy = false;
+      console.log("[PERF] Event loop recovered, system marked ready");
+    }
+    
+    lastEventLoopCheck = now;
+  }, EVENT_LOOP_CHECK_MS);
+}
+
+// Cleanup old entries from userLastAction periodically
+setInterval(() => {
+  const now = Date.now();
+  const maxAge = 60000; // 1 minute
+  for (const [userId, timestamp] of userLastAction) {
+    if (now - timestamp > maxAge) {
+      userLastAction.delete(userId);
+    }
+  }
+}, 30000); // Check every 30 seconds
+
 // Lock context interface for re-entrant mutex
 interface ChatLockContext {
   token: symbol;
@@ -187,7 +241,9 @@ export class ExtraTelegraf extends Telegraf<Context> {
     if (context) {
       // Nested call in same async flow - increment depth
       context.depth++;
-      console.log(`[LOCK] nested lock detected (depth: ${context.depth})`);
+      if (process.env.DEBUG_LOCKS === "true") {
+        console.log(`[LOCK] nested lock detected (depth: ${context.depth})`);
+      }
       try {
         return await fn();
       } finally {
@@ -196,12 +252,16 @@ export class ExtraTelegraf extends Telegraf<Context> {
     }
 
     // First call — acquire mutex with timeout handling
-    console.log("[LOCK] acquiring chat lock");
+    if (process.env.DEBUG_LOCKS === "true") {
+      console.log("[LOCK] acquiring chat lock");
+    }
     
     try {
       await this.chatMutex.acquire();
     } catch (lockError) {
-      console.error("[LOCK] Failed to acquire chat lock:", lockError);
+      if (process.env.DEBUG_LOCKS === "true") {
+        console.error("[LOCK] Failed to acquire chat lock:", lockError);
+      }
       // Clear pending request if userId provided
       if (userId) {
         this.clearPendingLockRequest(userId);
@@ -220,7 +280,9 @@ export class ExtraTelegraf extends Telegraf<Context> {
         return await fn();
       });
     } finally {
-      console.log("[LOCK] releasing chat lock");
+      if (process.env.DEBUG_LOCKS === "true") {
+        console.log("[LOCK] releasing chat lock");
+      }
       this.chatMutex.release();
       // Clear pending request if userId provided
       if (userId) {

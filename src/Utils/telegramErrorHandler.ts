@@ -2,6 +2,7 @@ import { ExtraTelegraf } from "../index";
 import { updateUser } from "../storage/db";
 import { buildPartnerLeftMessage, clearChatRuntime, exitChatKeyboard } from "./chatFlow";
 import { setIsBroadcasting } from "../index";
+import { getIsSystemBusy } from "../index";
 
 /**
  * Telegram API Error types
@@ -386,16 +387,21 @@ export async function broadcastWithRateLimit(
     onProgress?: (success: number, failed: number) => void;
   }
 ): Promise<{ success: number; failed: number; failedUserIds: number[] }> {
-  // Configuration for large broadcasts - 30 users per chunk (Telegram safe limit)
-  const CHUNK_SIZE = 30;
-  const CHUNK_DELAY = 1000;  // 1 second delay between chunks
+  // Configuration for large broadcasts - reduced chunk size for CPU efficiency
+  const CHUNK_SIZE = 10;  // Reduced from 30 to prevent CPU spikes
+  const CHUNK_DELAY = 500;  // 500ms delay between chunks
   
-  console.log(`[BROADCAST] - Starting broadcast to ${userIds.length} users (chunk size: ${CHUNK_SIZE})`);
+  // Only log in production or when debug enabled
+  if (process.env.DEBUG_BROADCAST === "true") {
+    console.log(`[BROADCAST] - Starting broadcast to ${userIds.length} users (chunk size: ${CHUNK_SIZE})`);
+  }
   
   // Set broadcast flag to block matching operations
   try {
     setIsBroadcasting(true);
-    console.log("[BROADCAST] - Broadcast flag set to true");
+    if (process.env.DEBUG_BROADCAST === "true") {
+      console.log("[BROADCAST] - Broadcast flag set to true");
+    }
   
   // For small broadcasts, use the original sequential approach
   if (userIds.length <= CHUNK_SIZE) {
@@ -413,7 +419,9 @@ export async function broadcastWithRateLimit(
     const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, userIds.length);
     const chunkUsers = userIds.slice(chunkStart, chunkEnd);
     
-    console.log(`[BROADCAST] - Processing chunk ${chunk + 1}/${totalChunks} (${chunkUsers.length} users)`);
+    if (process.env.DEBUG_BROADCAST === "true") {
+      console.log(`[BROADCAST] - Processing chunk ${chunk + 1}/${totalChunks} (${chunkUsers.length} users)`);
+    }
     
     // Send messages in parallel within this chunk
     const chunkResults = await Promise.all(
@@ -432,19 +440,30 @@ export async function broadcastWithRateLimit(
       }
     }
     
-    // Progress log
+    // Progress log (less frequent to reduce overhead)
     const totalProcessed = (chunk + 1) * CHUNK_SIZE;
-    if (totalProcessed % 300 === 0 || chunk === totalChunks - 1) {
+    if (process.env.DEBUG_BROADCAST === "true" && (totalProcessed % 300 === 0 || chunk === totalChunks - 1)) {
       console.log(`[BROADCAST] - Progress: ${Math.min(totalProcessed, userIds.length)}/${userIds.length} (${success} sent, ${failed} failed)`);
     }
     
-    // Delay between chunks to avoid hitting rate limits
+    // Delay between chunks to avoid hitting rate limits AND yield to event loop
+    // Also pause if system is busy to prevent CPU spikes
     if (chunk < totalChunks - 1) {
-      await new Promise(resolve => setTimeout(resolve, CHUNK_DELAY));
+      if (getIsSystemBusy()) {
+        // Pause broadcast if system is overloaded
+        if (process.env.DEBUG_BROADCAST === "true") {
+          console.log("[BROADCAST] - System busy, pausing for 1s");
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } else {
+        await new Promise(resolve => setTimeout(resolve, CHUNK_DELAY));
+      }
     }
   }
   
-  console.log(`[BROADCAST] - Complete! Sent: ${success}, Failed: ${failed} out of ${userIds.length} users`);
+  if (process.env.DEBUG_BROADCAST === "true") {
+    console.log(`[BROADCAST] - Complete! Sent: ${success}, Failed: ${failed} out of ${userIds.length} users`);
+  }
   return { success, failed, failedUserIds };
   } catch (broadcastError) {
     console.error("[BROADCAST] - Error during broadcast:", broadcastError);
@@ -452,7 +471,9 @@ export async function broadcastWithRateLimit(
   } finally {
     // Always clear broadcast flag
     setIsBroadcasting(false);
-    console.log("[BROADCAST] - Broadcast flag set to false (complete)");
+    if (process.env.DEBUG_BROADCAST === "true") {
+      console.log("[BROADCAST] - Broadcast flag set to false (complete)");
+    }
   }
 }
 

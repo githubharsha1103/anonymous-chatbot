@@ -3,7 +3,7 @@ import { Command } from "../Utils/commandHandler";
 import { ExtraTelegraf } from "..";
 import { getUser, updateUser, updateLastActive, processReferral } from "../storage/db";
 import { getSetupStepPrompt, SetupStep } from "../Utils/setupFlow";
-import { getIsBroadcasting } from "../index";
+import { getIsBroadcasting, getIsSystemBusy, checkUserRateLimit } from "../index";
 
 const SETUP_STEP_DONE = "done";
 
@@ -20,6 +20,18 @@ export default {
   execute: async (ctx: Context, bot: Telegraf<Context>) => {
     if (!ctx.from) {
       await ctx.reply("⚠️ Could not identify your account. Please try /start again.");
+      return;
+    }
+
+    // Check system load - graceful degradation
+    if (getIsSystemBusy()) {
+      await ctx.reply("⚠️ High server load. Please try again in a few seconds.");
+      return;
+    }
+
+    // Check user rate limit
+    if (checkUserRateLimit(ctx.from.id)) {
+      await ctx.reply("⏳ Please slow down. Wait a moment before trying again.");
       return;
     }
 
