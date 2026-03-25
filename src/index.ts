@@ -103,10 +103,12 @@ interface ChatLockContext {
 const chatLockStorage = new AsyncLocalStorage<ChatLockContext>();
 
 // ==================== ENVIRONMENT VALIDATION ====================
-import { validateEnvironment, isProduction } from './Utils/envValidator';
+import { validateEnvironment, isProduction, isTest } from './Utils/envValidator';
 
-// Validate environment on startup
-validateEnvironment();
+// Validate environment on startup (skip in test mode)
+if (!isTest()) {
+  validateEnvironment();
+}
 
 // ==================== DATABASE ====================
 import { 

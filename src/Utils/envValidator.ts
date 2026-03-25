@@ -23,9 +23,23 @@ const requiredEnv: (keyof EnvConfig)[] = ["BOT_TOKEN", "ADMIN_IDS", "GROUP_CHAT_
 const recommendedEnv: (keyof EnvConfig)[] = ["MONGODB_URI", "GROUP_INVITE_LINK"];
 
 /**
+ * Check if running in test environment
+ */
+export function isTest(): boolean {
+  return process.env.NODE_ENV === "test";
+}
+
+/**
  * Validate required environment variables
+ * In test mode, validation is skipped to allow tests to run without .env
  */
 export function validateEnvironment(): void {
+  // Skip ALL validation in test mode
+  if (isTest()) {
+    console.log("[TEST] Environment validation skipped");
+    return;
+  }
+
   // Validate required environment variables
   for (const key of requiredEnv) {
     if (!process.env[key]) {
