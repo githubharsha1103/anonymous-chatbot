@@ -158,6 +158,9 @@ export interface User {
   premiumExpiry?: number; // Premium expiry timestamp
   premiumExpires?: number | null; // Stars premium expiry timestamp
   processedPaymentChargeIds?: string[]; // Idempotency guard for successful payments
+  
+  // Queue status for race condition protection
+  queueStatus?: "waiting" | "connecting" | "connected" | "removed"; // User's queue state
 }
 
 export type PremiumOrderStatus = "pending" | "paid" | "failed" | "expired";
@@ -593,6 +596,68 @@ export async function setAge(id: number, age: string): Promise<void> {
 export async function getAge(id: number): Promise<string | null> {
   const user = await getUser(id);
   return user.age;
+}
+
+// ==================== Queue Status Functions ====================
+
+/**
+ * Try to atomically change status from "waiting" to "connecting"
+ * Returns true if successful (got the lock), false if another admin got it first
+ */
+export async function tryLockUserForConnection(userId: number): Promise<boolean> {
+  console.log(`[queueStatus] Attempting to lock user ${userId} for connection`);
+  
+  return withDbRetry(async () => {
+    if (useMongoDB && !isFallbackMode) {
+      try {
+        const collection = await getUsersCollection();
+        // Atomic conditional update: only update if status is "waiting"
+        const result = await collection.updateOne(
+          { telegramId: userId, queueStatus: "waiting" },
+          { $set: { queueStatus: "connecting" } }
+        );
+        
+        if (result.modifiedCount > 0) {
+          console.log(`[queueStatus] User ${userId} locked for connection successfully`);
+          return true;
+        } else {
+          console.log(`[queueStatus] User ${userId} could not be locked - may already be connecting/connected`);
+          return false;
+        }
+      } catch (error) {
+        console.error("[ERROR] - MongoDB tryLockUserForConnection error:", error);
+        return false;
+      }
+    }
+    
+    // JSON fallback
+    const dbObj = await readJson<JsonUsersDb>(JSON_FILE);
+    const user = dbObj[userId];
+    
+    if (!user || user.queueStatus !== "waiting") {
+      return false;
+    }
+    
+    dbObj[userId] = { ...user, queueStatus: "connecting" };
+    await writeJson(JSON_FILE, dbObj);
+    return true;
+  }, "tryLockUserForConnection");
+}
+
+/**
+ * Mark user as connected (called after successful connection)
+ */
+export async function markUserAsConnected(userId: number): Promise<void> {
+  console.log(`[queueStatus] Marking user ${userId} as connected`);
+  await updateUser(userId, { queueStatus: "connected" });
+}
+
+/**
+ * Mark user as removed (called after successful removal from queue)
+ */
+export async function markUserAsRemoved(userId: number): Promise<void> {
+  console.log(`[queueStatus] Marking user ${userId} as removed`);
+  await updateUser(userId, { queueStatus: "removed" });
 }
 
 export async function getBlockedUsers(userId: number): Promise<number[]> {

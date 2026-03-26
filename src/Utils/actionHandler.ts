@@ -13,6 +13,7 @@ import endCommand from "../Commands/end";
 import { getSetupCompleteText } from "./setupFlow";
 import { showPremiumPurchaseMenu, isPremium } from "./starsPayments";
 import { isModerationEnabled, getAutoWarnThreshold, getAutoTempBanThreshold, getAutoBanThreshold, getTempBanDurationMs } from "../admin/moderationSettings";
+import { updateUserPreferenceInQueue } from "../admin/queueMonitor";
 
 // Valid preference options
 export const genderOptions = ["male", "female", "any"] as const;
@@ -688,6 +689,11 @@ bot.action("PREF_MALE", async (ctx) => {
     
     await safeAnswerCbQuery(ctx, "Preference saved: Male ✅");
     await updateUser(ctx.from.id, { preference });
+    
+    // Update preference in queue (memory) to reflect latest value
+    updateUserPreferenceInQueue(bot, ctx.from.id, preference);
+    console.log(`[queueMonitor] User ${ctx.from.id} updated preference to: ${preference}`);
+    
     await showSettings(ctx);
 });
 
@@ -710,6 +716,11 @@ bot.action("PREF_ANY", async (ctx) => {
     
     await safeAnswerCbQuery(ctx, "Preference saved: Any ✅");
     await updateUser(ctx.from.id, { preference });
+    
+    // Update preference in queue (memory) to reflect latest value
+    updateUserPreferenceInQueue(bot, ctx.from.id, preference);
+    console.log(`[queueMonitor] User ${ctx.from.id} updated preference to: ${preference}`);
+    
     await showSettings(ctx);
 });
 
@@ -732,6 +743,11 @@ bot.action("PREF_FEMALE", async (ctx) => {
     
     await safeAnswerCbQuery(ctx, "Preference saved: Female ✅");
     await updateUser(ctx.from.id, { preference });
+    
+    // Update preference in queue (memory) to reflect latest value
+    updateUserPreferenceInQueue(bot, ctx.from.id, preference);
+    console.log(`[queueMonitor] User ${ctx.from.id} updated preference to: ${preference}`);
+    
     await showSettings(ctx);
 });
 
