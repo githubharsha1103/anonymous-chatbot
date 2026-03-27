@@ -180,13 +180,24 @@ export async function stopSearch(bot: ExtraTelegraf, userId: number): Promise<vo
     clearInterval(searchInfo.interval);
   }
   
+  // Remove from all queues (ensure complete cleanup)
+  try {
+    await bot.removeFromQueue(userId);
+    await bot.removeFromPremiumQueue(userId);
+  } catch (error) {
+    console.error(`[stopSearch] Error removing user ${userId} from queue:`, error);
+  }
+  
+  // Use removeUserEverywhere for safety net cleanup
+  removeUserEverywhere(bot, userId);
+  
   try {
     // Edit message to remove keyboard and show "stopped"
     await bot.telegram.editMessageText(
       searchInfo.chatId,
       searchInfo.messageId,
       undefined,
-      "❌ Search stopped.",
+      "🚫 Search cancelled\n👉 Use /next to find a new partner",
       { reply_markup: { inline_keyboard: [] } }
     );
     console.log(`[stopSearch] Updated message for user ${userId}`);
@@ -278,16 +289,10 @@ bot.action("stop_search", async (ctx) => {
     return; // User was already matched, ignore stop action
   }
   
-  // Remove from queue
-  try {
-    await bot.removeFromQueue(userId);
-    await bot.removeFromPremiumQueue(userId);
-  } catch (error) {
-    console.error(`[stop_search] Error removing user ${userId} from queue:`, error);
-  }
+  console.log("STOP BUTTON CLICKED:", userId);
   
-  // Use global cleanup for memory safety
-  removeUserEverywhere(bot as unknown as ExtraTelegraf, userId);
+  // Use stopSearch to properly clean up - updates message, clears interval, removes from queues
+  await stopSearch(bot, userId);
 });
 
 export async function loadActions() {
