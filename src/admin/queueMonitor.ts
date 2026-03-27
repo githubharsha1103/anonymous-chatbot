@@ -338,10 +338,26 @@ export async function connectAdminToUser(
         await markUserAsConnected(userId);
         await markUserAsConnected(adminId);
         
-        // Send notification to the user
+        // Send notification to the user - use normal match flow
         try {
-            const notifyMessage = "🎉 *You have been connected to a new chat partner!*\n\nStart chatting now!";
-            await bot.telegram.sendMessage(userId, notifyMessage, { parse_mode: "Markdown" });
+            // First send the "Partner found" message
+            const partnerFoundMessage = "🎉 Partner found!\n⏳ Connecting...";
+            await bot.telegram.sendMessage(userId, partnerFoundMessage);
+            await bot.telegram.sendMessage(adminId, partnerFoundMessage);
+            
+            // After delay, send the connection message (normal matchmaking flow)
+            setTimeout(async () => {
+                // Verify both users are still in chat
+                if (!bot.runningChats.has(userId) || !bot.runningChats.has(adminId)) {
+                    return;
+                }
+                try {
+                    await bot.telegram.sendMessage(userId, "💬 You are now connected. Say hi!");
+                    await bot.telegram.sendMessage(adminId, "💬 You are now connected. Say hi!");
+                } catch {
+                    // Silently ignore if users blocked bot
+                }
+            }, 1200);
         } catch (error) {
             console.error("[queueMonitor] Failed to notify user:", getErrorMessage(error));
         }
@@ -552,14 +568,15 @@ export async function handleQueueRemove(
             return;
         }
         
-        // Proceed with removal
+        // Proceed with removal - silently remove user (no notification)
         const result = await safeRemoveFromQueue(bot, userId, adminId);
         
         if (result.success) {
             // Mark as removed in DB
             await markUserAsRemoved(userId);
-            console.log(`[queueMonitor] User ${userId} successfully removed from queue by admin ${adminId}`);
-            await safeAnswerCbQuery(ctx, `✅ ${result.message}`);
+            console.log(`[queueMonitor] User ${userId} silently removed from queue by admin ${adminId}`);
+            // Silently acknowledge - no visible message to user about admin action
+            await safeAnswerCbQuery(ctx, `✅ User removed from queue`);
         } else {
             console.log(`[queueMonitor] Failed to remove user ${userId}: ${result.message}`);
             await safeAnswerCbQuery(ctx, `❌ ${result.message}`);
