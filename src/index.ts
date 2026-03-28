@@ -584,34 +584,89 @@ export class ExtraTelegraf extends Telegraf<Context> {
     }
   }
 
-  private findMatchInPreferenceMap(user: { id: number; preference: string; gender: string; blockedUsers?: number[] }, isPremium: boolean, excludeUserId?: number): number | null {
-    const userGender = user.gender || "any";
-    const userPref = user.preference || "any";
+  // Helper: Check if two users can match based on premium status and preferences
+  // Non-premium users have implicit "any" preference
+  private canMatch(userA: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }, userB: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }): boolean {
+    // If either user has blocked the other, no match
+    const userABlocked = userA.blockedUsers || [];
+    if (userABlocked.includes(userB.id)) return false;
+    
+    const userBBlocked = userB.blockedUsers || [];
+    if (userBBlocked.includes(userA.id)) return false;
+    
+    // Get preferences (default to "any" for non-premium or missing)
+    const prefA = userA.preference || "any";
+    const prefB = userB.preference || "any";
+    const genderA = userA.gender || "any";
+    const genderB = userB.gender || "any";
+    
+    // Check premium user preferences
+    if (userA.isPremium) {
+      // UserA is premium: their preference must be satisfied by UserB's gender
+      if (prefA !== "any" && prefA !== genderB) {
+        return false;
+      }
+    }
+    
+    if (userB.isPremium) {
+      // UserB is premium: their preference must be satisfied by UserA's gender
+      if (prefB !== "any" && prefB !== genderA) {
+        return false;
+      }
+    }
+    
+    // Both non-premium: always match
+    return true;
+  }
+
+  // Find match across both queues with proper preference checking
+  private findMatchInPreferenceMap(user: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }, isPremium: boolean, excludeUserId?: number): number | null {
     const userBlocked = user.blockedUsers || [];
 
-    const map = isPremium ? this.premiumQueueByPreference : this.waitingQueueByPreference;
-
-    // Try exact match first: user wants specific gender, partner wants user's gender
-    const exactKey = `${userPref}_${userGender}`;
-    const exactMatches = map.get(exactKey);
-    if (exactMatches) {
-      for (const partnerId of exactMatches) {
-        if (partnerId !== user.id && partnerId !== excludeUserId && !userBlocked.includes(partnerId)) {
-          return partnerId;
+    // Collect all candidate IDs from both queues
+    const candidateIds = new Set<number>();
+    
+    // Add from regular queue
+    for (const [, userIds] of this.waitingQueueByPreference) {
+      for (const id of userIds) {
+        if (id !== user.id && id !== excludeUserId) {
+          candidateIds.add(id);
         }
       }
     }
-
-    // Try flexible matches: any preferences
-    const anyKeys = [`any_${userGender}`, `${userPref}_any`, "any_any"];
-    for (const key of anyKeys) {
-      const matches = map.get(key);
-      if (matches) {
-        for (const partnerId of matches) {
-          if (partnerId !== user.id && partnerId !== excludeUserId && !userBlocked.includes(partnerId)) {
-            return partnerId;
-          }
+    
+    // Add from premium queue
+    for (const [, userIds] of this.premiumQueueByPreference) {
+      for (const id of userIds) {
+        if (id !== user.id && id !== excludeUserId) {
+          candidateIds.add(id);
         }
+      }
+    }
+    
+    // Try to find a compatible match
+    for (const partnerId of candidateIds) {
+      // Skip if user has blocked this partner
+      if (userBlocked.includes(partnerId)) continue;
+      
+      // Get partner's data from queue
+      let partner = this.waitingQueue.find(u => u.id === partnerId);
+      let partnerIsPremium = false;
+      
+      if (!partner) {
+        partner = this.premiumQueue.find(u => u.id === partnerId);
+        partnerIsPremium = true;
+      }
+      
+      if (!partner) continue;
+      
+      // Create full user objects for compatibility check
+      const userA = { ...user };
+      const userB = { ...partner, isPremium: partnerIsPremium };
+      
+      // Check if they can match using the canMatch helper
+      if (this.canMatch(userA, userB)) {
+        return partnerId;
       }
     }
 
