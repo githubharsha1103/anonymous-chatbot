@@ -191,8 +191,10 @@ export default {
     }
 
     if (result.type === "waiting") {
+      // FIX #6: Ensure queue consistency - cleanup before adding
+      removeUserEverywhere(bot, userId);
+      
       // User added to queue - use startSearch function for animation
-      // Note: No need to cleanup here - user was just added in addToQueueAtomic
       await startSearch(ctx, bot, userId);
       return;
     }

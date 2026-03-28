@@ -81,7 +81,6 @@ export async function clearChatRuntime(bot: ExtraTelegraf, userId: number, partn
                 bot.messageCountMap.delete(id);
                 bot.rateLimitMap.delete(id);
                 await bot.removeFromQueue(id);
-                await bot.removeFromPremiumQueue(id); // FIX: Also remove from premium queue
             }
 
             // Collect session keys to remove (can't modify Map while iterating)
@@ -113,14 +112,10 @@ export async function clearChatRuntime(bot: ExtraTelegraf, userId: number, partn
             bot.messageCountMap.delete(id);
             bot.rateLimitMap.delete(id);
         }
-        // Try to remove from queue without lock (both regular and premium)
+        // Try to remove from queue without lock
         try {
             await bot.removeFromQueue(userId);
-            await bot.removeFromPremiumQueue(userId); // FIX: Also remove from premium queue
-            if (partnerId) {
-                await bot.removeFromQueue(partnerId);
-                await bot.removeFromPremiumQueue(partnerId);
-            }
+            if (partnerId) await bot.removeFromQueue(partnerId);
         } catch (queueError) {
             console.error("[CLEAR] Force queue removal failed:", queueError);
         }
@@ -130,9 +125,6 @@ export async function clearChatRuntime(bot: ExtraTelegraf, userId: number, partn
 export async function beginChatRuntime(bot: ExtraTelegraf, userId: number, partnerId: number): Promise<void> {
     await bot.removeFromQueue(userId);
     await bot.removeFromQueue(partnerId);
-    // FIX: Also remove from premium queues to prevent stale entries
-    await bot.removeFromPremiumQueue(userId);
-    await bot.removeFromPremiumQueue(partnerId);
     bot.runningChats.set(userId, partnerId);
     bot.runningChats.set(partnerId, userId);
     bot.messageCountMap.set(userId, 0);

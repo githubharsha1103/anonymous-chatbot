@@ -86,20 +86,6 @@ export async function cleanupBlockedUser(bot: ExtraTelegraf, userId: number): Pr
     console.log(`[CLEANUP] - User ${userId} removed from waiting queue`);
   }
 
-  // FIX: Also clean premium queue
-  if (bot.premiumQueueSet.has(userId)) {
-    bot.premiumQueueSet.delete(userId);
-    const premiumIndex = bot.premiumQueue.findIndex(w => w.id === userId);
-    if (premiumIndex !== -1) {
-      bot.premiumQueue.splice(premiumIndex, 1);
-    }
-    console.log(`[CLEANUP] - User ${userId} removed from premium queue`);
-  }
-
-  // FIX: Also remove from preference maps
-  bot.removeFromPreferenceMap(userId, false);
-  bot.removeFromPreferenceMap(userId, true);
-
   if (bot.runningChats.has(userId)) {
     const partner = bot.getPartner(userId);
     await clearChatRuntime(bot, userId, partner);

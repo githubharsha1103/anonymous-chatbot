@@ -51,7 +51,6 @@ const SEARCH_MESSAGES = [
  * Global cleanup function - removes user from ALL states
  * Prevents: ghost users, stuck matches, memory leaks
  * FIX #1: Now removes from queues and runningChats
- * FIX: Also removes from preference maps
  */
 export function removeUserEverywhere(bot: ExtraTelegraf, userId: number): void {
   // 1. Clear search map and interval
@@ -67,8 +66,6 @@ export function removeUserEverywhere(bot: ExtraTelegraf, userId: number): void {
   if (queueIdx !== -1) {
     bot.waitingQueue.splice(queueIdx, 1);
     bot.queueSet.delete(userId);
-    // FIX: Also remove from preference map
-    bot.removeFromPreferenceMap(userId, false);
     console.log(`[CLEANUP] Removed user ${userId} from waiting queue`);
   }
   
@@ -77,8 +74,6 @@ export function removeUserEverywhere(bot: ExtraTelegraf, userId: number): void {
   if (premiumIdx !== -1) {
     bot.premiumQueue.splice(premiumIdx, 1);
     bot.premiumQueueSet.delete(userId);
-    // FIX: Also remove from premium preference map
-    bot.removeFromPreferenceMap(userId, true);
     console.log(`[CLEANUP] Removed user ${userId} from premium queue`);
   }
   

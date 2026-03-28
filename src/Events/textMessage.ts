@@ -214,8 +214,8 @@ export default {
       ================================= */
 
     if (!bot.runningChats.has(ctx.from.id)) {
-      // Check if user is in waiting queue (both regular and premium)
-      if (bot.queueSet.has(ctx.from.id) || bot.premiumQueueSet.has(ctx.from.id)) {
+      // Check if user is in waiting queue
+      if (bot.queueSet.has(ctx.from.id)) {
         // User is in queue - use startSearch to show animated search UI
         // (No need to send extra message - user already in search UI)
         return;
@@ -289,16 +289,6 @@ export default {
           // Restore runtime chat state
           bot.runningChats.set(ctx.from.id, partnerId);
           bot.runningChats.set(partnerId, ctx.from.id);
-          
-          // FIX: Update chatStartTime in database to reflect restored chat
-          await updateUser(ctx.from.id, { chatStartTime: Date.now() });
-          await updateUser(partnerId, { chatStartTime: Date.now() });
-          
-          // FIX: Also remove from preference maps to prevent incorrect matching
-          bot.removeFromPreferenceMap(ctx.from.id, false);
-          bot.removeFromPreferenceMap(ctx.from.id, true);
-          bot.removeFromPreferenceMap(partnerId, false);
-          bot.removeFromPreferenceMap(partnerId, true);
           
           // Initialize message tracking for both users if not already present
           if (!bot.messageMap.has(ctx.from.id)) {
