@@ -1,10 +1,70 @@
 import { ExtraTelegraf } from '../index';
-import { closeDatabase, revokeExpiredPremiumUsers, expireOldPremiumOrders } from '../storage/db';
+import { closeDatabase, revokeExpiredPremiumUsers, expireOldPremiumOrders, getUser } from '../storage/db';
+import { beginChatRuntime } from '../Utils/chatFlow';
 
 /**
  * Cleanup and maintenance tasks
  * Extracted from index.ts for better organization
  */
+
+/**
+ * Process auto-matching for users in queue
+ * This runs periodically to match waiting users
+ */
+async function processAutoMatching(bot: ExtraTelegraf): Promise<void> {
+  // Get users from both queues
+  const regularQueue = [...bot.waitingQueue];
+  const premiumQueue = [...bot.premiumQueue];
+  
+  if (regularQueue.length === 0 && premiumQueue.length === 0) {
+    return; // No users waiting
+  }
+  
+  console.log(`[AUTO MATCH] Processing: regular=${regularQueue.length}, premium=${premiumQueue.length}`);
+  
+  // Try to match regular users first
+  for (const user of regularQueue) {
+    if (bot.runningChats.has(user.id)) continue;
+    
+    const userData = await getUser(user.id);
+    if (!userData) continue;
+    
+    const matchResult = await bot.matchFromQueue(user.id, {
+      id: user.id,
+      preference: userData.preference || "any",
+      gender: userData.gender || "any",
+      isPremium: userData.premium || false,
+      blockedUsers: userData.blockedUsers || []
+    });
+    
+    if (matchResult.matched && matchResult.partnerId) {
+      console.log(`[AUTO MATCH] User ${user.id} matched with ${matchResult.partnerId}`);
+      await beginChatRuntime(bot, user.id, matchResult.partnerId);
+      // Note: We don't notify here - the next time they send a message they'll get the chat
+    }
+  }
+  
+  // Then try to match premium users
+  for (const user of premiumQueue) {
+    if (bot.runningChats.has(user.id)) continue;
+    
+    const userData = await getUser(user.id);
+    if (!userData) continue;
+    
+    const matchResult = await bot.matchFromQueue(user.id, {
+      id: user.id,
+      preference: userData.preference || "any",
+      gender: userData.gender || "any",
+      isPremium: true,
+      blockedUsers: userData.blockedUsers || []
+    });
+    
+    if (matchResult.matched && matchResult.partnerId) {
+      console.log(`[AUTO MATCH] Premium user ${user.id} matched with ${matchResult.partnerId}`);
+      await beginChatRuntime(bot, user.id, matchResult.partnerId);
+    }
+  }
+}
 
 /**
  * Clean up stale data from Maps to prevent memory leaks
@@ -242,6 +302,15 @@ export function registerCleanupTasks(bot: ExtraTelegraf): void {
       console.error("[CLEANUP] - Error during queue synchronization:", error);
     }
   }, 120000);
+
+  // Periodic matchmaking - try to match waiting users every 10 seconds
+  setInterval(async () => {
+    try {
+      await processAutoMatching(bot);
+    } catch (error) {
+      console.error("[CLEANUP] - Error during auto matching:", error);
+    }
+  }, 10000);
 
   // Revoke expired premium users every hour
   setInterval(async () => {

@@ -587,10 +587,14 @@ export class ExtraTelegraf extends Telegraf<Context> {
     const key = `${user.preference || "any"}_${user.gender || "any"}`;
     const map = isPremium ? this.premiumQueueByPreference : this.waitingQueueByPreference;
 
+    console.log(`[DEBUG addToPreferenceMap] userId=${user.id}, key="${key}", isPremium=${isPremium}`);
+
     if (!map.has(key)) {
       map.set(key, []);
     }
     map.get(key)!.push(user.id);
+    
+    console.log(`[DEBUG addToPreferenceMap] map now has key "${key}" with ${map.get(key)!.length} users:`, map.get(key));
   }
 
   // FIX: Made public so cleanup functions can use it
@@ -632,6 +636,13 @@ export class ExtraTelegraf extends Telegraf<Context> {
 
     const map = isPremium ? this.premiumQueueByPreference : this.waitingQueueByPreference;
 
+    // DEBUG: Log queue state
+    console.log(`[DEBUG findMatch] userId=${user.id}, preference=${user.preference}, gender=${user.gender}, isPremium=${isPremium}`);
+    console.log(`[DEBUG findMatch] queue size: ${map.size} keys`);
+    for (const [key, ids] of map) {
+      console.log(`[DEBUG findMatch] key="${key}" has ${ids.length} users:`, ids);
+    }
+
     // Get all candidate IDs from all relevant keys
     const candidateIds = new Set<number>();
     
@@ -641,6 +652,8 @@ export class ExtraTelegraf extends Telegraf<Context> {
         candidateIds.add(id);
       }
     }
+    
+    console.log(`[DEBUG findMatch] total candidates: ${candidateIds.size}`);
     
     // Filter candidates by mutual preference
     const validPartners: number[] = [];
@@ -654,20 +667,31 @@ export class ExtraTelegraf extends Telegraf<Context> {
       
       // Get partner's actual data from queue
       const partner = this.getQueueUser(partnerId);
-      if (!partner) continue;
+      if (!partner) {
+        console.log(`[DEBUG findMatch] partner ${partnerId} not found in queue`);
+        continue;
+      }
+      
+      console.log(`[DEBUG findMatch] checking partner ${partnerId}: pref=${partner.preference}, gender=${partner.gender}`);
       
       // Skip if partner has blocked caller
       const partnerBlocked = partner.blockedUsers || [];
       if (partnerBlocked.includes(user.id)) continue;
       
       // Check mutual preference
-      if (this.isMutualPreferenceMatch(user, partner)) {
+      const isMutual = this.isMutualPreferenceMatch(user, partner);
+      console.log(`[DEBUG findMatch] mutual match for ${partnerId}: ${isMutual}`);
+      
+      if (isMutual) {
         validPartners.push(partnerId);
       }
     }
     
+    console.log(`[DEBUG findMatch] valid partners found: ${validPartners.length}`);
+    
     // If we have valid partners, return the first one
     if (validPartners.length > 0) {
+      console.log(`[DEBUG findMatch] returning partner: ${validPartners[0]}`);
       return validPartners[0];
     }
 
