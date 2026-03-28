@@ -131,6 +131,7 @@ export default {
         if (blockedByLatestState) {
           // Remove the match from queue and try to find another
           await bot.removeFromQueue(matchId);
+          await bot.removeFromPremiumQueue(matchId); // FIX: Also remove from premium queue
           // Try to find another match
           const retryResult = await bot.matchFromQueue(userId, {
             id: userId,

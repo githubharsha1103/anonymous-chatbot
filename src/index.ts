@@ -517,12 +517,33 @@ export class ExtraTelegraf extends Telegraf<Context> {
   }
 
   isQueueFull(): boolean {
-    return this.queueSet.size >= this.MAX_QUEUE_SIZE;
+    // Check both regular and premium queues
+    const totalQueueSize = this.queueSet.size + this.premiumQueueSet.size;
+    const maxCombinedSize = this.MAX_QUEUE_SIZE + this.MAX_PREMIUM_QUEUE_SIZE;
+    return totalQueueSize >= maxCombinedSize;
   }
 
   // Check if user is in queue (O(1) using Set)
   isInQueue(userId: number): boolean {
     return this.queueSet.has(userId);
+  }
+
+  // Get user from queue by ID (returns user object if found)
+  getQueueUser(userId: number): { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] } | null {
+    // Check regular queue first
+    const regularUser = this.waitingQueue.find(u => u.id === userId);
+    if (regularUser) return regularUser;
+    
+    // Check premium queue
+    const premiumUser = this.premiumQueue.find(u => u.id === userId);
+    if (premiumUser) return premiumUser;
+    
+    return null;
+  }
+
+  // Check if user is in premium queue
+  isInPremiumQueue(userId: number): boolean {
+    return this.premiumQueueSet.has(userId);
   }
 
   // Atomic queue operations - NOW INTERNALLY PROTECTED BY queueMutex
@@ -541,6 +562,8 @@ export class ExtraTelegraf extends Telegraf<Context> {
         
         this.premiumQueue.push(user);
         this.premiumQueueSet.add(user.id); // O(1) insertion
+        // FIX: Update preference map for premium users
+        this.addToPreferenceMap(user, true);
         return true;
       }
       
@@ -559,7 +582,8 @@ export class ExtraTelegraf extends Telegraf<Context> {
   }
 
   // OPTIMIZED: Helper methods for preference-based matching
-  private addToPreferenceMap(user: { id: number; preference: string; gender: string }, isPremium: boolean): void {
+  // FIX: Made public so cleanup functions can use it
+  addToPreferenceMap(user: { id: number; preference: string; gender: string }, isPremium: boolean): void {
     const key = `${user.preference || "any"}_${user.gender || "any"}`;
     const map = isPremium ? this.premiumQueueByPreference : this.waitingQueueByPreference;
 
@@ -569,7 +593,8 @@ export class ExtraTelegraf extends Telegraf<Context> {
     map.get(key)!.push(user.id);
   }
 
-  private removeFromPreferenceMap(userId: number, isPremium: boolean): void {
+  // FIX: Made public so cleanup functions can use it
+  removeFromPreferenceMap(userId: number, isPremium: boolean): void {
     const map = isPremium ? this.premiumQueueByPreference : this.waitingQueueByPreference;
 
     for (const [key, userIds] of map) {
@@ -584,35 +609,66 @@ export class ExtraTelegraf extends Telegraf<Context> {
     }
   }
 
-  private findMatchInPreferenceMap(user: { id: number; preference: string; gender: string; blockedUsers?: number[] }, isPremium: boolean, excludeUserId?: number): number | null {
-    const userGender = user.gender || "any";
-    const userPref = user.preference || "any";
+  // Helper to check if mutual preference is satisfied
+  private isPreferenceSatisfied(preference: string, gender: string): boolean {
+    if (preference === "any") return true;
+    return preference === gender;
+  }
+
+  // Check mutual preference between two users
+  private isMutualPreferenceMatch(
+    caller: { id: number; preference: string; gender: string; blockedUsers?: number[] },
+    candidate: { id: number; preference: string; gender: string; blockedUsers?: number[] }
+  ): boolean {
+    // Caller's preference must be satisfied by candidate's gender
+    const callerPrefSatisfied = this.isPreferenceSatisfied(caller.preference, candidate.gender);
+    // Candidate's preference must be satisfied by caller's gender
+    const candidatePrefSatisfied = this.isPreferenceSatisfied(candidate.preference, caller.gender);
+    return callerPrefSatisfied && candidatePrefSatisfied;
+  }
+
+  findMatchInPreferenceMap(user: { id: number; preference: string; gender: string; blockedUsers?: number[] }, isPremium: boolean, excludeUserId?: number): number | null {
     const userBlocked = user.blockedUsers || [];
 
     const map = isPremium ? this.premiumQueueByPreference : this.waitingQueueByPreference;
 
-    // Try exact match first: user wants specific gender, partner wants user's gender
-    const exactKey = `${userPref}_${userGender}`;
-    const exactMatches = map.get(exactKey);
-    if (exactMatches) {
-      for (const partnerId of exactMatches) {
-        if (partnerId !== user.id && partnerId !== excludeUserId && !userBlocked.includes(partnerId)) {
-          return partnerId;
-        }
+    // Get all candidate IDs from all relevant keys
+    const candidateIds = new Set<number>();
+    
+    // Add all users from preference map to candidates (we'll filter by mutual preference)
+    for (const [, userIds] of map) {
+      for (const id of userIds) {
+        candidateIds.add(id);
       }
     }
-
-    // Try flexible matches: any preferences
-    const anyKeys = [`any_${userGender}`, `${userPref}_any`, "any_any"];
-    for (const key of anyKeys) {
-      const matches = map.get(key);
-      if (matches) {
-        for (const partnerId of matches) {
-          if (partnerId !== user.id && partnerId !== excludeUserId && !userBlocked.includes(partnerId)) {
-            return partnerId;
-          }
-        }
+    
+    // Filter candidates by mutual preference
+    const validPartners: number[] = [];
+    
+    for (const partnerId of candidateIds) {
+      // Skip self and excluded
+      if (partnerId === user.id || partnerId === excludeUserId) continue;
+      
+      // Skip if caller has blocked this partner
+      if (userBlocked.includes(partnerId)) continue;
+      
+      // Get partner's actual data from queue
+      const partner = this.getQueueUser(partnerId);
+      if (!partner) continue;
+      
+      // Skip if partner has blocked caller
+      const partnerBlocked = partner.blockedUsers || [];
+      if (partnerBlocked.includes(user.id)) continue;
+      
+      // Check mutual preference
+      if (this.isMutualPreferenceMatch(user, partner)) {
+        validPartners.push(partnerId);
       }
+    }
+    
+    // If we have valid partners, return the first one
+    if (validPartners.length > 0) {
+      return validPartners[0];
     }
 
     return null;
@@ -723,9 +779,64 @@ export class ExtraTelegraf extends Telegraf<Context> {
     this.queueSet.clear();
     this.premiumQueueSet.clear();
     this.premiumUsers.clear();
+    this.waitingQueueByPreference.clear();
+    this.premiumQueueByPreference.clear();
+  }
+
+  // FIX: Clear preference maps - made public for cleanup functions
+  clearPreferenceMaps(): void {
+    this.waitingQueueByPreference.clear();
+    this.premiumQueueByPreference.clear();
+  }
+
+  // FIX: Sync all queue consistency - call this periodically or after errors
+  syncAllQueues(): void {
+    // Sync regular queue
+    const seen = new Set<number>();
+    const normalizedQueue: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }[] = [];
+
+    for (const queuedUser of this.waitingQueue) {
+      if (!queuedUser || seen.has(queuedUser.id) || this.runningChats.has(queuedUser.id)) {
+        continue;
+      }
+      seen.add(queuedUser.id);
+      normalizedQueue.push(queuedUser);
+    }
+
+    this.waitingQueue = normalizedQueue;
+    this.queueSet = seen;
+
+    // Sync premium queue
+    const seenPremium = new Set<number>();
+    const normalizedPremiumQueue: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }[] = [];
+
+    for (const queuedUser of this.premiumQueue) {
+      if (!queuedUser || seenPremium.has(queuedUser.id) || this.runningChats.has(queuedUser.id)) {
+        continue;
+      }
+      seenPremium.add(queuedUser.id);
+      normalizedPremiumQueue.push(queuedUser);
+    }
+
+    this.premiumQueue = normalizedPremiumQueue;
+    this.premiumQueueSet = seenPremium;
+
+    // Rebuild preference maps from queues
+    this.waitingQueueByPreference.clear();
+    this.premiumQueueByPreference.clear();
+
+    for (const user of this.waitingQueue) {
+      this.addToPreferenceMap(user, false);
+    }
+    for (const user of this.premiumQueue) {
+      this.addToPreferenceMap(user, true);
+    }
+
+    console.log(`[SYNC] Queue consistency restored: waiting=${this.waitingQueue.length}, premium=${this.premiumQueue.length}`);
   }
 
   // Synchronize queue state - ensure array and Set are consistent
+  // FIX: Now also rebuilds preference maps
   syncQueueState(): void {
     const seen = new Set<number>();
     const normalizedQueue: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }[] = [];
@@ -741,6 +852,16 @@ export class ExtraTelegraf extends Telegraf<Context> {
 
     this.waitingQueue = normalizedQueue;
     this.queueSet = seen;
+
+    // FIX: Rebuild preference map from synced queue
+    this.waitingQueueByPreference.clear();
+    for (const user of this.waitingQueue) {
+      this.addToPreferenceMap(user, false);
+    }
+    // FIX: Also rebuild premium preference map
+    for (const user of this.premiumQueue) {
+      this.addToPreferenceMap(user, true);
+    }
   }
 
   // Trim waiting queue to specified size (removes oldest entries)
@@ -750,9 +871,11 @@ export class ExtraTelegraf extends Telegraf<Context> {
     const toRemove = this.waitingQueue.length - maxSize;
     const removedUsers = this.waitingQueue.splice(0, toRemove);
 
-    // Remove from Set as well
+    // Remove from Set and preference map as well
     for (const user of removedUsers) {
       this.queueSet.delete(user.id);
+      // FIX: Also remove from preference map
+      this.removeFromPreferenceMap(user.id, false);
     }
 
     return toRemove;

@@ -68,6 +68,7 @@ export function cleanupStaleData(bot: ExtraTelegraf): void {
 
 /**
  * Enforce queue size limit - remove oldest entries if too large
+ * FIX: Now also rebuilds preference maps
  */
 export function enforceQueueSizeLimit(bot: ExtraTelegraf): void {
   const MAX_QUEUE_SIZE = 10000;
@@ -78,6 +79,11 @@ export function enforceQueueSizeLimit(bot: ExtraTelegraf): void {
     bot.queueSet.clear();
     for (const user of bot.waitingQueue) {
       bot.queueSet.add(user.id);
+    }
+    // FIX: Rebuild preference map using public method
+    bot.clearPreferenceMaps();
+    for (const user of bot.waitingQueue) {
+      bot.addToPreferenceMap(user, false);
     }
   }
   
@@ -97,6 +103,7 @@ export function enforceQueueSizeLimit(bot: ExtraTelegraf): void {
 /**
  * Ensure users in active chats are not in the waiting queue
  * Also syncs queueSet with waitingQueue array
+ * FIX: Now also rebuilds preference maps
  */
 export function filterQueueUsersInChats(bot: ExtraTelegraf): void {
   const initialLength = bot.waitingQueue.length;
@@ -129,6 +136,15 @@ export function filterQueueUsersInChats(bot: ExtraTelegraf): void {
   bot.premiumQueueSet.clear();
   for (const user of bot.premiumQueue) {
     bot.premiumQueueSet.add(user.id);
+  }
+  
+  // FIX: Rebuild preference maps using public method
+  bot.clearPreferenceMaps();
+  for (const user of bot.waitingQueue) {
+    bot.addToPreferenceMap(user, false);
+  }
+  for (const user of bot.premiumQueue) {
+    bot.addToPreferenceMap(user, true);
   }
   
   const removed = initialLength - bot.waitingQueue.length;

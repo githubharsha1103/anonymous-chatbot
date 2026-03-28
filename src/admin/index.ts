@@ -70,8 +70,12 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     bot.action(/^ADMIN_QUEUE_REMOVE_(\d+)$/, async (ctx: Context) => {
         try {
             const match = (ctx.callbackQuery as unknown as { match?: RegExpMatchArray })?.match;
-            if (!match) return;
+            if (!match) {
+                console.error("[admin] ADMIN_QUEUE_REMOVE: No match found");
+                return;
+            }
             const userId = parseInt(match[1], 10);
+            console.log("[admin] ADMIN_QUEUE_REMOVE: Processing userId:", userId);
             
             if (!isAdminContext(ctx)) {
                 await unauthorizedResponse(ctx, "Unauthorized");
@@ -91,8 +95,12 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     bot.action(/^ADMIN_QUEUE_CONNECT_(\d+)$/, async (ctx: Context) => {
         try {
             const match = (ctx.callbackQuery as unknown as { match?: RegExpMatchArray })?.match;
-            if (!match) return;
+            if (!match) {
+                console.error("[admin] ADMIN_QUEUE_CONNECT: No match found");
+                return;
+            }
             const userId = parseInt(match[1], 10);
+            console.log("[admin] ADMIN_QUEUE_CONNECT: Processing userId:", userId);
             
             if (!isAdminContext(ctx)) {
                 await unauthorizedResponse(ctx, "Unauthorized");
@@ -112,8 +120,12 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     bot.action(/^ADMIN_QUEUE_CONNECT_CONFIRM_(\d+)$/, async (ctx: Context) => {
         try {
             const match = (ctx.callbackQuery as unknown as { match?: RegExpMatchArray })?.match;
-            if (!match) return;
+            if (!match) {
+                console.error("[admin] ADMIN_QUEUE_CONNECT_CONFIRM: No match found");
+                return;
+            }
             const userId = parseInt(match[1], 10);
+            console.log("[admin] ADMIN_QUEUE_CONNECT_CONFIRM: Processing userId:", userId);
             
             if (!isAdminContext(ctx)) {
                 await unauthorizedResponse(ctx, "Unauthorized");
