@@ -18,6 +18,7 @@ import { isAdmin, isAdminContext, unauthorizedResponse } from "../Utils/adminAut
 import { getErrorMessage } from "../Utils/telegramUi";
 import { buildPartnerLeftMessage, clearChatRuntime, exitChatKeyboard } from "../Utils/chatFlow";
 import { getPaymentAnalytics } from "../Utils/starsPayments";
+import { clearPendingModerationEdit } from "../admin/moderationSettings";
 
 // Admin session management (24-hour expiry) - module-level for command handler access
 const ADMIN_SESSIONS = new Map<number, number>();
@@ -431,6 +432,9 @@ export function initAdminActions(bot: ExtraTelegraf) {
         console.log("[ADMIN] Returning to admin menu");
         try {
             await ctx.answerCbQuery();
+            if (ctx.from?.id) {
+                clearPendingModerationEdit(ctx.from.id);
+            }
 
             // Try to edit the existing message first
             try {
@@ -506,6 +510,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         const adminId = ctx.from?.id;
         if (!adminId) return;
+        clearPendingModerationEdit(adminId);
         
         // Set waiting flag
         waitingForBroadcast.delete(adminId);
@@ -787,6 +792,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         const adminId = ctx.from?.id;
         if (!adminId) return;
+        clearPendingModerationEdit(adminId);
         
         // Set waiting flag
         waitingForUserId.delete(adminId);
@@ -1179,7 +1185,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         await safeEditMessageText(ctx, message, {
             parse_mode: "Markdown",
-            reply_markup: premiumUserDetailsKeyboard(userId, backPage)
+            ...premiumUserDetailsKeyboard(userId, backPage)
         });
     });
 
@@ -1240,7 +1246,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         await safeEditMessageText(ctx,
             `➕ *Extend Premium*\n\nUser: \`${userId}\`\n\nSelect extension period:`,
-            { parse_mode: "Markdown", reply_markup: extendPremiumKeyboard(userId, backPage) }
+            { parse_mode: "Markdown", ...extendPremiumKeyboard(userId, backPage) }
         );
     });
 
@@ -1286,7 +1292,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
             `✅ *Premium Extended*\n\nUser: \`${userId}\`\n` +
             `Added: +${days} days\n` +
             `New expiry: ${newExpiryDate}`,
-            { parse_mode: "Markdown", reply_markup: premiumUserDetailsKeyboard(userId, backPage) }
+            { parse_mode: "Markdown", ...premiumUserDetailsKeyboard(userId, backPage) }
         );
     });
 
@@ -1316,7 +1322,10 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         await safeEditMessageText(ctx,
             `❌ *Premium Removed*\n\nUser \`${userId}\` no longer has premium status.`,
-            { parse_mode: "Markdown", reply_markup: backPage !== undefined ? premiumUserDetailsKeyboard(userId, backPage) : premiumUsersBackKeyboard }
+            {
+                parse_mode: "Markdown",
+                ...(backPage !== undefined ? premiumUserDetailsKeyboard(userId, backPage) : premiumUsersBackKeyboard)
+            }
         );
     });
 
@@ -1335,7 +1344,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         if (history.length === 0) {
             await safeEditMessageText(ctx,
                 `📜 *Payment History*\n\nUser: \`${userId}\`\n\nNo payment history found.`,
-                { parse_mode: "Markdown", reply_markup: premiumUserDetailsKeyboard(userId, backPage) }
+                { parse_mode: "Markdown", ...premiumUserDetailsKeyboard(userId, backPage) }
             );
             return;
         }
@@ -1352,7 +1361,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         await safeEditMessageText(ctx, message, {
             parse_mode: "Markdown",
-            reply_markup: premiumUserDetailsKeyboard(userId, backPage)
+            ...premiumUserDetailsKeyboard(userId, backPage)
         });
     });
 
@@ -1592,7 +1601,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         await safeEditMessageText(ctx, message, {
             parse_mode: "Markdown",
-            reply_markup: orderDetailsKeyboard(orderId, backPage)
+            ...orderDetailsKeyboard(orderId, backPage)
         });
     });
 
@@ -1671,7 +1680,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         await safeEditMessageText(ctx, message, {
             parse_mode: "Markdown",
-            reply_markup: orderDetailsKeyboard(orderId)
+            ...orderDetailsKeyboard(orderId)
         });
     });
 
@@ -1719,7 +1728,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         await safeEditMessageText(ctx, message, {
             parse_mode: "Markdown",
-            reply_markup: keyboard
+            ...keyboard
         });
     });
 
@@ -1763,7 +1772,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         await safeEditMessageText(ctx,
             `❌ *Order Marked as Failed*\n\nOrder \`${orderId}\` has been marked as failed.`,
-            { parse_mode: "Markdown", reply_markup: orderDetailsKeyboard(orderId, backPage) }
+            { parse_mode: "Markdown", ...orderDetailsKeyboard(orderId, backPage) }
         );
     });
 

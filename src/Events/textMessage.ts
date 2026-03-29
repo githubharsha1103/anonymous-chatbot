@@ -8,6 +8,7 @@ import { waitingForBroadcast, waitingForUserId } from "../Commands/adminaccess";
 import { showUserDetails } from "../Commands/adminaccess";
 import { waitingForAge } from "../Utils/actionHandler";
 import { getSetupCompleteText, getSetupStepPrompt } from "../Utils/setupFlow";
+import { getPendingModerationEdit, processThresholdEdit } from "../admin/moderationSettings";
 import DOMPurify from 'isomorphic-dompurify';
 import { buildPartnerLeftMessage, exitChatKeyboard } from "../Utils/chatFlow";
 import { handleSuccessfulPaymentMessage } from "../Utils/starsPayments";
@@ -64,6 +65,13 @@ export default {
 
     // Skip commands (messages starting with /)
     if (text?.startsWith("/")) return;
+
+    // Moderation settings numeric input handler
+    const pendingModerationEdit = getPendingModerationEdit(ctx.from.id);
+    if (pendingModerationEdit) {
+      await processThresholdEdit(ctx, (text || "").trim(), pendingModerationEdit);
+      return;
+    }
 
     /* ================================
        ADMIN BROADCAST HANDLER

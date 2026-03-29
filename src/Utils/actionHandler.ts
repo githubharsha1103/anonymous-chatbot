@@ -3,7 +3,7 @@ import * as path from "path";
 import { bot, ExtraTelegraf } from "../index";
 import { Context, Telegraf } from "telegraf";
 import { Markup } from "telegraf";
-import { updateUser, getUser, getReferralCount, banUser, isBanned, createReport, blockUserForUser, getBlockedUsers, unblockUserForUser } from "../storage/db";
+import { updateUser, getUser, getReferralCount, banUser, isBanned, createReport, blockUserForUser, getBlockedUsers, unblockUserForUser, tempBanUser } from "../storage/db";
 import { handleTelegramError } from "./telegramErrorHandler";
 import { isAdmin, ADMINS } from "./adminAuth";
 import { safeAnswerCbQuery as safeAnswerCbQueryShared, safeEditMessageText as safeEditMessageTextShared, getErrorMessage } from "./telegramUi";
@@ -1231,6 +1231,39 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
                 `[AUTO_MODERATION] Invalid threshold configuration: warn=${warnThreshold}, tempBan=${tempBanThreshold}, ban=${banThreshold}. Skipping auto-actions.`
             );
         } else {
+            const currentlyBanned = await isBanned(partnerId);
+
+            if (newReportCount >= banThreshold && !currentlyBanned) {
+                try {
+                    await banUser(partnerId, `Auto-banned for reaching ${newReportCount} reports`);
+                    await ctx.telegram.sendMessage(
+                        partnerId,
+                        `🚫 *Banned*\n\nYou have been banned due to accumulating ${newReportCount} reports.\n\nThis is an automatic action based on community reports.`,
+                        { parse_mode: "Markdown" }
+                    );
+                    console.log(`[AUTO_MODERATION] User ${partnerId} auto-banned for reaching ${newReportCount} reports`);
+                } catch (error) {
+                    console.error(`[AUTO_MODERATION] Failed to ban user ${partnerId}:`, error);
+                }
+            } else if (newReportCount >= tempBanThreshold && !currentlyBanned) {
+                try {
+                    const hours = Math.round(tempBanDurationMs / (1000 * 60 * 60));
+                    await tempBanUser(
+                        partnerId,
+                        tempBanDurationMs,
+                        `Auto temp-banned for reaching ${newReportCount} reports`
+                    );
+                    await ctx.telegram.sendMessage(
+                        partnerId,
+                        `⏱️ *Temporary Ban*\n\nYou have been temporarily banned for ${hours} hours due to ${newReportCount} reports.\n\nThis is an automatic action based on community reports.`,
+                        { parse_mode: "Markdown" }
+                    );
+                    console.log(`[AUTO_MODERATION] User ${partnerId} auto temp-banned for ${hours} hours at ${newReportCount} reports`);
+                } catch (error) {
+                    console.error(`[AUTO_MODERATION] Failed to temp-ban user ${partnerId}:`, error);
+                }
+            }
+
             // Auto warn when reaching warn threshold
             if (newReportCount === warnThreshold) {
                 const warningText =
@@ -1244,38 +1277,6 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
                     await ctx.telegram.sendMessage(partnerId, warningText, { parse_mode: "Markdown" });
                 } catch (error) {
                     console.error(`[AUTO_WARN] Failed to send warning to user ${partnerId}:`, error);
-                }
-            }
-            
-            // Auto temp-ban when reaching temp-ban threshold
-            if (newReportCount === tempBanThreshold) {
-                try {
-                    // Add user to temp ban
-                    await blockUserForUser(partnerId, tempBanDurationMs);
-                    const hours = Math.round(tempBanDurationMs / (1000 * 60 * 60));
-                    await ctx.telegram.sendMessage(
-                        partnerId,
-                        `⏱️ *Temporary Ban*\n\nYou have been temporarily banned for ${hours} hours due to ${tempBanThreshold} reports.\n\nThis is an automatic action based on community reports.`,
-                        { parse_mode: "Markdown" }
-                    );
-                    console.log(`[AUTO_MODERATION] User ${partnerId} auto temp-banned for ${hours} hours`);
-                } catch (error) {
-                    console.error(`[AUTO_MODERATION] Failed to temp-ban user ${partnerId}:`, error);
-                }
-            }
-            
-            // Auto ban when reaching ban threshold
-            if (newReportCount === banThreshold) {
-                try {
-                    await banUser(partnerId, `Auto-banned for reaching ${banThreshold} reports`);
-                    await ctx.telegram.sendMessage(
-                        partnerId,
-                        `🚫 *Banned*\n\nYou have been banned due to accumulating ${banThreshold} reports.\n\nThis is an automatic action based on community reports.`,
-                        { parse_mode: "Markdown" }
-                    );
-                    console.log(`[AUTO_MODERATION] User ${partnerId} auto-banned for reaching ${banThreshold} reports`);
-                } catch (error) {
-                    console.error(`[AUTO_MODERATION] Failed to ban user ${partnerId}:`, error);
                 }
             }
         }
@@ -1296,7 +1297,7 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
             }
         }
     }
-    
+
     // Notify the reporter
     await safeEditMessageText(ctx, "Thank you for reporting! 🙏", backKeyboard);
     
@@ -1632,10 +1633,3 @@ bot.action("RATE_OKAY", async (ctx) => {
         await updateUser(partnerId, { chatRating: 3 });
     }
 });
-
-
-
-
-
-
-

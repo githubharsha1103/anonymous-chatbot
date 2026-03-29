@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
-import { bot } from "../index";
 import { Context, Telegraf } from "telegraf";
+import type { ExtraTelegraf } from "../index";
 import { handleTelegramError } from "./telegramErrorHandler";
 import { isAdmin } from "./adminAuth";
 
@@ -12,9 +12,12 @@ export interface Command {
   disabled?: boolean;
   adminOnly?: boolean;
 }
-export async function loadCommands() {
+export async function loadCommands(bot: ExtraTelegraf) {
   try {
-    const commandsDir = path.join(process.cwd(), "dist/Commands");
+    let commandsDir = path.join(process.cwd(), "dist/Commands");
+    if (process.env.NODE_ENV === "test" || !fs.existsSync(commandsDir)) {
+      commandsDir = path.join(process.cwd(), "src/Commands");
+    }
     const Files: string[] = [];
     
     // Recursively get all .js files in Commands directory
@@ -25,7 +28,7 @@ export async function loadCommands() {
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           getAllFiles(fullPath);
-        } else if (entry.isFile() && entry.name.endsWith('.js')) {
+        } else if (entry.isFile() && (entry.name.endsWith('.js') || entry.name.endsWith('.ts'))) {
           Files.push(fullPath);
         }
       }
@@ -33,17 +36,17 @@ export async function loadCommands() {
     getAllFiles(commandsDir);
 
     for (const file of Files) {
-      // Ensure absolute path for require
-      const absolutePath = path.resolve(file);
-      const commandFile = require(absolutePath).default;
-      const command = commandFile;
-
-      if (!command || command.disabled || !command.name) {
-        continue;
-      }
-
-      const commandName = command.name;
       try {
+        // Ensure absolute path for require
+        const absolutePath = path.resolve(file);
+        const commandFile = require(absolutePath).default;
+        const command = commandFile as Command | undefined;
+
+        if (!command || command.disabled || !command.name) {
+          continue;
+        }
+
+        const commandName = command.name;
         bot.command(commandName, async (ctx: Context) => {
           if (command.adminOnly) {
             const userId = ctx.from?.id;

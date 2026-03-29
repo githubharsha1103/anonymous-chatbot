@@ -69,7 +69,7 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     // Queue remove callback (regex pattern)
     bot.action(/^ADMIN_QUEUE_REMOVE_(\d+)$/, async (ctx: Context) => {
         try {
-            const match = (ctx.callbackQuery as unknown as { match?: RegExpMatchArray })?.match;
+            const match = (ctx as unknown as { match?: RegExpMatchArray }).match;
             if (!match) return;
             const userId = parseInt(match[1], 10);
             
@@ -90,7 +90,7 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     // Queue connect callback - connect admin with queued user
     bot.action(/^ADMIN_QUEUE_CONNECT_(\d+)$/, async (ctx: Context) => {
         try {
-            const match = (ctx.callbackQuery as unknown as { match?: RegExpMatchArray })?.match;
+            const match = (ctx as unknown as { match?: RegExpMatchArray }).match;
             if (!match) return;
             const userId = parseInt(match[1], 10);
             
@@ -111,7 +111,7 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
     // Queue connect confirmation callback
     bot.action(/^ADMIN_QUEUE_CONNECT_CONFIRM_(\d+)$/, async (ctx: Context) => {
         try {
-            const match = (ctx.callbackQuery as unknown as { match?: RegExpMatchArray })?.match;
+            const match = (ctx as unknown as { match?: RegExpMatchArray }).match;
             if (!match) return;
             const userId = parseInt(match[1], 10);
             

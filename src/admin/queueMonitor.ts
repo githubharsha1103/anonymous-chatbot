@@ -173,30 +173,13 @@ export async function safeRemoveFromQueue(
         return { success: false, message: "User not found in queue" };
     }
     
-    // Acquire mutex for thread-safe operation
-    let locked = false;
     try {
-        await bot.queueMutex.acquire();
-        locked = true;
-        
-        // Double-check after acquiring lock
-        const stillInQueue = bot.queueSet.has(userId) || bot.premiumQueueSet.has(userId);
-        if (!stillInQueue) {
+        // Use core bot queue methods so all queue indexes/maps stay consistent.
+        const removedFromWaiting = await bot.removeFromQueue(userId);
+        const removedFromPremium = await bot.removeFromPremiumQueue(userId);
+        const removed = removedFromWaiting || removedFromPremium;
+        if (!removed) {
             return { success: false, message: "User already removed from queue" };
-        }
-        
-        // Remove from waiting queue
-        const waitingIdx = bot.waitingQueue.findIndex(u => u.id === userId);
-        if (waitingIdx !== -1) {
-            bot.waitingQueue.splice(waitingIdx, 1);
-            bot.queueSet.delete(userId);
-        }
-        
-        // Remove from premium queue
-        const premiumIdx = bot.premiumQueue.findIndex(u => u.id === userId);
-        if (premiumIdx !== -1) {
-            bot.premiumQueue.splice(premiumIdx, 1);
-            bot.premiumQueueSet.delete(userId);
         }
         
         // Verify user is removed from all queue structures
@@ -214,10 +197,6 @@ export async function safeRemoveFromQueue(
     } catch (error) {
         console.error("[queueMonitor] Failed to remove user:", getErrorMessage(error));
         return { success: false, message: "Failed to remove user from queue" };
-    } finally {
-        if (locked) {
-            bot.queueMutex.release();
-        }
     }
 }
 
@@ -267,13 +246,8 @@ export async function connectAdminToUser(
         };
     }
     
-    // Acquire mutex for thread-safe operation
-    let locked = false;
     try {
-        await bot.queueMutex.acquire();
-        locked = true;
-        
-        console.log(`[queueMonitor] Acquired mutex, attempting atomic lock for user ${userId}`);
+        console.log(`[queueMonitor] Attempting atomic lock for user ${userId}`);
         
         // RACE CONDITION PROTECTION: Try to atomically lock user for connection
         const lockAcquired = await tryLockUserForConnection(userId);
@@ -381,10 +355,6 @@ export async function connectAdminToUser(
             console.error("[queueMonitor] Rollback failed:", getErrorMessage(rollbackError));
         }
         return { success: false, message: "Failed to connect to user" };
-    } finally {
-        if (locked) {
-            bot.queueMutex.release();
-        }
     }
 }
 

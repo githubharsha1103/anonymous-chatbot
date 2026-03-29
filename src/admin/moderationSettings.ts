@@ -46,6 +46,7 @@ const DEFAULT_MODERATION_SETTINGS: ModerationSettings = {
 // In-memory storage with database persistence
 let cachedSettings: ModerationSettings = { ...DEFAULT_MODERATION_SETTINGS };
 let settingsLoaded = false;
+const pendingEdits = new Map<number, "warn" | "tempban" | "ban" | "duration">();
 
 // ==================== Database Functions ====================
 
@@ -211,6 +212,18 @@ export function getTempBanDurationMs(): number {
     return cachedSettings.tempban_duration_hours * 60 * 60 * 1000;
 }
 
+export function setPendingModerationEdit(adminId: number, type: "warn" | "tempban" | "ban" | "duration"): void {
+    pendingEdits.set(adminId, type);
+}
+
+export function getPendingModerationEdit(adminId: number): "warn" | "tempban" | "ban" | "duration" | null {
+    return pendingEdits.get(adminId) ?? null;
+}
+
+export function clearPendingModerationEdit(adminId: number): void {
+    pendingEdits.delete(adminId);
+}
+
 /**
  * Validate settings with rule: Warn < TempBan < Ban
  */
@@ -251,6 +264,8 @@ export async function updateModerationSettings(
     _oldSettings?: ModerationSettings
 ): Promise<{ success: boolean; message: string }> {
     try {
+        const previousSettings = { ...cachedSettings };
+
         // Validate warn threshold: 1-20
         if (settings.auto_warn_reports !== undefined) {
             if (settings.auto_warn_reports < 1 || settings.auto_warn_reports > 20) {
@@ -302,7 +317,7 @@ export async function updateModerationSettings(
         await saveModerationSettingsToDb();
         
         // Log the changes
-        logSettingsChange(adminId, cachedSettings);
+        logSettingsChange(adminId, previousSettings, cachedSettings);
         
         return { success: true, message: "Settings updated successfully" };
     } catch (error) {
@@ -314,9 +329,7 @@ export async function updateModerationSettings(
 /**
  * Log settings changes.
  */
-function logSettingsChange(adminId: number, newSettings: ModerationSettings): void {
-    const previousSettings = { ...cachedSettings };
-    
+function logSettingsChange(adminId: number, previousSettings: ModerationSettings, newSettings: ModerationSettings): void {
     const changes: string[] = [];
     
     if (previousSettings.auto_warn_reports !== newSettings.auto_warn_reports) {
@@ -394,6 +407,7 @@ export async function showModerationSettings(ctx: Context): Promise<void> {
     
     const adminId = ctx.from?.id;
     if (!adminId) return;
+    clearPendingModerationEdit(adminId);
     
     try {
         await safeAnswerCbQuery(ctx);
@@ -526,9 +540,12 @@ export async function handleEditWarnThreshold(ctx: Context): Promise<void> {
         await unauthorizedResponse(ctx, "Unauthorized");
         return;
     }
+    const adminId = ctx.from?.id;
+    if (!adminId) return;
     
     try {
         await safeAnswerCbQuery(ctx);
+        setPendingModerationEdit(adminId, "warn");
         
         const settings = getModerationSettings();
         
@@ -558,9 +575,12 @@ export async function handleEditTempBanThreshold(ctx: Context): Promise<void> {
         await unauthorizedResponse(ctx, "Unauthorized");
         return;
     }
+    const adminId = ctx.from?.id;
+    if (!adminId) return;
     
     try {
         await safeAnswerCbQuery(ctx);
+        setPendingModerationEdit(adminId, "tempban");
         
         const settings = getModerationSettings();
         
@@ -590,9 +610,12 @@ export async function handleEditBanThreshold(ctx: Context): Promise<void> {
         await unauthorizedResponse(ctx, "Unauthorized");
         return;
     }
+    const adminId = ctx.from?.id;
+    if (!adminId) return;
     
     try {
         await safeAnswerCbQuery(ctx);
+        setPendingModerationEdit(adminId, "ban");
         
         const settings = getModerationSettings();
         
@@ -622,9 +645,12 @@ export async function handleEditDuration(ctx: Context): Promise<void> {
         await unauthorizedResponse(ctx, "Unauthorized");
         return;
     }
+    const adminId = ctx.from?.id;
+    if (!adminId) return;
     
     try {
         await safeAnswerCbQuery(ctx);
+        setPendingModerationEdit(adminId, "duration");
         
         const settings = getModerationSettings();
         
@@ -654,21 +680,21 @@ export async function processThresholdEdit(
     ctx: Context,
     value: string,
     type: "warn" | "tempban" | "ban" | "duration"
-): Promise<void> {
+): Promise<boolean> {
     if (!isAdminContext(ctx)) {
         await unauthorizedResponse(ctx, "Unauthorized");
-        return;
+        return false;
     }
     
     const adminId = ctx.from?.id;
-    if (!adminId) return;
+    if (!adminId) return false;
     
     const numValue = parseInt(value, 10);
     
     // Validate that it's a valid integer
     if (isNaN(numValue) || String(numValue) !== value.trim()) {
-        await ctx.reply("❌ Invalid number. Please enter a whole number.");
-        return;
+        await ctx.reply("Invalid number. Please enter a whole number.");
+        return false;
     }
     
     let result: { success: boolean; message: string };
@@ -687,15 +713,18 @@ export async function processThresholdEdit(
             result = await updateModerationSettings(adminId, { tempban_duration_hours: numValue });
             break;
         default:
-            await ctx.reply("❌ Invalid edit type.");
-            return;
+            await ctx.reply("Invalid edit type.");
+            return false;
     }
     
     if (result.success) {
+        clearPendingModerationEdit(adminId);
         await ctx.reply(`✅ ${result.message}`);
         // Show the settings panel
         await showModerationSettings(ctx);
-    } else {
-        await ctx.reply(`❌ ${result.message}`);
+        return true;
     }
+
+    await ctx.reply(`❌ ${result.message}`);
+    return false;
 }

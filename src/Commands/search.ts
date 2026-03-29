@@ -12,7 +12,6 @@ import { onMatchFound, startSearch, sendConnectionMessage } from "../Utils/actio
 type LockResult = 
   | { type: "already_in_chat" }
   | { type: "already_in_queue" }
-  | { type: "duplicate_request" }
   | { type: "waiting" }
   | { type: "matched"; matchId: number; userId: number; preference: string; gender: string; isPremium: boolean; blockedUsers: number[] };
 
@@ -176,10 +175,6 @@ export default {
       return ctx.reply("⚠️ You are already in the queue!");
     }
 
-    if (result.type === "duplicate_request") {
-      return ctx.reply("⏳ Your search request is already being processed. Please wait.");
-    }
-
     if (result.type === "waiting") {
       // User added to queue - use startSearch function for animation
       await startSearch(ctx, bot, userId);
@@ -255,3 +250,4 @@ export default {
     }
   }
 };
+

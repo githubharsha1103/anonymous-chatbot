@@ -1150,19 +1150,28 @@ bot.use(async (ctx, next) => {
   }
 });
 
+/* ---------------- GLOBAL BAN CHECK ---------------- */
+bot.use(async (ctx, next) => {
+  if (ctx.from && await isBanned(ctx.from.id)) {
+        await ctx.reply("\u{1F6AB} You are banned.");
+    return;
+  }
+  return next();
+});
+
 /* ---------------- LOADERS ---------------- */
 import { loadCommands } from "./Utils/commandHandler";
 import { loadEvents } from "./Utils/eventHandler";
 import { loadActions } from "./Utils/actionHandler";
 
-loadCommands();
-loadEvents();
-loadActions();
-
 /* ---------------- ADMIN PANEL ---------------- */
 import { initAdminActions, startSessionCleanup } from "./Commands/adminaccess";
 initAdminActions(bot);
 startSessionCleanup();
+
+loadCommands(bot);
+loadEvents(bot);
+loadActions();
 
 /* ---------------- RE-ENGAGEMENT ---------------- */
 import { initReengagementActions } from "./Commands/reengagement";
@@ -1188,15 +1197,6 @@ loadModerationSettings().catch(err => console.error("[INIT] Failed to load moder
 
 /* ---------------- ADMIN CHECK ---------------- */
 // Admin check is now handled in adminCommands.ts
-
-/* ---------------- GLOBAL BAN CHECK ---------------- */
-bot.use(async (ctx, next) => {
-  if (ctx.from && await isBanned(ctx.from.id)) {
-    await ctx.reply("🚫 You are banned.");
-    return;
-  }
-  return next();
-});
 
 /* ---------------- GENDER COMMAND ---------------- */
 bot.command("setgender", async (ctx) => {
@@ -1260,3 +1260,4 @@ bot.messageMap.clear();
 bot.messageCountMap.clear();
 
 console.log("[INFO] - Bot startup complete. All state cleared.");
+
