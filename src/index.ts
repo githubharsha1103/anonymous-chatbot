@@ -58,6 +58,9 @@ export const RATE_LIMIT_MESSAGE = "⏳ Please slow down! Wait a moment before tr
 let lastEventLoopCheck = Date.now();
 const EVENT_LOOP_CHECK_MS = 1000;
 const LAG_THRESHOLD_MS = 300; // Flag as busy if lag exceeds 300ms
+const BUSY_CLEAR_THRESHOLD_MS = 250; // Recover when lag is below this threshold
+const BUSY_MAX_STICKY_MS = 15000; // Force clear after 15s to avoid permanent busy state
+let busySince = 0;
 
 if (process.env.NODE_ENV !== "test") {
   setInterval(() => {
@@ -69,9 +72,11 @@ if (process.env.NODE_ENV !== "test") {
 
       if (lag > LAG_THRESHOLD_MS && !isSystemBusy) {
         isSystemBusy = true;
+        busySince = now;
         console.warn(`[PERF] High event loop lag detected: ${lag}ms, system marked busy`);
-      } else if (lag < 100 && isSystemBusy) {
+      } else if (isSystemBusy && (lag < BUSY_CLEAR_THRESHOLD_MS || (busySince > 0 && now - busySince > BUSY_MAX_STICKY_MS))) {
         isSystemBusy = false;
+        busySince = 0;
         console.log("[PERF] Event loop recovered, system marked ready");
       }
 
@@ -238,7 +243,7 @@ export class ExtraTelegraf extends Telegraf<Context> {
   MAX_PREMIUM_QUEUE_SIZE = ExtraTelegraf.parseEnvInt(process.env.MAX_PREMIUM_QUEUE_SIZE, 5000);
   RATE_LIMIT_WINDOW = ExtraTelegraf.parseEnvInt(process.env.RATE_LIMIT_WINDOW_MS, 1000);
 
-  chatMutex = new Mutex();
+  chatMutex = new Mutex(ExtraTelegraf.parseEnvInt(process.env.CHAT_LOCK_TIMEOUT_MS, 25000));
   queueMutex = new Mutex();
   matchMutex = new Mutex();
 
@@ -541,6 +546,7 @@ export class ExtraTelegraf extends Telegraf<Context> {
         
         this.premiumQueue.push(user);
         this.premiumQueueSet.add(user.id); // O(1) insertion
+        this.addToPreferenceMap(user, true);
         return true;
       }
       
@@ -569,6 +575,19 @@ export class ExtraTelegraf extends Telegraf<Context> {
     map.get(key)!.push(user.id);
   }
 
+  private rebuildPreferenceMaps(): void {
+    this.waitingQueueByPreference.clear();
+    this.premiumQueueByPreference.clear();
+
+    for (const user of this.waitingQueue) {
+      this.addToPreferenceMap(user, false);
+    }
+
+    for (const user of this.premiumQueue) {
+      this.addToPreferenceMap(user, true);
+    }
+  }
+
   private removeFromPreferenceMap(userId: number, isPremium: boolean): void {
     const map = isPremium ? this.premiumQueueByPreference : this.waitingQueueByPreference;
 
@@ -582,6 +601,28 @@ export class ExtraTelegraf extends Telegraf<Context> {
         break;
       }
     }
+  }
+
+  private removeFromQueueUnlocked(userId: number): boolean {
+    if (!this.queueSet.has(userId)) return false;
+    const idx = this.waitingQueue.findIndex(w => w.id === userId);
+    if (idx === -1) {
+      this.queueSet.delete(userId);
+      return false;
+    }
+    this.waitingQueue.splice(idx, 1);
+    this.queueSet.delete(userId);
+    this.removeFromPreferenceMap(userId, false);
+    return true;
+  }
+
+  private removeFromPremiumQueueUnlocked(userId: number): boolean {
+    const idx = this.premiumQueue.findIndex(w => w.id === userId);
+    if (idx === -1) return false;
+    this.premiumQueue.splice(idx, 1);
+    this.premiumQueueSet.delete(userId);
+    this.removeFromPreferenceMap(userId, true);
+    return true;
   }
 
   // Helper: Check if two users can match based on premium status and preferences
@@ -689,8 +730,8 @@ export class ExtraTelegraf extends Telegraf<Context> {
         partnerId = this.findMatchInPreferenceMap(matchData, true, userId);
         if (partnerId) {
           // Remove both users from premium queue
-          this.removeFromPremiumQueue(userId);
-          this.removeFromPremiumQueue(partnerId);
+          this.removeFromPremiumQueueUnlocked(userId);
+          this.removeFromPremiumQueueUnlocked(partnerId);
 
           this.runningChats.set(partnerId, userId);
           this.runningChats.set(userId, partnerId);
@@ -704,8 +745,8 @@ export class ExtraTelegraf extends Telegraf<Context> {
         partnerId = this.findMatchInPreferenceMap(matchData, false);
         if (partnerId) {
           // Remove from respective queues
-          this.removeFromPremiumQueue(userId);
-          this.removeFromQueue(partnerId);
+          this.removeFromPremiumQueueUnlocked(userId);
+          this.removeFromQueueUnlocked(partnerId);
 
           this.runningChats.set(partnerId, userId);
           this.runningChats.set(userId, partnerId);
@@ -719,8 +760,8 @@ export class ExtraTelegraf extends Telegraf<Context> {
         partnerId = this.findMatchInPreferenceMap(matchData, false);
         if (partnerId) {
           // Remove from respective queues
-          this.removeFromPremiumQueue(userId);
-          this.removeFromQueue(partnerId);
+          this.removeFromPremiumQueueUnlocked(userId);
+          this.removeFromQueueUnlocked(partnerId);
 
           this.runningChats.set(partnerId, userId);
           this.runningChats.set(userId, partnerId);
@@ -733,8 +774,8 @@ export class ExtraTelegraf extends Telegraf<Context> {
       partnerId = this.findMatchInPreferenceMap(matchData, false, userId);
       if (partnerId) {
         // Remove both from waiting queue
-        this.removeFromQueue(userId);
-        this.removeFromQueue(partnerId);
+        this.removeFromQueueUnlocked(userId);
+        this.removeFromQueueUnlocked(partnerId);
 
         this.runningChats.set(partnerId, userId);
         this.runningChats.set(userId, partnerId);
@@ -753,21 +794,7 @@ export class ExtraTelegraf extends Telegraf<Context> {
   async removeFromQueue(userId: number): Promise<boolean> {
     await this.queueMutex.acquire();
     try {
-      // O(1) check using Set first
-      if (!this.queueSet.has(userId)) return false;
-      
-      const idx = this.waitingQueue.findIndex(w => w.id === userId);
-      if (idx === -1) {
-        // Fix inconsistency - user in Set but not in array
-        this.queueSet.delete(userId);
-        return false;
-      }
-      
-      this.waitingQueue.splice(idx, 1);
-      this.queueSet.delete(userId); // O(1) removal
-      // OPTIMIZED: Remove from preference map
-      this.removeFromPreferenceMap(userId, false);
-      return true;
+      return this.removeFromQueueUnlocked(userId);
     } finally {
       this.queueMutex.release();
     }
@@ -782,20 +809,35 @@ export class ExtraTelegraf extends Telegraf<Context> {
 
   // Synchronize queue state - ensure array and Set are consistent
   syncQueueState(): void {
-    const seen = new Set<number>();
-    const normalizedQueue: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }[] = [];
+    const seenWaiting = new Set<number>();
+    const normalizedWaiting: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }[] = [];
 
     for (const queuedUser of this.waitingQueue) {
-      if (!queuedUser || seen.has(queuedUser.id) || this.runningChats.has(queuedUser.id)) {
+      if (!queuedUser || seenWaiting.has(queuedUser.id) || this.runningChats.has(queuedUser.id)) {
         continue;
       }
 
-      seen.add(queuedUser.id);
-      normalizedQueue.push(queuedUser);
+      seenWaiting.add(queuedUser.id);
+      normalizedWaiting.push(queuedUser);
     }
 
-    this.waitingQueue = normalizedQueue;
-    this.queueSet = seen;
+    const seenPremium = new Set<number>();
+    const normalizedPremium: { id: number; preference: string; gender: string; isPremium: boolean; blockedUsers?: number[] }[] = [];
+
+    for (const queuedUser of this.premiumQueue) {
+      if (!queuedUser || seenPremium.has(queuedUser.id) || this.runningChats.has(queuedUser.id)) {
+        continue;
+      }
+
+      seenPremium.add(queuedUser.id);
+      normalizedPremium.push(queuedUser);
+    }
+
+    this.waitingQueue = normalizedWaiting;
+    this.premiumQueue = normalizedPremium;
+    this.queueSet = seenWaiting;
+    this.premiumQueueSet = seenPremium;
+    this.rebuildPreferenceMaps();
   }
 
   // Trim waiting queue to specified size (removes oldest entries)
@@ -809,6 +851,8 @@ export class ExtraTelegraf extends Telegraf<Context> {
     for (const user of removedUsers) {
       this.queueSet.delete(user.id);
     }
+
+    this.rebuildPreferenceMaps();
 
     return toRemove;
   }
@@ -850,14 +894,7 @@ export class ExtraTelegraf extends Telegraf<Context> {
   async removeFromPremiumQueue(userId: number): Promise<boolean> {
     await this.queueMutex.acquire();
     try {
-      const idx = this.premiumQueue.findIndex(w => w.id === userId);
-      if (idx === -1) return false;
-      
-      this.premiumQueue.splice(idx, 1);
-      this.premiumQueueSet.delete(userId);
-      // OPTIMIZED: Remove from preference map
-      this.removeFromPreferenceMap(userId, true);
-      return true;
+      return this.removeFromPremiumQueueUnlocked(userId);
     } finally {
       this.queueMutex.release();
     }

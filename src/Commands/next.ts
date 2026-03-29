@@ -13,14 +13,19 @@ import { startSearch } from "../Utils/actionHandler";
 import { isPremium as checkPremiumStatus } from "../Utils/starsPayments";
 import { getIsBroadcasting, getIsSystemBusy, checkUserRateLimit, RATE_LIMIT_MESSAGE } from "../index";
 
-// Type for queue users (kept for reference)
-// type WaitingUser = {
-//   id: number;
-//   preference: string;
-//   gender: string;
-//   isPremium: boolean;
-//   blockedUsers?: number[];
-// };
+type NextLockResult =
+  | { type: "already_in_queue"; hadChat: boolean; previousPartner: number | null }
+  | { type: "waiting"; hadChat: boolean; previousPartner: number | null }
+  | {
+      type: "matched";
+      hadChat: boolean;
+      previousPartner: number | null;
+      matchId: number;
+      preference: string;
+      gender: string;
+      isPremium: boolean;
+      blockedUsers: number[];
+    };
 
 export default {
   name: "next",
@@ -28,34 +33,30 @@ export default {
   execute: async (ctx: Context, bot: ExtraTelegraf) => {
     const userId = ctx.from?.id as number;
 
-    // Check system load - graceful degradation
     if (getIsSystemBusy()) {
-      return ctx.reply("⚠️ High server load. Please try again in a few seconds.");
+      return ctx.reply("High server load. Please try again in a few seconds.");
     }
 
-    // Check user rate limit
     if (checkUserRateLimit(userId)) {
       return ctx.reply(RATE_LIMIT_MESSAGE);
     }
 
-    // Check if broadcast is in progress - block matching during broadcast
     if (getIsBroadcasting()) {
-      return ctx.reply("⚠️ Server busy due to update. Please try again in a few seconds.");
+      return ctx.reply("Server busy due to update. Please try again in a few seconds.");
     }
 
     if (bot.isRateLimited(userId)) {
-      return ctx.reply("⏳ Please wait a moment before trying again.");
+      return ctx.reply("Please wait a moment before trying again.");
     }
 
-    // Check for duplicate request
     if (bot.hasPendingLockRequest(userId)) {
-      return ctx.reply("⏳ Your request is already being processed. Please wait.");
+      return ctx.reply("Your request is already being processed. Please wait.");
     }
 
     bot.syncQueueState();
 
     if (bot.isQueueFull()) {
-      return ctx.reply("⏳ Queue is full. Please try again later.");
+      return ctx.reply("Queue is full. Please try again later.");
     }
 
     const MAX_QUEUE_SOFT_LIMIT = 9500;
@@ -64,42 +65,24 @@ export default {
       console.log(`[QUEUE] - Queue size limit enforced, removed ${removeCount} oldest users`);
     }
 
-    // Use safe lock wrapper
+    const user = await getUser(userId);
+    const preference = user.preference || "any";
+    const gender = user.gender || "any";
+    const isPremium = user.premium || false;
+    const myBlockedUsers = user.blockedUsers || [];
+
     const lockResult = await bot.withChatStateLockSafe(
-      async () => {
-        const user = await getUser(userId);
-        const gender = user.gender || "any";
+      async (): Promise<NextLockResult> => {
+        const hadChat = bot.runningChats.has(userId);
+        const previousPartner = hadChat ? bot.getPartner(userId) : null;
 
-        if (bot.runningChats.has(userId)) {
-          const partner = bot.getPartner(userId);
-          await clearChatRuntime(bot, userId, partner);
-
-          if (partner) {
-            await updateUser(userId, { reportingPartner: partner, chatStartTime: null });
-            await updateUser(partner, { reportingPartner: userId, chatStartTime: null });
-          }
-
-          const notifySent = partner
-            ? await sendMessageWithRetry(bot, partner, buildPartnerLeftMessage(), exitChatKeyboard)
-            : false;
-
-          if (!notifySent && partner) {
-            await cleanupBlockedUser(bot, partner);
-            await endChatDueToError(bot, userId, partner);
-            return ctx.reply("⏳ Partner left the chat");
-          }
-
-          await ctx.reply(buildSelfSkippedMessage(), exitChatKeyboard);
+        if (hadChat) {
+          await clearChatRuntime(bot, userId, previousPartner);
         }
 
         await bot.removeFromQueue(userId);
 
-        const preference = user.preference || "any";
-        const isPremium = user.premium || false;
-        const myBlockedUsers = user.blockedUsers || [];
-
-        // Use optimized O(1) matching via preference maps
-        const matchResult = await bot.matchFromQueue(userId, {
+        let matchResult = await bot.matchFromQueue(userId, {
           id: userId,
           preference,
           gender,
@@ -107,8 +90,34 @@ export default {
           blockedUsers: myBlockedUsers
         });
 
+        if (matchResult.matched && matchResult.partnerId) {
+          const blockedByLatestState = await areUsersMutuallyBlocked(userId, matchResult.partnerId);
+          if (blockedByLatestState) {
+            // Roll back tentative chat state created by matchFromQueue
+            bot.runningChats.delete(userId);
+            bot.runningChats.delete(matchResult.partnerId);
+
+            // Re-queue partner so they are not dropped from matchmaking
+            const partnerUser = await getUser(matchResult.partnerId);
+            await bot.addToQueueAtomic({
+              id: matchResult.partnerId,
+              preference: partnerUser.preference || "any",
+              gender: partnerUser.gender || "any",
+              isPremium: partnerUser.premium || false,
+              blockedUsers: partnerUser.blockedUsers || []
+            });
+
+            matchResult = await bot.matchFromQueue(userId, {
+              id: userId,
+              preference,
+              gender,
+              isPremium,
+              blockedUsers: [...myBlockedUsers, matchResult.partnerId]
+            });
+          }
+        }
+
         if (!matchResult.matched || !matchResult.partnerId) {
-          // No match found - add to queue
           const added = await bot.addToQueueAtomic({
             id: userId,
             preference,
@@ -117,85 +126,24 @@ export default {
             blockedUsers: myBlockedUsers
           });
           if (!added) {
-            return ctx.reply("⚠️ You are already in the queue!");
+            return { type: "already_in_queue", hadChat, previousPartner };
           }
-          // User added to queue - use startSearch for animated UI
-          // (No need to handle blocked case - user already sees search UI if they block)
-          return await startSearch(ctx, bot, userId);
+          return { type: "waiting", hadChat, previousPartner };
         }
 
-        const matchId = matchResult.partnerId;
-
-        // Check mutual blocking - if blocked, don't match with this user
-        const blockedByLatestState = await areUsersMutuallyBlocked(userId, matchId);
-        if (blockedByLatestState) {
-          // Remove the match from queue and try to find another
-          await bot.removeFromQueue(matchId);
-          // Try to find another match
-          const retryResult = await bot.matchFromQueue(userId, {
-            id: userId,
-            preference,
-            gender,
-            isPremium,
-            blockedUsers: [...myBlockedUsers, matchId] // Add blocked user to list
-          });
-
-          if (!retryResult.matched || !retryResult.partnerId) {
-            // Put user back in queue
-            const added = await bot.addToQueueAtomic({
-              id: userId,
-              preference,
-              gender,
-              isPremium,
-              blockedUsers: myBlockedUsers
-            });
-            if (!added) {
-              return ctx.reply("⚠️ You are already in the queue!");
-            }
-            // User re-added to queue - use startSearch for animated UI
-            return await startSearch(ctx, bot, userId);
-          }
-        }
-
-        const chatStartTime = Date.now();
-        await updateUser(userId, { lastPartner: matchId, chatStartTime });
-        await updateUser(matchId, { lastPartner: userId, chatStartTime });
-
-        const matchUser = await getUser(matchId);
-        bot.incrementChatCount();
-
-        const userPartnerInfo = buildPartnerMatchMessage(isPremium, matchUser);
-        const matchPartnerInfo = buildPartnerMatchMessage(checkPremiumStatus(user), user);
-
-        const matchSent = await sendMessageWithRetry(bot, matchId, matchPartnerInfo);
-        if (!matchSent) {
-          const partnerStillThere = bot.runningChats.has(matchId);
-          await endChatDueToError(bot, userId, matchId);
-
-          if (partnerStillThere) {
-            const refreshedUser = await getUser(userId);
-            const requeued = await bot.addToQueueAtomic({
-              id: userId,
-              preference,
-              gender: refreshedUser.gender || "any",
-              isPremium,
-              blockedUsers: refreshedUser.blockedUsers || []
-            });
-            if (!requeued) {
-              return ctx.reply("⏳ Temporary connection issue. Please try /next again.");
-            }
-
-            // User re-added to queue - use startSearch for animated UI
-            return await startSearch(ctx, bot, userId);
-          }
-
-          return ctx.reply("⏳ Could not connect to partner. They may have left or restricted the bot.");
-        }
-
-        return ctx.reply(userPartnerInfo);
+        return {
+          type: "matched",
+          hadChat,
+          previousPartner,
+          matchId: matchResult.partnerId,
+          preference,
+          gender,
+          isPremium,
+          blockedUsers: myBlockedUsers
+        };
       },
       userId,
-      "⚠️ Server busy, please try again in a few seconds"
+      "Server busy, please try again in a few seconds"
     );
 
     if (!lockResult.success) {
@@ -203,6 +151,68 @@ export default {
       return ctx.reply(lockResult.error);
     }
 
-    return lockResult.result;
+    const result = lockResult.result;
+
+    if (result.hadChat && result.previousPartner) {
+      await updateUser(userId, { reportingPartner: result.previousPartner, chatStartTime: null });
+      await updateUser(result.previousPartner, { reportingPartner: userId, chatStartTime: null });
+
+      const notifySent = await sendMessageWithRetry(
+        bot,
+        result.previousPartner,
+        buildPartnerLeftMessage(),
+        exitChatKeyboard
+      );
+
+      if (!notifySent) {
+        await cleanupBlockedUser(bot, result.previousPartner);
+      }
+
+      await ctx.reply(buildSelfSkippedMessage(), exitChatKeyboard);
+    }
+
+    if (result.type === "already_in_queue") {
+      return ctx.reply("You are already in the queue!");
+    }
+
+    if (result.type === "waiting") {
+      return startSearch(ctx, bot, userId);
+    }
+
+    const chatStartTime = Date.now();
+    await updateUser(userId, { lastPartner: result.matchId, chatStartTime });
+    await updateUser(result.matchId, { lastPartner: userId, chatStartTime });
+
+    const matchUser = await getUser(result.matchId);
+    bot.incrementChatCount();
+
+    const userPartnerInfo = buildPartnerMatchMessage(result.isPremium, matchUser);
+    const matchPartnerInfo = buildPartnerMatchMessage(checkPremiumStatus(user), user);
+
+    const matchSent = await sendMessageWithRetry(bot, result.matchId, matchPartnerInfo);
+    if (!matchSent) {
+      const partnerStillThere = bot.runningChats.has(result.matchId);
+      await endChatDueToError(bot, userId, result.matchId);
+
+      if (partnerStillThere) {
+        const refreshedUser = await getUser(userId);
+        const requeued = await bot.addToQueueAtomic({
+          id: userId,
+          preference: result.preference,
+          gender: refreshedUser.gender || "any",
+          isPremium: result.isPremium,
+          blockedUsers: refreshedUser.blockedUsers || []
+        });
+        if (!requeued) {
+          return ctx.reply("Temporary connection issue. Please try /next again.");
+        }
+
+        return startSearch(ctx, bot, userId);
+      }
+
+      return ctx.reply("Could not connect to partner. They may have left or restricted the bot.");
+    }
+
+    return ctx.reply(userPartnerInfo);
   }
 };

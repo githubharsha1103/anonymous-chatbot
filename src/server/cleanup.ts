@@ -92,6 +92,9 @@ export function enforceQueueSizeLimit(bot: ExtraTelegraf): void {
   if (bot.waitingQueue.length > MAX_QUEUE_SIZE * 0.8) {
     console.log(`[WARN] - Queue size is at ${bot.waitingQueue.length}/${MAX_QUEUE_SIZE}`);
   }
+
+  // Re-sync queue structures and preference maps after direct queue mutations
+  bot.syncQueueState();
 }
 
 /**
@@ -146,6 +149,9 @@ export function filterQueueUsersInChats(bot: ExtraTelegraf): void {
   if (bot.premiumQueueSet.size !== bot.premiumQueue.length) {
     console.log(`[CLEANUP] Premium queue consistency fix: Set size ${bot.premiumQueueSet.size}, Array length ${bot.premiumQueue.length}`);
   }
+
+  // Re-sync queue structures and preference maps after direct queue mutations
+  bot.syncQueueState();
 }
 
 /**

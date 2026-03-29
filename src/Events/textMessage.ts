@@ -214,8 +214,8 @@ export default {
       ================================= */
 
     if (!bot.runningChats.has(ctx.from.id)) {
-      // Check if user is in waiting queue
-      if (bot.queueSet.has(ctx.from.id)) {
+      // Check if user is in waiting queue (regular or premium)
+      if (bot.queueSet.has(ctx.from.id) || bot.premiumQueueSet.has(ctx.from.id)) {
         // User is in queue - use startSearch to show animated search UI
         // (No need to send extra message - user already in search UI)
         return;

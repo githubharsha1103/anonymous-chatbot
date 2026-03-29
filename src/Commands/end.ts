@@ -1,4 +1,4 @@
-﻿import { Context } from "telegraf";
+import { Context } from "telegraf";
 import { ExtraTelegraf } from "..";
 import { cleanupBlockedUser, sendMessageWithRetry } from "../Utils/telegramErrorHandler";
 import { updateUser, getUser, incUserTotalChats } from "../storage/db";
@@ -23,72 +23,41 @@ function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
+type EndLockResult =
+  | { type: "search_cancelled" }
+  | { type: "not_in_chat" }
+  | { type: "ended"; partner: number | null; messageCount: number };
+
 export default {
   name: "end",
   execute: async (ctx: Context, bot: ExtraTelegraf) => {
     const id = ctx.from?.id as number;
 
-    // NOTE: We intentionally do NOT check isBroadcasting here
-    // Users must always be able to exit a chat, even during broadcast
-    // to prevent getting stuck in active conversations
-
     if (bot.isRateLimited(id)) {
-      return ctx.reply("⏳ Please wait a moment before trying again.");
+      return ctx.reply("Please wait a moment before trying again.");
     }
 
-    // Check for duplicate request
     if (bot.hasPendingLockRequest(id)) {
-      return ctx.reply("⏳ Your request is already being processed. Please wait.");
+      return ctx.reply("Your request is already being processed. Please wait.");
     }
 
-    // Use safe lock wrapper
     const lockResult = await bot.withChatStateLockSafe(
-      async () => {
-        console.log("[END] User requested end:", id);
-        
+      async (): Promise<EndLockResult> => {
         if (!bot.runningChats.has(id)) {
           if (await bot.removeFromQueue(id)) {
-            return ctx.reply("🔍 Search cancelled. Use /search when you want to find a partner again.");
+            return { type: "search_cancelled" };
           }
-          return ctx.reply("⚠️ You are not in a chat. Use /search to find a partner!");
+          return { type: "not_in_chat" };
         }
 
         const partner = bot.getPartner(id);
-        console.log("[END] Partner found:", partner);
-        
-        const user = await getUser(id);
-        const chatStartTime = user.chatStartTime;
-        const durationText = formatDuration(chatStartTime ? Date.now() - chatStartTime : 0);
         const messageCount = bot.messageCountMap.get(id) || 0;
-
-        // clearChatRuntime already handles mutex locking internally
         await clearChatRuntime(bot, id, partner);
-        console.log("[END] Chat successfully removed");
 
-        if (partner) {
-          await updateUser(id, { reportingPartner: partner, chatStartTime: null });
-          await updateUser(partner, { reportingPartner: id, chatStartTime: null });
-          await incUserTotalChats(id);
-          await incUserTotalChats(partner);
-        } else {
-          await updateUser(id, { chatStartTime: null });
-        }
-
-        const notifySent = partner
-          ? await sendMessageWithRetry(bot, partner, buildPartnerLeftMessage(durationText, messageCount), exitChatKeyboard)
-          : false;
-
-        if (!notifySent && partner) {
-          await cleanupBlockedUser(bot, partner);
-        }
-
-        return ctx.reply(buildSelfEndedMessage(durationText, messageCount), {
-          parse_mode: "HTML",
-          ...exitChatKeyboard
-        });
+        return { type: "ended", partner, messageCount };
       },
       id,
-      "⚠️ Server busy, please try again in a few seconds"
+      "Server busy, please try again in a few seconds"
     );
 
     if (!lockResult.success) {
@@ -96,6 +65,39 @@ export default {
       return ctx.reply(lockResult.error);
     }
 
-    return lockResult.result;
+    const result = lockResult.result;
+
+    if (result.type === "search_cancelled") {
+      return ctx.reply("Search cancelled. Use /search when you want to find a partner again.");
+    }
+
+    if (result.type === "not_in_chat") {
+      return ctx.reply("You are not in a chat. Use /search to find a partner!");
+    }
+
+    const user = await getUser(id);
+    const durationText = formatDuration(user.chatStartTime ? Date.now() - user.chatStartTime : 0);
+
+    if (result.partner) {
+      await updateUser(id, { reportingPartner: result.partner, chatStartTime: null });
+      await updateUser(result.partner, { reportingPartner: id, chatStartTime: null });
+      await incUserTotalChats(id);
+      await incUserTotalChats(result.partner);
+    } else {
+      await updateUser(id, { chatStartTime: null });
+    }
+
+    const notifySent = result.partner
+      ? await sendMessageWithRetry(bot, result.partner, buildPartnerLeftMessage(durationText, result.messageCount), exitChatKeyboard)
+      : false;
+
+    if (!notifySent && result.partner) {
+      await cleanupBlockedUser(bot, result.partner);
+    }
+
+    return ctx.reply(buildSelfEndedMessage(durationText, result.messageCount), {
+      parse_mode: "HTML",
+      ...exitChatKeyboard
+    });
   }
 };

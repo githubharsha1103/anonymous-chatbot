@@ -82,6 +82,9 @@ export function removeUserEverywhere(bot: ExtraTelegraf, userId: number): void {
     bot.runningChats.delete(userId);
     console.log(`[CLEANUP] Removed user ${userId} from running chats`);
   }
+
+  // Re-sync queue structures/maps after direct array/set mutations
+  bot.syncQueueState();
   
   console.log(`[CLEANUP] Fully cleaned user ${userId} from all states`);
 }

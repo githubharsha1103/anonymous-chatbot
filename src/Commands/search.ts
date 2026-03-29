@@ -7,7 +7,7 @@ import { getSetupRequiredPrompt } from "../Utils/setupFlow";
 import { isPremium as checkPremiumStatus } from "../Utils/starsPayments";
 import { getIsBroadcasting } from "../index";
 import { getIsSystemBusy, checkUserRateLimit, RATE_LIMIT_MESSAGE } from "../index";
-import { onMatchFound, startSearch, sendConnectionMessage, removeUserEverywhere } from "../Utils/actionHandler";
+import { onMatchFound, startSearch, sendConnectionMessage } from "../Utils/actionHandler";
 
 type LockResult = 
   | { type: "already_in_chat" }
@@ -103,17 +103,10 @@ export default {
     // Use safe lock wrapper - only queue operations inside lock
     const lockResult = await bot.withChatStateLockSafe(
       async (): Promise<LockResult> => {
-        // Check for duplicate request INSIDE lock to prevent race condition
-        if (bot.hasPendingLockRequest(userId)) {
-          return { type: "duplicate_request" };
+        // Double-check state inside lock
+        if (bot.runningChats.has(userId) || (user.lastPartner && user.chatStartTime)) {
+          return { type: "already_in_chat" };
         }
-        bot.setPendingLockRequest(userId);
-
-        try {
-          // Double-check state inside lock
-          if (bot.runningChats.has(userId) || (user.lastPartner && user.chatStartTime)) {
-            return { type: "already_in_chat" };
-          }
 
           if (bot.isInQueue(userId)) {
             return { type: "already_in_queue" };
@@ -149,18 +142,15 @@ export default {
           // Initialize chat runtime
           await beginChatRuntime(bot, userId, matchId);
 
-          return { 
-            type: "matched", 
-            matchId, 
-            userId, 
-            preference, 
-            gender, 
-            isPremium, 
-            blockedUsers: myBlockedUsers 
-          };
-        } finally {
-          bot.clearPendingLockRequest(userId);
-        }
+        return { 
+          type: "matched", 
+          matchId, 
+          userId, 
+          preference, 
+          gender, 
+          isPremium, 
+          blockedUsers: myBlockedUsers 
+        };
       },
       userId,
       "⚠️ Server busy, please try again in a few seconds"
@@ -191,24 +181,17 @@ export default {
     }
 
     if (result.type === "waiting") {
-      // FIX #6: Ensure queue consistency - cleanup before adding
-      removeUserEverywhere(bot, userId);
-      
       // User added to queue - use startSearch function for animation
       await startSearch(ctx, bot, userId);
       return;
     }
 
     if (result.type === "matched") {
-      // FIX #4: Atomic match safety - check BEFORE async
-      if (bot.runningChats.has(userId) || bot.runningChats.has(result.matchId)) {
+      // Verify match is still consistent before heavy async work
+      if (bot.getPartner(userId) !== result.matchId || bot.getPartner(result.matchId) !== userId) {
         console.error(`[MATCH] Race condition detected! user1=${userId}, user2=${result.matchId}`);
         return ctx.reply("⏳ Connection failed. Please try again.");
       }
-      
-      // Immediately add to runningChats (BEFORE any async)
-      bot.runningChats.set(userId, result.matchId);
-      bot.runningChats.set(result.matchId, userId);
       
       // Update search UI to show "Partner found!" BEFORE heavy operations
       await onMatchFound(bot, userId);
@@ -235,9 +218,6 @@ export default {
         await endChatDueToError(bot, userId, result.matchId);
 
         if (partnerStillThere) {
-          // FIX #6: Ensure queue consistency after error
-          removeUserEverywhere(bot, userId);
-          
           const requeued = await bot.addToQueueAtomic({
             id: userId,
             preference: result.preference,
