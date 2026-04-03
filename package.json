@@ -1,23 +1,23 @@
 {
-  "name": "anonymous-chatbot",
+  "name": "allindiachatbot",
   "version": "1.0.0",
-  "description": "An anonymous chatbot built using Telegraf",
+  "description": "All India Anonymous Chatbot",
   "keywords": [
     "anonymous",
     "telegram",
-    "telegraf"
+    "telegraf",
+    "all-india"
   ],
   "license": "MIT",
-  "author": "sea-deep",
+  "author": "harsha",
   "type": "commonjs",
   "main": "dist/index.js",
   "scripts": {
     "test": "cross-env NODE_ENV=test jest --runInBand --config jest.config.js",
     "lint": "eslint . --ext .ts",
     "start": "node dist/index.js",
-    "clean": "rimraf dist",
-    "build": "npm run clean && npx tsc",
-    "init-db": "npx ts-node initDb.ts"
+    "build": "tsc",
+    "prebuild": "rimraf dist"
   },
   "dependencies": {
     "dotenv": "^17.3.1",
@@ -27,19 +27,12 @@
     "telegraf": "^4.16.3"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.0",
     "@types/express": "^5.0.6",
-    "@types/glob": "^8.1.0",
-    "@types/jest": "^29.5.3",
     "@types/node": "^22.19.7",
-    "@typescript-eslint/eslint-plugin": "^8.0.0",
-    "@typescript-eslint/parser": "^8.0.0",
-    "cross-env": "^10.1.0",
-    "eslint": "^10.0.0",
-    "jest": "^29.5.0",
     "rimraf": "^5.0.10",
-    "ts-jest": "^29.1.0",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.0.0"
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
