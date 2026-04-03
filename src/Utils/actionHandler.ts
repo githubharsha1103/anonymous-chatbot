@@ -203,6 +203,7 @@ export async function stopSearch(bot: ExtraTelegraf, userId: number): Promise<vo
   
   // Use removeUserEverywhere for safety net cleanup
   removeUserEverywhere(bot, userId);
+  await updateUser(userId, { queueStatus: "removed", queueJoinedAt: null });
   
   try {
     // Edit message to remove keyboard and show "stopped"

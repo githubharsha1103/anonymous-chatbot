@@ -1,6 +1,6 @@
 import { Context } from "telegraf";
 import { ExtraTelegraf } from "..";
-import { areUsersMutuallyBlocked, getUser, updateUser } from "../storage/db";
+import { areUsersMutuallyBlocked, getUser, recordChatAnalytics, recordMatchAnalytics, updateUser } from "../storage/db";
 import {
   buildPartnerLeftMessage,
   buildPartnerMatchMessage,
@@ -14,12 +14,13 @@ import { isPremium as checkPremiumStatus } from "../Utils/starsPayments";
 import { getIsBroadcasting, getIsSystemBusy, checkUserRateLimit, RATE_LIMIT_MESSAGE } from "../index";
 
 type NextLockResult =
-  | { type: "already_in_queue"; hadChat: boolean; previousPartner: number | null }
-  | { type: "waiting"; hadChat: boolean; previousPartner: number | null }
+  | { type: "already_in_queue"; hadChat: boolean; previousPartner: number | null; previousMessageCount: number }
+  | { type: "waiting"; hadChat: boolean; previousPartner: number | null; previousMessageCount: number }
   | {
       type: "matched";
       hadChat: boolean;
       previousPartner: number | null;
+      previousMessageCount: number;
       matchId: number;
       preference: string;
       gender: string;
@@ -75,6 +76,7 @@ export default {
       async (): Promise<NextLockResult> => {
         const hadChat = bot.runningChats.has(userId);
         const previousPartner = hadChat ? bot.getPartner(userId) : null;
+        const previousMessageCount = hadChat ? (bot.messageCountMap.get(userId) || 0) : 0;
 
         if (hadChat) {
           await clearChatRuntime(bot, userId, previousPartner);
@@ -126,15 +128,16 @@ export default {
             blockedUsers: myBlockedUsers
           });
           if (!added) {
-            return { type: "already_in_queue", hadChat, previousPartner };
+            return { type: "already_in_queue", hadChat, previousPartner, previousMessageCount };
           }
-          return { type: "waiting", hadChat, previousPartner };
+          return { type: "waiting", hadChat, previousPartner, previousMessageCount };
         }
 
         return {
           type: "matched",
           hadChat,
           previousPartner,
+          previousMessageCount,
           matchId: matchResult.partnerId,
           preference,
           gender,
@@ -154,8 +157,22 @@ export default {
     const result = lockResult.result;
 
     if (result.hadChat && result.previousPartner) {
-      await updateUser(userId, { reportingPartner: result.previousPartner, chatStartTime: null });
-      await updateUser(result.previousPartner, { reportingPartner: userId, chatStartTime: null });
+      if (user.chatStartTime) {
+        const endedAt = Date.now();
+        const durationMs = Math.max(0, endedAt - user.chatStartTime);
+        await recordChatAnalytics({
+          endedAt,
+          startedAt: user.chatStartTime,
+          durationMs,
+          userIds: [userId, result.previousPartner],
+          messageCount: result.previousMessageCount,
+          endedBy: "next",
+          dropOff: durationMs < 60_000 || result.previousMessageCount <= 2
+        });
+      }
+
+      await updateUser(result.previousPartner, { reportingPartner: userId, chatStartTime: null, queueStatus: "removed", queueJoinedAt: null });
+      await updateUser(userId, { reportingPartner: result.previousPartner, chatStartTime: null, queueStatus: "removed", queueJoinedAt: null });
 
       const notifySent = await sendMessageWithRetry(
         bot,
@@ -176,14 +193,23 @@ export default {
     }
 
     if (result.type === "waiting") {
+      await updateUser(userId, { queueStatus: "waiting", queueJoinedAt: Date.now() });
       return startSearch(ctx, bot, userId);
     }
 
-    const chatStartTime = Date.now();
-    await updateUser(userId, { lastPartner: result.matchId, chatStartTime });
-    await updateUser(result.matchId, { lastPartner: userId, chatStartTime });
-
     const matchUser = await getUser(result.matchId);
+    const chatStartTime = Date.now();
+    const currentUserWaitTime = user.queueJoinedAt ? Math.max(0, chatStartTime - user.queueJoinedAt) : 0;
+    const partnerWaitTime = matchUser.queueJoinedAt ? Math.max(0, chatStartTime - matchUser.queueJoinedAt) : 0;
+
+    await updateUser(userId, { lastPartner: result.matchId, chatStartTime, queueStatus: "connected", queueJoinedAt: null });
+    await updateUser(result.matchId, { lastPartner: userId, chatStartTime, queueStatus: "connected", queueJoinedAt: null });
+    await recordMatchAnalytics({
+      matchedAt: chatStartTime,
+      userIds: [userId, result.matchId],
+      waitTimeMs: [currentUserWaitTime, partnerWaitTime],
+      premiumMatch: result.isPremium || checkPremiumStatus(matchUser)
+    });
     bot.incrementChatCount();
 
     const userPartnerInfo = buildPartnerMatchMessage(result.isPremium, matchUser);
@@ -206,6 +232,8 @@ export default {
         if (!requeued) {
           return ctx.reply("Temporary connection issue. Please try /next again.");
         }
+
+        await updateUser(userId, { queueStatus: "waiting", queueJoinedAt: Date.now() });
 
         return startSearch(ctx, bot, userId);
       }

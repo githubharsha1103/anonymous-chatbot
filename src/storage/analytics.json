@@ -1,0 +1,18 @@
+{
+  "matches": [
+    {
+      "matchedAt": 1775248272723,
+      "userIds": [
+        1,
+        100
+      ],
+      "waitTimeMs": [
+        0,
+        0
+      ],
+      "premiumMatch": false
+    }
+  ],
+  "chats": [],
+  "updatedAt": 1775248272769
+}

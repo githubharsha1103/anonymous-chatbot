@@ -30,6 +30,7 @@ function parseQueueActionUserId(ctx: Context, prefix: string): number | null {
 
 // Export all modules
 export * from "./dashboard";
+export * from "./analyticsDashboard";
 export * from "./queueMonitor";
 export * from "./revenueAnalytics";
 export * from "./moderationSettings";
@@ -39,6 +40,7 @@ export type { ModerationSettings } from "./moderationSettings";
 export type { QueueStats, QueueUser, QueueDetails } from "./queueMonitor";
 export type { RevenueAnalytics, RevenueTrend } from "./revenueAnalytics";
 export type { HealthMetrics, BotResourceInfo } from "./dashboard";
+export type { UsageAnalyticsMetrics } from "./analyticsDashboard";
 
 // ==================== Callback Registration ====================
 
@@ -75,6 +77,20 @@ export function registerAdminCallbacks(bot: ExtraTelegraf): void {
         } catch (error) {
             console.error("[admin] ADMIN_QUEUE_MONITOR error:", getErrorMessage(error));
             await safeAnswerCbQuery(ctx, "Error loading queue");
+        }
+    });
+
+    bot.action("ADMIN_ANALYTICS_DASHBOARD", async (ctx: Context) => {
+        try {
+            if (!isAdminContext(ctx)) {
+                await unauthorizedResponse(ctx, "Unauthorized");
+                return;
+            }
+            const { handleAnalyticsDashboard } = await import("./analyticsDashboard");
+            await handleAnalyticsDashboard(ctx, bot);
+        } catch (error) {
+            console.error("[admin] ADMIN_ANALYTICS_DASHBOARD error:", getErrorMessage(error));
+            await safeAnswerCbQuery(ctx, "Error loading analytics");
         }
     });
     

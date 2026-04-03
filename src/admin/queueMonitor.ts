@@ -16,7 +16,7 @@ import { Context, Markup } from "telegraf";
 import { ExtraTelegraf } from "../index";
 import { isAdminContext, unauthorizedResponse } from "../Utils/adminAuth";
 import { safeAnswerCbQuery, safeEditMessageText, getErrorMessage } from "../Utils/telegramUi";
-import { getUser, updateUser } from "../storage/db";
+import { getUser, recordMatchAnalytics, updateUser } from "../storage/db";
 import { beginChatRuntime, clearChatRuntime } from "../Utils/chatFlow";
 import { 
     tryLockUserForConnection, 
@@ -334,8 +334,15 @@ export async function connectAdminToUser(
         
         // Update chat start time in database for both users
         const chatStartTime = Date.now();
-        await updateUser(userId, { chatStartTime });
-        await updateUser(adminId, { chatStartTime });
+        const queuedUserWaitTime = userData.queueJoinedAt ? Math.max(0, chatStartTime - userData.queueJoinedAt) : 0;
+        await updateUser(userId, { chatStartTime, queueStatus: "connected", queueJoinedAt: null });
+        await updateUser(adminId, { chatStartTime, queueStatus: "connected", queueJoinedAt: null });
+        await recordMatchAnalytics({
+            matchedAt: chatStartTime,
+            userIds: [adminId, userId],
+            waitTimeMs: [0, queuedUserWaitTime],
+            premiumMatch: Boolean(userData.premium)
+        });
         
         // Mark both users as connected
         await markUserAsConnected(userId);

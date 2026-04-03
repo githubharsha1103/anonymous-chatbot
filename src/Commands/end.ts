@@ -1,7 +1,7 @@
 import { Context } from "telegraf";
 import { ExtraTelegraf } from "..";
 import { cleanupBlockedUser, sendMessageWithRetry } from "../Utils/telegramErrorHandler";
-import { updateUser, getUser, incUserTotalChats } from "../storage/db";
+import { updateUser, getUser, incUserTotalChats, recordChatAnalytics } from "../storage/db";
 import {
   buildPartnerLeftMessage,
   buildSelfEndedMessage,
@@ -68,6 +68,7 @@ export default {
     const result = lockResult.result;
 
     if (result.type === "search_cancelled") {
+      await updateUser(id, { queueStatus: "removed", queueJoinedAt: null });
       return ctx.reply("Search cancelled. Use /search when you want to find a partner again.");
     }
 
@@ -76,15 +77,28 @@ export default {
     }
 
     const user = await getUser(id);
-    const durationText = formatDuration(user.chatStartTime ? Date.now() - user.chatStartTime : 0);
+    const durationMs = user.chatStartTime ? Math.max(0, Date.now() - user.chatStartTime) : 0;
+    const durationText = formatDuration(durationMs);
 
     if (result.partner) {
-      await updateUser(id, { reportingPartner: result.partner, chatStartTime: null });
-      await updateUser(result.partner, { reportingPartner: id, chatStartTime: null });
+      if (user.chatStartTime) {
+        await recordChatAnalytics({
+          endedAt: Date.now(),
+          startedAt: user.chatStartTime,
+          durationMs,
+          userIds: [id, result.partner],
+          messageCount: result.messageCount,
+          endedBy: "end",
+          dropOff: durationMs < 60_000 || result.messageCount <= 2
+        });
+      }
+
+      await updateUser(id, { reportingPartner: result.partner, chatStartTime: null, queueStatus: "removed", queueJoinedAt: null });
+      await updateUser(result.partner, { reportingPartner: id, chatStartTime: null, queueStatus: "removed", queueJoinedAt: null });
       await incUserTotalChats(id);
       await incUserTotalChats(result.partner);
     } else {
-      await updateUser(id, { chatStartTime: null });
+      await updateUser(id, { chatStartTime: null, queueStatus: "removed", queueJoinedAt: null });
     }
 
     const notifySent = result.partner

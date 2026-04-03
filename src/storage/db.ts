@@ -161,6 +161,30 @@ export interface User {
   
   // Queue status for race condition protection
   queueStatus?: "waiting" | "connecting" | "connected" | "removed"; // User's queue state
+  queueJoinedAt?: number | null;
+}
+
+export interface MatchAnalyticsRecord {
+  matchedAt: number;
+  userIds: [number, number];
+  waitTimeMs: [number, number];
+  premiumMatch: boolean;
+}
+
+export interface ChatAnalyticsRecord {
+  endedAt: number;
+  startedAt: number;
+  durationMs: number;
+  userIds: [number, number];
+  messageCount: number;
+  endedBy: "end" | "next" | "admin" | "disconnect";
+  dropOff: boolean;
+}
+
+export interface UsageAnalyticsSnapshot {
+  matches: MatchAnalyticsRecord[];
+  chats: ChatAnalyticsRecord[];
+  updatedAt: number;
 }
 
 export type PremiumOrderStatus = "pending" | "paid" | "failed" | "expired";
@@ -267,6 +291,7 @@ type JsonUserRecord = Partial<User> & { reportHistory?: LegacyReportEntry[] };
 type JsonUsersDb = Record<string, JsonUserRecord>;
 type JsonStats = { totalChats?: number };
 type JsonPaymentOrdersDb = Record<string, PremiumPaymentOrder>;
+type JsonUsageAnalyticsDb = UsageAnalyticsSnapshot;
 
 const AGE_RANGE_TO_AVERAGE: Record<string, string> = {
   "13-17": "15",
@@ -391,6 +416,10 @@ async function getPremiumOrdersCollection(): Promise<Collection<PremiumPaymentOr
 const JSON_FILE = "src/storage/users.json";
 const BANS_FILE = "src/storage/bans.json";
 const PAYMENT_ORDERS_FILE = "src/storage/paymentOrders.json";
+const ANALYTICS_FILE = "src/storage/analytics.json";
+const ANALYTICS_DOC_ID = "usage_analytics_v1";
+const MAX_MATCH_ANALYTICS = 5000;
+const MAX_CHAT_ANALYTICS = 5000;
 
 // Set to true to use MongoDB (requires MONGODB_URI environment variable)
 // Auto-detect based on whether MONGODB_URI is set and is valid
@@ -494,6 +523,8 @@ export async function getUser(id: number): Promise<UserWithNew> {
           totalChats: 0,
           reports: 0,
           banned: false,
+          queueStatus: "removed",
+          queueJoinedAt: null,
           premiumExpires: null,
           processedPaymentChargeIds: []
         };
@@ -528,6 +559,8 @@ export async function getUser(id: number): Promise<UserWithNew> {
         chatStartTime: null,
         reports: 0,
         banned: false,
+        queueStatus: "removed",
+        queueJoinedAt: null,
         premiumExpires: null,
         processedPaymentChargeIds: []
       };
@@ -1831,6 +1864,130 @@ export async function getUserStats(): Promise<{
     inactive7Days,
     inactive30Days
   };
+}
+
+function createEmptyUsageAnalyticsSnapshot(): UsageAnalyticsSnapshot {
+  return {
+    matches: [],
+    chats: [],
+    updatedAt: Date.now()
+  };
+}
+
+async function getUsageAnalyticsCollection(): Promise<Collection<UsageAnalyticsSnapshot & { _id: string }>> {
+  const database = await connectToDatabase();
+  return database.collection<UsageAnalyticsSnapshot & { _id: string }>("usage_analytics");
+}
+
+function trimUsageAnalytics(snapshot: UsageAnalyticsSnapshot): UsageAnalyticsSnapshot {
+  return {
+    matches: snapshot.matches.slice(-MAX_MATCH_ANALYTICS),
+    chats: snapshot.chats.slice(-MAX_CHAT_ANALYTICS),
+    updatedAt: snapshot.updatedAt
+  };
+}
+
+export async function getUsageAnalyticsSnapshot(): Promise<UsageAnalyticsSnapshot> {
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getUsageAnalyticsCollection();
+      const snapshot = await collection.findOne({ _id: ANALYTICS_DOC_ID });
+      if (snapshot) {
+        return {
+          matches: snapshot.matches || [],
+          chats: snapshot.chats || [],
+          updatedAt: snapshot.updatedAt || Date.now()
+        };
+      }
+    } catch (error) {
+      console.error("[ERROR] - MongoDB getUsageAnalyticsSnapshot error:", error);
+    }
+  }
+
+  const snapshot = await readJson<JsonUsageAnalyticsDb>(ANALYTICS_FILE);
+  if (!snapshot || !Array.isArray(snapshot.matches) || !Array.isArray(snapshot.chats)) {
+    const empty = createEmptyUsageAnalyticsSnapshot();
+    await writeJson(ANALYTICS_FILE, empty);
+    return empty;
+  }
+
+  return {
+    matches: snapshot.matches,
+    chats: snapshot.chats,
+    updatedAt: snapshot.updatedAt || Date.now()
+  };
+}
+
+export async function recordMatchAnalytics(record: MatchAnalyticsRecord): Promise<void> {
+  const normalizedRecord: MatchAnalyticsRecord = {
+    ...record,
+    waitTimeMs: [
+      Math.max(0, Math.round(record.waitTimeMs[0] || 0)),
+      Math.max(0, Math.round(record.waitTimeMs[1] || 0))
+    ]
+  };
+
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getUsageAnalyticsCollection();
+      await collection.updateOne(
+        { _id: ANALYTICS_DOC_ID },
+        {
+          $push: {
+            matches: {
+              $each: [normalizedRecord],
+              $slice: -MAX_MATCH_ANALYTICS
+            }
+          },
+          $set: { updatedAt: Date.now() }
+        },
+        { upsert: true }
+      );
+      return;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB recordMatchAnalytics error:", error);
+    }
+  }
+
+  const snapshot = await getUsageAnalyticsSnapshot();
+  snapshot.matches.push(normalizedRecord);
+  snapshot.updatedAt = Date.now();
+  await writeJson(ANALYTICS_FILE, trimUsageAnalytics(snapshot));
+}
+
+export async function recordChatAnalytics(record: ChatAnalyticsRecord): Promise<void> {
+  const normalizedRecord: ChatAnalyticsRecord = {
+    ...record,
+    durationMs: Math.max(0, Math.round(record.durationMs)),
+    messageCount: Math.max(0, Math.round(record.messageCount))
+  };
+
+  if (useMongoDB && !isFallbackMode) {
+    try {
+      const collection = await getUsageAnalyticsCollection();
+      await collection.updateOne(
+        { _id: ANALYTICS_DOC_ID },
+        {
+          $push: {
+            chats: {
+              $each: [normalizedRecord],
+              $slice: -MAX_CHAT_ANALYTICS
+            }
+          },
+          $set: { updatedAt: Date.now() }
+        },
+        { upsert: true }
+      );
+      return;
+    } catch (error) {
+      console.error("[ERROR] - MongoDB recordChatAnalytics error:", error);
+    }
+  }
+
+  const snapshot = await getUsageAnalyticsSnapshot();
+  snapshot.chats.push(normalizedRecord);
+  snapshot.updatedAt = Date.now();
+  await writeJson(ANALYTICS_FILE, trimUsageAnalytics(snapshot));
 }
 
 // ==================== REFERRAL FUNCTIONS ====================

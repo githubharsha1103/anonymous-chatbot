@@ -1,6 +1,6 @@
 import { Context } from "telegraf";
 import { ExtraTelegraf } from "..";
-import { getUser, updateUser } from "../storage/db";
+import { getUser, recordMatchAnalytics, updateUser } from "../storage/db";
 import { beginChatRuntime, buildPartnerMatchMessage } from "../Utils/chatFlow";
 import { endChatDueToError, sendMessageWithRetry } from "../Utils/telegramErrorHandler";
 import { getSetupRequiredPrompt } from "../Utils/setupFlow";
@@ -176,6 +176,7 @@ export default {
     }
 
     if (result.type === "waiting") {
+      await updateUser(userId, { queueStatus: "waiting", queueJoinedAt: Date.now() });
       // User added to queue - use startSearch function for animation
       await startSearch(ctx, bot, userId);
       return;
@@ -191,11 +192,20 @@ export default {
       // Update search UI to show "Partner found!" BEFORE heavy operations
       await onMatchFound(bot, userId);
       
-      const chatStartTime = Date.now();
-      await updateUser(userId, { lastPartner: result.matchId, chatStartTime });
-      await updateUser(result.matchId, { lastPartner: userId, chatStartTime });
-
       const matchUser = await getUser(result.matchId);
+      const chatStartTime = Date.now();
+      const currentUserWaitTime = user.queueJoinedAt ? Math.max(0, chatStartTime - user.queueJoinedAt) : 0;
+      const partnerWaitTime = matchUser.queueJoinedAt ? Math.max(0, chatStartTime - matchUser.queueJoinedAt) : 0;
+
+      await updateUser(userId, { lastPartner: result.matchId, chatStartTime, queueStatus: "connected", queueJoinedAt: null });
+      await updateUser(result.matchId, { lastPartner: userId, chatStartTime, queueStatus: "connected", queueJoinedAt: null });
+      await recordMatchAnalytics({
+        matchedAt: chatStartTime,
+        userIds: [userId, result.matchId],
+        waitTimeMs: [currentUserWaitTime, partnerWaitTime],
+        premiumMatch: result.isPremium || checkPremiumStatus(matchUser)
+      });
+
       bot.incrementChatCount();
 
       const userPartnerInfo = buildPartnerMatchMessage(result.isPremium, matchUser);
@@ -223,6 +233,8 @@ export default {
           if (!requeued) {
             return ctx.reply("⏳ Temporary connection issue. Please try /search again.");
           }
+
+          await updateUser(userId, { queueStatus: "waiting", queueJoinedAt: Date.now() });
 
           // User re-added to queue - use startSearch for animated UI
           return await startSearch(ctx, bot, userId);

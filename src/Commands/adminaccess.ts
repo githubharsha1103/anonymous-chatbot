@@ -104,6 +104,7 @@ const mainKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🔗 Referral Stats", "ADMIN_REFERRALS")],
     [Markup.button.callback("💰 Manage Payments", "ADMIN_PAYMENTS")],
     [Markup.button.callback("📊 Health Dashboard", "ADMIN_HEALTH_DASHBOARD")],
+    [Markup.button.callback("Analytics Dashboard", "ADMIN_ANALYTICS_DASHBOARD")],
     [Markup.button.callback("📥 Queue Monitor", "ADMIN_QUEUE_MONITOR")],
     [Markup.button.callback("🛡 Moderation Settings", "ADMIN_MODERATION_SETTINGS")]
 ]);

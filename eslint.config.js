@@ -23,7 +23,8 @@ module.exports = tseslint.config(
       sourceType: 'module',
       parser: tseslint.parser,
       parserOptions: {
-        project: './tsconfig.json'
+        project: './tsconfig.json',
+        tsconfigRootDir: __dirname
       }
     },
     plugins: {
