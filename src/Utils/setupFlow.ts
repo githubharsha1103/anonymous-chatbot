@@ -1,125 +1,83 @@
-﻿import { Markup } from "telegraf";
+import { Markup } from "telegraf";
 import type { User } from "../storage/db";
 
-export type SetupStep = "gender" | "age" | "age_manual" | "state" | "state_north" | "state_south" | "state_east" | "state_west" | "state_central" | "state_northeast" | "state_ut" | "state_other" | "done";
+export type SetupStep =
+    | "gender"
+    | "age"
+    | "age_manual"
+    | "state"
+    | "state_north"
+    | "state_south"
+    | "state_east"
+    | "state_west"
+    | "state_central"
+    | "state_northeast"
+    | "state_ut"
+    | "state_other"
+    | "done";
 
-export const allIndianStates = [
-    { name: "Andhra Pradesh", code: "AP" },
-    { name: "Arunachal Pradesh", code: "AR" },
-    { name: "Assam", code: "AS" },
-    { name: "Bihar", code: "BR" },
-    { name: "Chhattisgarh", code: "CG" },
-    { name: "Goa", code: "GA" },
-    { name: "Gujarat", code: "GJ" },
-    { name: "Haryana", code: "HR" },
-    { name: "Himachal Pradesh", code: "HP" },
-    { name: "Jharkhand", code: "JH" },
-    { name: "Karnataka", code: "KA" },
-    { name: "Kerala", code: "KL" },
-    { name: "Madhya Pradesh", code: "MP" },
-    { name: "Maharashtra", code: "MH" },
-    { name: "Manipur", code: "MN" },
-    { name: "Meghalaya", code: "ML" },
-    { name: "Mizoram", code: "MZ" },
-    { name: "Nagaland", code: "NL" },
-    { name: "Odisha", code: "OR" },
-    { name: "Punjab", code: "PB" },
-    { name: "Rajasthan", code: "RJ" },
-    { name: "Sikkim", code: "SK" },
-    { name: "Tamil Nadu", code: "TN" },
-    { name: "Telangana", code: "TS" },
-    { name: "Tripura", code: "TR" },
-    { name: "Uttar Pradesh", code: "UP" },
-    { name: "Uttarakhand", code: "UK" },
-    { name: "West Bengal", code: "WB" }
-];
+export type LocationOption = {
+    name: string;
+    code: string;
+    storedValue: string;
+};
 
-export const allUnionTerritories = [
-    { name: "Delhi", code: "DL" },
-    { name: "Jammu & Kashmir", code: "JK" },
-    { name: "Ladakh", code: "LA" },
-    { name: "Puducherry", code: "PY" },
-    { name: "Chandigarh", code: "CH" },
-    { name: "Dadra & Nagar Haveli", code: "DN" },
-    { name: "Daman & Diu", code: "DD" },
-    { name: "Lakshadweep", code: "LD" },
-    { name: "Andaman & Nicobar", code: "AN" }
-];
+export const indianLocationOptions: readonly LocationOption[] = [
+    { name: "Andhra Pradesh", code: "AP", storedValue: "Andhra Pradesh" },
+    { name: "Arunachal Pradesh", code: "AR", storedValue: "Arunachal Pradesh" },
+    { name: "Assam", code: "AS", storedValue: "Assam" },
+    { name: "Bihar", code: "BR", storedValue: "Bihar" },
+    { name: "Chhattisgarh", code: "CG", storedValue: "Chhattisgarh" },
+    { name: "Goa", code: "GA", storedValue: "Goa" },
+    { name: "Gujarat", code: "GJ", storedValue: "Gujarat" },
+    { name: "Haryana", code: "HR", storedValue: "Haryana" },
+    { name: "Himachal Pradesh", code: "HP", storedValue: "Himachal Pradesh" },
+    { name: "Jharkhand", code: "JH", storedValue: "Jharkhand" },
+    { name: "Karnataka", code: "KA", storedValue: "Karnataka" },
+    { name: "Kerala", code: "KL", storedValue: "Kerala" },
+    { name: "Madhya Pradesh", code: "MP", storedValue: "Madhya Pradesh" },
+    { name: "Maharashtra", code: "MH", storedValue: "Maharashtra" },
+    { name: "Manipur", code: "MN", storedValue: "Manipur" },
+    { name: "Meghalaya", code: "ML", storedValue: "Meghalaya" },
+    { name: "Mizoram", code: "MZ", storedValue: "Mizoram" },
+    { name: "Nagaland", code: "NL", storedValue: "Nagaland" },
+    { name: "Odisha", code: "OD", storedValue: "Odisha" },
+    { name: "Punjab", code: "PB", storedValue: "Punjab" },
+    { name: "Rajasthan", code: "RJ", storedValue: "Rajasthan" },
+    { name: "Sikkim", code: "SK", storedValue: "Sikkim" },
+    { name: "Tamil Nadu", code: "TN", storedValue: "Tamil Nadu" },
+    { name: "Telangana", code: "TS", storedValue: "Telangana" },
+    { name: "Tripura", code: "TR", storedValue: "Tripura" },
+    { name: "Uttar Pradesh", code: "UP", storedValue: "Uttar Pradesh" },
+    { name: "Uttarakhand", code: "UK", storedValue: "Uttarakhand" },
+    { name: "West Bengal", code: "WB", storedValue: "West Bengal" },
+    { name: "Andaman & Nicobar Islands", code: "AN", storedValue: "Andaman & Nicobar" },
+    { name: "Chandigarh", code: "CH", storedValue: "Chandigarh" },
+    { name: "Dadra & Nagar Haveli and Daman & Diu", code: "DNDD", storedValue: "Dadra & Nagar Haveli and Daman & Diu" },
+    { name: "Delhi", code: "DL", storedValue: "Delhi" },
+    { name: "Jammu & Kashmir", code: "JK", storedValue: "Jammu & Kashmir" },
+    { name: "Ladakh", code: "LA", storedValue: "Ladakh" },
+    { name: "Lakshadweep", code: "LD", storedValue: "Lakshadweep" },
+    { name: "Puducherry", code: "PY", storedValue: "Puducherry" },
+    { name: "Outside India", code: "OTHER", storedValue: "Other" }
+] as const;
 
-export const setupStateKeyboardPage1 = Markup.inlineKeyboard([
-    [Markup.button.callback("📍 North India", "SETUP_STATE_NORTH")],
-    [Markup.button.callback("📍 South India", "SETUP_STATE_SOUTH")],
-    [Markup.button.callback("📍 East India", "SETUP_STATE_EAST")],
-    [Markup.button.callback("📍 West India", "SETUP_STATE_WEST")],
-    [Markup.button.callback("📍 Central India", "SETUP_STATE_CENTRAL")],
-    [Markup.button.callback("📍 North-East India", "SETUP_STATE_NORTHEAST")],
-    [Markup.button.callback("📍 Union Territories", "SETUP_STATE_UT")],
-    [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
-]);
+export const locationValues = indianLocationOptions.map((option) => option.storedValue);
 
-export const setupStateNorthKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🟢 Delhi", "SETUP_STATE_DELHI")],
-    [Markup.button.callback("🟢 Haryana", "SETUP_STATE_HARYANA")],
-    [Markup.button.callback("🟢 Himachal Pradesh", "SETUP_STATE_HIMACHAL")],
-    [Markup.button.callback("🟢 Jammu & Kashmir", "SETUP_STATE_JAMMU")],
-    [Markup.button.callback("🟢 Punjab", "SETUP_STATE_PUNJAB")],
-    [Markup.button.callback("🟢 Rajasthan", "SETUP_STATE_RAJASTHAN")],
-    [Markup.button.callback("🟢 Uttarakhand", "SETUP_STATE_UTTARAKHAND")],
-    [Markup.button.callback("🟢 Uttar Pradesh", "SETUP_STATE_UTTARPRADESH")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
-]);
+function buildLocationKeyboard(callbackPrefix: string, backCallback?: string) {
+    const rows = indianLocationOptions.map((option) => [
+        Markup.button.callback(option.name, `${callbackPrefix}${option.code}`)
+    ]);
 
-export const setupStateSouthKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
-    [Markup.button.callback("🔵 Karnataka", "SETUP_STATE_KARNATAKA")],
-    [Markup.button.callback("🔵 Kerala", "SETUP_STATE_KERALA")],
-    [Markup.button.callback("🔵 Tamil Nadu", "SETUP_STATE_TAMILNADU")],
-    [Markup.button.callback("🔵 Telangana", "SETUP_STATE_TELANGANA")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
-]);
+    if (backCallback) {
+        rows.push([Markup.button.callback("⬅️ Back", backCallback)]);
+    }
 
-export const setupStateEastKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🟠 Bihar", "SETUP_STATE_BIHAR")],
-    [Markup.button.callback("🟠 Jharkhand", "SETUP_STATE_JHARKHAND")],
-    [Markup.button.callback("🟠 Odisha", "SETUP_STATE_ODISHA")],
-    [Markup.button.callback("🟠 West Bengal", "SETUP_STATE_WESTBENGAL")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
-]);
+    return Markup.inlineKeyboard(rows);
+}
 
-export const setupStateWestKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🟣 Goa", "SETUP_STATE_GOA")],
-    [Markup.button.callback("🟣 Gujarat", "SETUP_STATE_GUJARAT")],
-    [Markup.button.callback("🟣 Maharashtra", "SETUP_STATE_MAHARASHTRA")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
-]);
-
-export const setupStateCentralKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🟤 Chhattisgarh", "SETUP_STATE_CHHATTISGARH")],
-    [Markup.button.callback("🟤 Madhya Pradesh", "SETUP_STATE_MADHYAPRADESH")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
-]);
-
-export const setupStateNortheastKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🟢 Arunachal Pradesh", "SETUP_STATE_ARUNACHAL")],
-    [Markup.button.callback("🟢 Assam", "SETUP_STATE_ASSAM")],
-    [Markup.button.callback("🟢 Manipur", "SETUP_STATE_MANIPUR")],
-    [Markup.button.callback("🟢 Meghalaya", "SETUP_STATE_MEGHALAYA")],
-    [Markup.button.callback("🟢 Mizoram", "SETUP_STATE_MIZORAM")],
-    [Markup.button.callback("🟢 Nagaland", "SETUP_STATE_NAGALAND")],
-    [Markup.button.callback("🟢 Sikkim", "SETUP_STATE_SIKKIM")],
-    [Markup.button.callback("🟢 Tripura", "SETUP_STATE_TRIPURA")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
-]);
-
-export const setupStateUTKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🟠 Chandigarh", "SETUP_STATE_CHANDIGARH")],
-    [Markup.button.callback("🟠 Delhi", "SETUP_STATE_DELHI")],
-    [Markup.button.callback("🟠 Jammu & Kashmir", "SETUP_STATE_JAMMU")],
-    [Markup.button.callback("🟠 Ladakh", "SETUP_STATE_LADAKH")],
-    [Markup.button.callback("🟠 Puducherry", "SETUP_STATE_PUDUCHERRY")],
-    [Markup.button.callback("🟠 Andaman & Nicobar", "SETUP_STATE_ANDAMAN")],
-    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
-]);
+export const setupStateKeyboardPage1 = buildLocationKeyboard("SETUP_STATE_");
+export const settingsStateKeyboard = buildLocationKeyboard("STATE_", "OPEN_SETTINGS");
 
 export const setupGenderKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("👨 Male", "SETUP_GENDER_MALE")],
@@ -168,61 +126,19 @@ export function getSetupStepPrompt(step: SetupStep): { text: string; keyboard?: 
                 keyboard: setupAgeManualKeyboard
             };
         case "state":
+        case "state_north":
+        case "state_south":
+        case "state_east":
+        case "state_west":
+        case "state_central":
+        case "state_northeast":
+        case "state_ut":
             return {
                 text:
                     "📝 *Step 3 of 3*\n\n" +
                     "📍 *Select your location:*\n" +
                     "(Choose your Indian state/territory)",
                 keyboard: setupStateKeyboardPage1
-            };
-        case "state_north":
-            return {
-                text:
-                    "📍 *North India*\n\n" +
-                    "Select your state:",
-                keyboard: setupStateNorthKeyboard
-            };
-        case "state_south":
-            return {
-                text:
-                    "📍 *South India*\n\n" +
-                    "Select your state:",
-                keyboard: setupStateSouthKeyboard
-            };
-        case "state_east":
-            return {
-                text:
-                    "📍 *East India*\n\n" +
-                    "Select your state:",
-                keyboard: setupStateEastKeyboard
-            };
-        case "state_west":
-            return {
-                text:
-                    "📍 *West India*\n\n" +
-                    "Select your state:",
-                keyboard: setupStateWestKeyboard
-            };
-        case "state_central":
-            return {
-                text:
-                    "📍 *Central India*\n\n" +
-                    "Select your state:",
-                keyboard: setupStateCentralKeyboard
-            };
-        case "state_northeast":
-            return {
-                text:
-                    "📍 *North-East India*\n\n" +
-                    "Select your state:",
-                keyboard: setupStateNortheastKeyboard
-            };
-        case "state_ut":
-            return {
-                text:
-                    "📍 *Union Territories*\n\n" +
-                    "Select your UT:",
-                keyboard: setupStateUTKeyboard
             };
         case "state_other":
             return {

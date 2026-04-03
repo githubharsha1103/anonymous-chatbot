@@ -10,7 +10,13 @@ import { safeAnswerCbQuery as safeAnswerCbQueryShared, safeEditMessageText as sa
 import searchCommand from "../Commands/search";
 import referralCommand from "../Commands/referral";
 import endCommand from "../Commands/end";
-import { getSetupCompleteText } from "./setupFlow";
+import {
+    getSetupCompleteText,
+    indianLocationOptions,
+    locationValues,
+    settingsStateKeyboard,
+    setupStateKeyboardPage1 as sharedSetupStateKeyboard
+} from "./setupFlow";
 import { showPremiumPurchaseMenu, isPremium } from "./starsPayments";
 import { isModerationEnabled, getAutoWarnThreshold, getAutoTempBanThreshold, getAutoBanThreshold, getTempBanDurationMs } from "../admin/moderationSettings";
 import { updateUserPreferenceInQueue } from "../admin/queueMonitor";
@@ -24,8 +30,8 @@ export const userGenderOptions = ["male", "female"] as const;
 export type UserGender = typeof userGenderOptions[number];
 
 // Valid state options
-export const stateOptions = ["Telangana", "Andhra Pradesh"] as const;
-export type UserState = typeof stateOptions[number];
+export const stateOptions = locationValues;
+export type UserState = string;
 
 // Because it doesn't know that ctx has a match property. by default, Context<Update> doesn't include match, but telegraf adds it dynamically when using regex triggers.
 export interface ActionContext extends Context {
@@ -402,11 +408,7 @@ const genderKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("👩 Female", "GENDER_FEMALE")],
     [Markup.button.callback("🔙 Back", "OPEN_SETTINGS")]
 ]);
-const stateKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("Telangana", "STATE_TELANGANA")],
-    [Markup.button.callback("Andhra Pradesh", "STATE_AP")],
-    [Markup.button.callback("🔙 Back", "OPEN_SETTINGS")]
-]);
+const stateKeyboard = settingsStateKeyboard;
 const backKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🔙 Main Menu", "BACK_MAIN_MENU")]
 ]);
@@ -721,6 +723,8 @@ const setupStateUTKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
 ]);
 
+const setupStateKeyboardFull = sharedSetupStateKeyboard;
+
 // Gender selected - move to age input
 bot.action("SETUP_GENDER_MALE", async (ctx) => {
     if (!ctx.from) return;
@@ -763,7 +767,7 @@ for (const [action, ageLabel] of Object.entries(ageToGenderMap)) {
             "📝 *Step 3 of 3*\n\n" +
             "📍 *Select your location:*\n" +
             "(Choose your Indian state/territory)",
-            { parse_mode: "Markdown", ...setupStateKeyboardPage1 }
+            { parse_mode: "Markdown", ...setupStateKeyboardFull }
         );
     });
 }
@@ -852,7 +856,7 @@ bot.action("SETUP_BACK_STATE_P1", async (ctx) => {
         "📝 *Step 3 of 3*\n\n" +
         "📍 *Select your location:*\n" +
         "(Choose your Indian state/territory)",
-        { parse_mode: "Markdown", ...setupStateKeyboardPage1 }
+        { parse_mode: "Markdown", ...setupStateKeyboardFull }
     );
 });
 
@@ -1110,6 +1114,17 @@ bot.action("SETUP_COUNTRY_OTHER", async (ctx) => {
     await showSetupComplete(ctx);
 });
 
+for (const option of indianLocationOptions) {
+    if (option.code === "AP") continue;
+
+    bot.action(`SETUP_STATE_${option.code}`, async (ctx) => {
+        if (!ctx.from) return;
+        await safeAnswerCbQuery(ctx);
+        await updateUser(ctx.from.id, { state: option.storedValue, setupStep: "done" });
+        await showSetupComplete(ctx);
+    });
+}
+
 // Back actions
 bot.action("SETUP_BACK_GENDER", async (ctx) => {
     await safeAnswerCbQuery(ctx);
@@ -1136,7 +1151,7 @@ bot.action("SETUP_BACK_STATE", async (ctx) => {
         "📝 *Step 3 of 3*\n\n" +
         "📍 *Select your location:*\n" +
         "(Choose your Indian state/territory)",
-        { parse_mode: "Markdown", ...setupStateKeyboardPage1 }
+        { parse_mode: "Markdown", ...setupStateKeyboardFull }
     );
 });
 
@@ -1171,7 +1186,7 @@ bot.action("SETUP_CANCEL", async (ctx) => {
             "👤 *Step 3 of 3*\n" +
             "📍 *Select your location:*\n" +
             "(Choose your Indian state/territory)",
-            { parse_mode: "Markdown", ...setupStateKeyboardPage1 }
+            { parse_mode: "Markdown", ...setupStateKeyboardFull }
         );
     } else {
         // Setup complete - show main menu
@@ -1286,6 +1301,24 @@ bot.action("STATE_AP", async (ctx) => {
     await safeAnswerCbQuery(ctx, "State set to Andhra Pradesh ✅");
     await showSettings(ctx);
 });
+
+for (const option of indianLocationOptions) {
+    if (option.code === "AP") continue;
+
+    bot.action(`STATE_${option.code}`, async (ctx) => {
+        if (!ctx.from) return;
+
+        const state: UserState = option.storedValue;
+        if (!stateOptions.includes(state)) {
+            await safeAnswerCbQuery(ctx, "Invalid state value");
+            return;
+        }
+
+        await updateUser(ctx.from.id, { state });
+        await safeAnswerCbQuery(ctx, `State set to ${option.storedValue} ✅`);
+        await showSettings(ctx);
+    });
+}
 
 // Preference action - check premium status and show appropriate message
 bot.action("SET_PREFERENCE", async (ctx) => {
