@@ -622,12 +622,80 @@ const setupAgeKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")]
 ]);
 
-// Setup state keyboard (NO BACK/CANCEL - must complete)
-const setupStateKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("🟢 Telangana", "SETUP_STATE_TELANGANA")],
-    [Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
-    [Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
+// Setup state keyboard - Page 1 with regions (NO BACK/CANCEL - must complete)
+const setupStateKeyboardPage1 = Markup.inlineKeyboard([
+    [Markup.button.callback("📍 North India", "SETUP_STATE_NORTH")],
+    [Markup.button.callback("📍 South India", "SETUP_STATE_SOUTH")],
+    [Markup.button.callback("📍 East India", "SETUP_STATE_EAST")],
+    [Markup.button.callback("📍 West India", "SETUP_STATE_WEST")],
+    [Markup.button.callback("📍 Central India", "SETUP_STATE_CENTRAL")],
+    [Markup.button.callback("📍 North-East India", "SETUP_STATE_NORTHEAST")],
+    [Markup.button.callback("📍 Union Territories", "SETUP_STATE_UT")],
     [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
+]);
+
+const setupStateNorthKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🟢 Delhi", "SETUP_STATE_DELHI")],
+    [Markup.button.callback("🟢 Haryana", "SETUP_STATE_HARYANA")],
+    [Markup.button.callback("🟢 Himachal Pradesh", "SETUP_STATE_HIMACHAL")],
+    [Markup.button.callback("🟢 Jammu & Kashmir", "SETUP_STATE_JAMMU")],
+    [Markup.button.callback("🟢 Punjab", "SETUP_STATE_PUNJAB")],
+    [Markup.button.callback("🟢 Rajasthan", "SETUP_STATE_RAJASTHAN")],
+    [Markup.button.callback("🟢 Uttarakhand", "SETUP_STATE_UTTARAKHAND")],
+    [Markup.button.callback("🟢 Uttar Pradesh", "SETUP_STATE_UTTARPRADESH")],
+    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
+]);
+
+const setupStateSouthKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
+    [Markup.button.callback("🔵 Karnataka", "SETUP_STATE_KARNATAKA")],
+    [Markup.button.callback("🔵 Kerala", "SETUP_STATE_KERALA")],
+    [Markup.button.callback("🔵 Tamil Nadu", "SETUP_STATE_TAMILNADU")],
+    [Markup.button.callback("🔵 Telangana", "SETUP_STATE_TELANGANA")],
+    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
+]);
+
+const setupStateEastKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🟠 Bihar", "SETUP_STATE_BIHAR")],
+    [Markup.button.callback("🟠 Jharkhand", "SETUP_STATE_JHARKHAND")],
+    [Markup.button.callback("🟠 Odisha", "SETUP_STATE_ODISHA")],
+    [Markup.button.callback("🟠 West Bengal", "SETUP_STATE_WESTBENGAL")],
+    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
+]);
+
+const setupStateWestKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🟣 Goa", "SETUP_STATE_GOA")],
+    [Markup.button.callback("🟣 Gujarat", "SETUP_STATE_GUJARAT")],
+    [Markup.button.callback("🟣 Maharashtra", "SETUP_STATE_MAHARASHTRA")],
+    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
+]);
+
+const setupStateCentralKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🟤 Chhattisgarh", "SETUP_STATE_CHHATTISGARH")],
+    [Markup.button.callback("🟤 Madhya Pradesh", "SETUP_STATE_MADHYAPRADESH")],
+    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
+]);
+
+const setupStateNortheastKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🟢 Arunachal Pradesh", "SETUP_STATE_ARUNACHAL")],
+    [Markup.button.callback("🟢 Assam", "SETUP_STATE_ASSAM")],
+    [Markup.button.callback("🟢 Manipur", "SETUP_STATE_MANIPUR")],
+    [Markup.button.callback("🟢 Meghalaya", "SETUP_STATE_MEGHALAYA")],
+    [Markup.button.callback("🟢 Mizoram", "SETUP_STATE_MIZORAM")],
+    [Markup.button.callback("🟢 Nagaland", "SETUP_STATE_NAGALAND")],
+    [Markup.button.callback("🟢 Sikkim", "SETUP_STATE_SIKKIM")],
+    [Markup.button.callback("🟢 Tripura", "SETUP_STATE_TRIPURA")],
+    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
+]);
+
+const setupStateUTKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🟠 Chandigarh", "SETUP_STATE_CHANDIGARH")],
+    [Markup.button.callback("🟠 Delhi", "SETUP_STATE_DELHI")],
+    [Markup.button.callback("🟠 Jammu & Kashmir", "SETUP_STATE_JAMMU")],
+    [Markup.button.callback("🟠 Ladakh", "SETUP_STATE_LADAKH")],
+    [Markup.button.callback("🟠 Puducherry", "SETUP_STATE_PUDUCHERRY")],
+    [Markup.button.callback("🟠 Andaman & Nicobar", "SETUP_STATE_ANDAMAN")],
+    [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE_P1")]
 ]);
 
 // Gender selected - move to age input
@@ -655,7 +723,7 @@ bot.action("SETUP_GENDER_FEMALE", async (ctx) => {
     );
 });
 
-// Age range selected - ask for state
+// Age range selected - ask for state (show new regional selection)
 const ageToGenderMap: Record<string, string> = {
     "SETUP_AGE_13_17": "15",
     "SETUP_AGE_18_25": "22",
@@ -671,8 +739,8 @@ for (const [action, ageLabel] of Object.entries(ageToGenderMap)) {
         await safeEditMessageText(ctx,
             "📝 *Step 3 of 3*\n\n" +
             "📍 *Select your location:*\n" +
-            "(Helps match you with nearby people)",
-            { parse_mode: "Markdown", ...setupStateKeyboard }
+            "(Choose your Indian state/territory)",
+            { parse_mode: "Markdown", ...setupStateKeyboardPage1 }
         );
     });
 }
@@ -689,7 +757,314 @@ bot.action("SETUP_AGE_MANUAL", async (ctx) => {
     );
 });
 
-// State selected - complete setup
+// Region selected - show respective state keyboard
+bot.action("SETUP_STATE_NORTH", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await safeEditMessageText(ctx,
+        "📍 *North India*\n\nSelect your state:",
+        { parse_mode: "Markdown", ...setupStateNorthKeyboard }
+    );
+});
+
+bot.action("SETUP_STATE_SOUTH", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await safeEditMessageText(ctx,
+        "📍 *South India*\n\nSelect your state:",
+        { parse_mode: "Markdown", ...setupStateSouthKeyboard }
+    );
+});
+
+bot.action("SETUP_STATE_EAST", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await safeEditMessageText(ctx,
+        "📍 *East India*\n\nSelect your state:",
+        { parse_mode: "Markdown", ...setupStateEastKeyboard }
+    );
+});
+
+bot.action("SETUP_STATE_WEST", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await safeEditMessageText(ctx,
+        "📍 *West India*\n\nSelect your state:",
+        { parse_mode: "Markdown", ...setupStateWestKeyboard }
+    );
+});
+
+bot.action("SETUP_STATE_CENTRAL", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await safeEditMessageText(ctx,
+        "📍 *Central India*\n\nSelect your state:",
+        { parse_mode: "Markdown", ...setupStateCentralKeyboard }
+    );
+});
+
+bot.action("SETUP_STATE_NORTHEAST", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await safeEditMessageText(ctx,
+        "📍 *North-East India*\n\nSelect your state:",
+        { parse_mode: "Markdown", ...setupStateNortheastKeyboard }
+    );
+});
+
+bot.action("SETUP_STATE_UT", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await safeEditMessageText(ctx,
+        "📍 *Union Territories*\n\nSelect your UT:",
+        { parse_mode: "Markdown", ...setupStateUTKeyboard }
+    );
+});
+
+// Back to region selection
+bot.action("SETUP_BACK_STATE_P1", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await safeEditMessageText(ctx,
+        "📝 *Step 3 of 3*\n\n" +
+        "📍 *Select your location:*\n" +
+        "(Choose your Indian state/territory)",
+        { parse_mode: "Markdown", ...setupStateKeyboardPage1 }
+    );
+});
+
+// North India States
+bot.action("SETUP_STATE_DELHI", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Delhi", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_HARYANA", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Haryana", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_HIMACHAL", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Himachal Pradesh", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_JAMMU", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Jammu & Kashmir", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_PUNJAB", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Punjab", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_RAJASTHAN", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Rajasthan", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_UTTARAKHAND", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Uttarakhand", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_UTTARPRADESH", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Uttar Pradesh", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+// South India States
+bot.action("SETUP_STATE_KARNATAKA", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Karnataka", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_KERALA", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Kerala", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_TAMILNADU", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Tamil Nadu", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+// East India States
+bot.action("SETUP_STATE_BIHAR", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Bihar", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_JHARKHAND", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Jharkhand", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_ODISHA", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Odisha", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_WESTBENGAL", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "West Bengal", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+// West India States
+bot.action("SETUP_STATE_GOA", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Goa", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_GUJARAT", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Gujarat", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_MAHARASHTRA", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Maharashtra", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+// Central India States
+bot.action("SETUP_STATE_CHHATTISGARH", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Chhattisgarh", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_MADHYAPRADESH", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Madhya Pradesh", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+// North-East India States
+bot.action("SETUP_STATE_ARUNACHAL", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Arunachal Pradesh", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_ASSAM", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Assam", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_MANIPUR", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Manipur", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_MEGHALAYA", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Meghalaya", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_MIZORAM", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Mizoram", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_NAGALAND", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Nagaland", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_SIKKIM", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Sikkim", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_TRIPURA", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Tripura", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+// Union Territories
+bot.action("SETUP_STATE_CHANDIGARH", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Chandigarh", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_LADAKH", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Ladakh", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_PUDUCHERRY", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Puducherry", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+bot.action("SETUP_STATE_ANDAMAN", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Andaman & Nicobar", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
+
+// Keep Telangana and AP for backward compatibility (some existing callbacks may reference these)
 bot.action("SETUP_STATE_TELANGANA", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
@@ -704,19 +1079,7 @@ bot.action("SETUP_STATE_AP", async (ctx) => {
     await showSetupComplete(ctx);
 });
 
-bot.action("SETUP_STATE_OTHER", async (ctx) => {
-    if (!ctx.from) return;
-    await safeAnswerCbQuery(ctx);
-    await updateUser(ctx.from.id, { setupStep: "state_other" });
-    await safeEditMessageText(ctx,
-        "📍 *Enter your state:*\n\n" +
-        "(e.g., Karnataka, Tamil Nadu, Maharashtra, etc.)",
-        { parse_mode: "Markdown", ...Markup.inlineKeyboard([
-            [Markup.button.callback("⬅️ Back", "SETUP_BACK_STATE")]
-        ]) }
-    );
-});
-
+// Outside India
 bot.action("SETUP_COUNTRY_OTHER", async (ctx) => {
     if (!ctx.from) return;
     await safeAnswerCbQuery(ctx);
@@ -749,8 +1112,8 @@ bot.action("SETUP_BACK_STATE", async (ctx) => {
     await safeEditMessageText(ctx,
         "📝 *Step 3 of 3*\n\n" +
         "📍 *Select your location:*\n" +
-        "(Helps match you with nearby people)",
-        { parse_mode: "Markdown", ...setupStateKeyboard }
+        "(Choose your Indian state/territory)",
+        { parse_mode: "Markdown", ...setupStateKeyboardPage1 }
     );
 });
 
@@ -784,8 +1147,8 @@ bot.action("SETUP_CANCEL", async (ctx) => {
             "⚠️ You must complete your profile before using the bot.\n\n" +
             "👤 *Step 3 of 3*\n" +
             "📍 *Select your location:*\n" +
-            "(Helps match you with nearby people)",
-            { parse_mode: "Markdown", ...setupStateKeyboard }
+            "(Choose your Indian state/territory)",
+            { parse_mode: "Markdown", ...setupStateKeyboardPage1 }
         );
     } else {
         // Setup complete - show main menu
