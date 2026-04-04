@@ -648,18 +648,6 @@ const setupAgeKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")]
 ]);
 
-// Setup state keyboard - Page 1 with regions (NO BACK/CANCEL - must complete)
-const setupStateKeyboardPage1 = Markup.inlineKeyboard([
-    [Markup.button.callback("📍 North India", "SETUP_STATE_NORTH")],
-    [Markup.button.callback("📍 South India", "SETUP_STATE_SOUTH")],
-    [Markup.button.callback("📍 East India", "SETUP_STATE_EAST")],
-    [Markup.button.callback("📍 West India", "SETUP_STATE_WEST")],
-    [Markup.button.callback("📍 Central India", "SETUP_STATE_CENTRAL")],
-    [Markup.button.callback("📍 North-East India", "SETUP_STATE_NORTHEAST")],
-    [Markup.button.callback("📍 Union Territories", "SETUP_STATE_UT")],
-    [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
-]);
-
 const setupStateNorthKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("🟢 Delhi", "SETUP_STATE_DELHI")],
     [Markup.button.callback("🟢 Haryana", "SETUP_STATE_HARYANA")],

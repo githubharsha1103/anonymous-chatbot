@@ -80,6 +80,16 @@ export function validateEnvironment(): void {
     console.log("[INFO] - Running in DEVELOPMENT mode (polling)");
   }
 
+  if (process.env.ADMIN_IDS) {
+    validateAdminIds();
+  }
+
+  if (process.env.GROUP_CHAT_ID) {
+    validateGroupChatId();
+  }
+
+  validateWebhookUrl();
+
   // MongoDB configuration check
   const useMongoDB = !!process.env.MONGODB_URI;
   if (useMongoDB) {
