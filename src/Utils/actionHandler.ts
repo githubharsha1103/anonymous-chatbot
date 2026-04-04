@@ -20,6 +20,7 @@ import {
 import { showPremiumPurchaseMenu, isPremium } from "./starsPayments";
 import { isModerationEnabled, getAutoWarnThreshold, getAutoTempBanThreshold, getAutoBanThreshold, getTempBanDurationMs } from "../admin/moderationSettings";
 import { updateUserPreferenceInQueue } from "../admin/queueMonitor";
+import { notifyUserBanned } from "./moderationNotifications";
 
 // Valid preference options
 export const genderOptions = ["male", "female", "any"] as const;
@@ -1654,12 +1655,9 @@ bot.action("REPORT_CONFIRM", async (ctx) => {
 
             if (newReportCount >= banThreshold && !currentlyBanned) {
                 try {
-                    await banUser(partnerId, `Auto-banned for reaching ${newReportCount} reports`);
-                    await ctx.telegram.sendMessage(
-                        partnerId,
-                        `🚫 *Banned*\n\nYou have been banned due to accumulating ${newReportCount} reports.\n\nThis is an automatic action based on community reports.`,
-                        { parse_mode: "Markdown" }
-                    );
+                    const reason = `Auto-banned for reaching ${newReportCount} reports`;
+                    await banUser(partnerId, reason);
+                    await notifyUserBanned(ctx.telegram, partnerId, reason);
                     console.log(`[AUTO_MODERATION] User ${partnerId} auto-banned for reaching ${newReportCount} reports`);
                 } catch (error) {
                     console.error(`[AUTO_MODERATION] Failed to ban user ${partnerId}:`, error);
@@ -1801,12 +1799,13 @@ bot.action(/ADMIN_QUICK_BAN_(\d+)/, async (ctx) => {
         }
 
         // Add to bans collection
-        await banUser(userId);
+        const reason = "Banned by admin via report notification";
+        await banUser(userId, reason);
         
         // Update user's banned field and ban reason
         await updateUser(userId, { 
             banned: true, 
-            banReason: "Banned by admin via report notification" 
+            banReason: reason 
         });
 
         await ctx.editMessageText(
@@ -1814,17 +1813,7 @@ bot.action(/ADMIN_QUICK_BAN_(\d+)/, async (ctx) => {
             { parse_mode: "Markdown" }
         );
 
-        // Optionally notify banned user
-        try {
-            await ctx.telegram.sendMessage(
-                userId,
-                `🚫 *You Have Been Banned*\n\n` +
-                `You were banned due to a report violation.`,
-                { parse_mode: "Markdown" }
-            );
-        } catch {
-            // User may have blocked bot
-        }
+        await notifyUserBanned(ctx.telegram, userId, reason);
 
     } catch (error) {
         console.error("[ERROR] Quick ban failed:", error);

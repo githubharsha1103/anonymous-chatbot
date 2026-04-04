@@ -81,7 +81,7 @@ export async function handlePayment(chargeId: string, userId: number, amount: nu
   }
 }
 
-type PremiumPlanId = "premium_weekly" | "premium_monthly" | "premium_yearly";
+type PremiumPlanId = "premium_daily" | "premium_weekly" | "premium_monthly" | "premium_yearly";
 
 type PremiumPlan = {
   id: PremiumPlanId;
@@ -91,27 +91,44 @@ type PremiumPlan = {
   amount: number;
 };
 
+function getStarsPrice(envKey: "STARS_PREMIUM_DAILY" | "STARS_PREMIUM_WEEKLY" | "STARS_PREMIUM_MONTHLY" | "STARS_PREMIUM_YEARLY", fallback: number): number {
+  const raw = process.env[envKey];
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 const PREMIUM_PLANS: Record<PremiumPlanId, PremiumPlan> = {
+  premium_daily: {
+    id: "premium_daily",
+    name: "Daily Premium",
+    days: 1,
+    stars: getStarsPrice("STARS_PREMIUM_DAILY", 19),
+    amount: getStarsPrice("STARS_PREMIUM_DAILY", 19)
+  },
   premium_weekly: {
     id: "premium_weekly",
     name: "Weekly Premium",
     days: 7,
-    stars: 100,
-    amount: 100
+    stars: getStarsPrice("STARS_PREMIUM_WEEKLY", 100),
+    amount: getStarsPrice("STARS_PREMIUM_WEEKLY", 100)
   },
   premium_monthly: {
     id: "premium_monthly",
     name: "Monthly Premium",
     days: 30,
-    stars: 250,
-    amount: 250
+    stars: getStarsPrice("STARS_PREMIUM_MONTHLY", 250),
+    amount: getStarsPrice("STARS_PREMIUM_MONTHLY", 250)
   },
   premium_yearly: {
     id: "premium_yearly",
     name: "Yearly Premium",
     days: 365,
-    stars: 1000,
-    amount: 1000
+    stars: getStarsPrice("STARS_PREMIUM_YEARLY", 1000),
+    amount: getStarsPrice("STARS_PREMIUM_YEARLY", 1000)
   }
 };
 
@@ -146,16 +163,18 @@ export async function showPremiumPurchaseMenu(ctx: Context): Promise<void> {
 `⭐ Buy Premium
 
 Premium Plans:
-⭐ Weekly Premium - 100 Stars
-⭐ Monthly Premium - 250 Stars
-⭐ Yearly Premium - 1000 Stars`;
+⭐ Daily Premium - ${PREMIUM_PLANS.premium_daily.stars} Stars
+⭐ Weekly Premium - ${PREMIUM_PLANS.premium_weekly.stars} Stars
+⭐ Monthly Premium - ${PREMIUM_PLANS.premium_monthly.stars} Stars
+⭐ Yearly Premium - ${PREMIUM_PLANS.premium_yearly.stars} Stars`;
 
   await ctx.reply(
     text,
     Markup.inlineKeyboard([
-      [Markup.button.callback("⭐ Weekly - 100 Stars", "premium_weekly")],
-      [Markup.button.callback("⭐ Monthly - 250 Stars", "premium_monthly")],
-      [Markup.button.callback("⭐ Yearly - 1000 Stars", "premium_yearly")]
+      [Markup.button.callback(`⭐ Daily - ${PREMIUM_PLANS.premium_daily.stars} Stars`, "premium_daily")],
+      [Markup.button.callback(`⭐ Weekly - ${PREMIUM_PLANS.premium_weekly.stars} Stars`, "premium_weekly")],
+      [Markup.button.callback(`⭐ Monthly - ${PREMIUM_PLANS.premium_monthly.stars} Stars`, "premium_monthly")],
+      [Markup.button.callback(`⭐ Yearly - ${PREMIUM_PLANS.premium_yearly.stars} Stars`, "premium_yearly")]
     ])
   );
 }
@@ -415,7 +434,7 @@ export function initStarsPaymentHandlers(bot: ExtraTelegraf): void {
   });
 
   // Invoice creation with rate limiting
-  bot.action(/premium_(weekly|monthly|yearly)/, async (ctx) => {
+  bot.action(/premium_(daily|weekly|monthly|yearly)/, async (ctx) => {
     const now = Date.now();
     const userId = ctx.from?.id || 0;
     const lastInvoice = invoiceCooldown.get(userId);

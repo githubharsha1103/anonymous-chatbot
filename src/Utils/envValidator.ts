@@ -14,6 +14,7 @@ interface EnvConfig {
   RENDER_EXTERNAL_HOSTNAME?: string;
   GROUP_INVITE_LINK?: string;
   WEB_API_KEY?: string;
+  STARS_PREMIUM_DAILY?: string;
   STARS_PREMIUM_WEEKLY?: string;
   STARS_PREMIUM_MONTHLY?: string;
   STARS_PREMIUM_YEARLY?: string;
@@ -139,7 +140,7 @@ function validateWebhookUrl(): void {
 }
 
 function validateStarsPricing(): void {
-  const keys: (keyof EnvConfig)[] = ["STARS_PREMIUM_WEEKLY", "STARS_PREMIUM_MONTHLY", "STARS_PREMIUM_YEARLY"];
+  const keys: (keyof EnvConfig)[] = ["STARS_PREMIUM_DAILY", "STARS_PREMIUM_WEEKLY", "STARS_PREMIUM_MONTHLY", "STARS_PREMIUM_YEARLY"];
   for (const key of keys) {
     const raw = process.env[key];
     if (!raw) continue;

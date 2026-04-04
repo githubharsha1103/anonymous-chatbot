@@ -60,6 +60,9 @@ describe("report flow integration (JSON fallback)", () => {
     const reportCount = await db.getReportCount(200);
     expect(reportCount).toBe(2);
 
+    const reportReasons = await db.getUserReportReasons(200);
+    expect(reportReasons).toEqual(["Insulting", "Fraud"]);
+
     await db.resetUserReports(200);
 
     const afterResetGrouped = await db.getGroupedReports(10);

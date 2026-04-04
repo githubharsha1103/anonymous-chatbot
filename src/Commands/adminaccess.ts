@@ -13,11 +13,12 @@ import { Context } from "telegraf";
 import { ExtraTelegraf } from "..";
 import { Command } from "../Utils/commandHandler";
 import { Markup } from "telegraf";
-import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts, getGroupedReports, getGroupedReportsCount, getAllReferralStats, tempBanUser, getUserLatestReportReason, resetUserReports, getDatabaseStatus, getPremiumUsers, getPaymentOrders, getUserPaymentHistory, getPremiumPaymentOrder, updateOrderStatus, getExpiringPremiumUsers, getPaymentOrderStats } from "../storage/db";
+import { getUser, updateUser, getAllUsers, readBans, isBanned, banUser, unbanUser, getReportCount, getBanReason, deleteUser, getReferralCount, verifyReferralCounts, fixReferralCounts, getGroupedReports, getGroupedReportsCount, getAllReferralStats, tempBanUser, getUserLatestReportReason, getUserReportReasons, resetUserReports, getDatabaseStatus, getPremiumUsers, getPaymentOrders, getUserPaymentHistory, getPremiumPaymentOrder, updateOrderStatus, getExpiringPremiumUsers, getPaymentOrderStats } from "../storage/db";
 import { isAdmin, isAdminContext, unauthorizedResponse } from "../Utils/adminAuth";
 import { getErrorMessage } from "../Utils/telegramUi";
 import { buildPartnerLeftMessage, clearChatRuntime, exitChatKeyboard } from "../Utils/chatFlow";
 import { getPaymentAnalytics } from "../Utils/starsPayments";
+import { notifyUserBanned, notifyUserUnbanned } from "../Utils/moderationNotifications";
 import { clearPendingModerationEdit } from "../admin/moderationSettings";
 
 // Admin session management (24-hour expiry) - module-level for command handler access
@@ -2014,6 +2015,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         // Ban the user with reason and admin ID
         await banUser(userId, reason, adminId);
+        await notifyUserBanned(ctx.telegram, userId, reason);
         
         // Show feedback about chat termination if applicable
         if (partnerId) {
@@ -2033,7 +2035,9 @@ export function initAdminActions(bot: ExtraTelegraf) {
         const adminId = ctx.from?.id || 0;
 
         const partnerId = await terminateUserChat(ctx, bot, userId);
-        await banUser(userId, "Banned by admin", adminId);
+        const reason = "Banned by admin";
+        await banUser(userId, reason, adminId);
+        await notifyUserBanned(ctx.telegram, userId, reason);
 
         if (partnerId) {
             await safeAnswerCbQuery(ctx, `User banned. Partner ${partnerId} removed from chat.`);
@@ -2106,6 +2110,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         
         // Temporarily ban the user
         await tempBanUser(userId, durationMs, reason, adminId);
+        await notifyUserBanned(ctx.telegram, userId, reason);
         
         // Calculate unban time
         const unbanTime = new Date(Date.now() + durationMs);
@@ -2388,6 +2393,7 @@ export function initAdminActions(bot: ExtraTelegraf) {
         await safeAnswerCbQuery(ctx);
         const userId = parseInt(ctx.match[1]);
         await unbanUser(userId);
+        await notifyUserUnbanned(ctx.telegram, userId);
         await showUserDetails(ctx, userId);
     });
 
@@ -2637,6 +2643,8 @@ export async function showUserDetails(ctx: Context, userId: number) {
     const state = user.state || "Not set";
     const totalChats = user.totalChats || 0;
     const reports = await getReportCount(userId);
+    const reportReasons = await getUserReportReasons(userId, 5);
+    const latestReportReason = reportReasons[0] || "No reason";
     const banReason = await getBanReason(userId);
     const isUserBanned = await isBanned(userId);
     const referralCount = await getReferralCount(userId);
@@ -2661,8 +2669,14 @@ export async function showUserDetails(ctx: Context, userId: number) {
         `💬 Total Chats: ${totalChats}\n` +
         `👥 Referrals: ${referralCount}\n` +
         `⚠️ Reports: ${reports}\n` +
+        `📝 Latest Report Reason: ${latestReportReason}\n` +
         `💎 Premium: ${user.premium ? "Yes ✅" : "No ❌"}\n` +
         `🕐 Last Active: ${lastActiveText}`;
+
+    if (reportReasons.length > 0) {
+        details += `\n\n<b>Recent Report Reasons</b>\n` +
+            reportReasons.map((reason, index) => `${index + 1}. ${reason}`).join("\n");
+    }
 
     if (isUserBanned) {
         details += `\n🚫 <b>Banned</b>: Yes\n` +

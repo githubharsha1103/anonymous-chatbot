@@ -1503,6 +1503,37 @@ export async function getUserReports(userId: number): Promise<Report[]> {
   }));
 }
 
+export async function getUserReportReasons(userId: number, limit: number = 5): Promise<string[]> {
+  const reports = (await getUserReports(userId))
+    .map((report, index) => ({ report, index }))
+    .sort((a, b) => {
+      const createdAtDiff = b.report.createdAt - a.report.createdAt;
+      if (createdAtDiff !== 0) {
+        return createdAtDiff;
+      }
+      return b.index - a.index;
+    })
+    .map(({ report }) => report);
+  const uniqueReasons: string[] = [];
+  const seen = new Set<string>();
+
+  for (const report of reports) {
+    const reason = report.reason?.trim();
+    if (!reason || seen.has(reason)) {
+      continue;
+    }
+
+    seen.add(reason);
+    uniqueReasons.push(reason);
+
+    if (uniqueReasons.length >= limit) {
+      break;
+    }
+  }
+
+  return uniqueReasons;
+}
+
 // Reset all report data for one user (scalable + legacy)
 export async function resetUserReports(userId: number): Promise<void> {
   if (useMongoDB && !isFallbackMode) {

@@ -24,6 +24,7 @@ declare namespace NodeJS {
       WEB_API_KEY?: string;
 
       // Telegram Stars Premium plan prices (amount in Stars / XTR)
+      STARS_PREMIUM_DAILY?: string;
       STARS_PREMIUM_WEEKLY?: string;
       STARS_PREMIUM_MONTHLY?: string;
       STARS_PREMIUM_YEARLY?: string;

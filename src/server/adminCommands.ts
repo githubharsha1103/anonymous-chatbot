@@ -7,6 +7,7 @@ import {
 } from '../storage/db';
 import { broadcastWithRateLimit } from '../Utils/telegramErrorHandler';
 import { isAdmin } from '../Utils/adminAuth';
+import { notifyUserBanned } from '../Utils/moderationNotifications';
 
 /**
  * Register admin commands on the bot
@@ -21,7 +22,9 @@ export function registerAdminCommands(bot: ExtraTelegraf): void {
     if (!id) return ctx.reply("📝 Usage: /ban USERID");
 
     try {
-      await banUser(id);
+      const reason = "Banned by admin";
+      await banUser(id, reason, ctx.from.id);
+      await notifyUserBanned(ctx.telegram, id, reason);
       ctx.reply(`User ${id} banned`);
     } catch (error) {
       console.error("[Ban command] Error:", error);
