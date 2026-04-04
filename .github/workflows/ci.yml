@@ -18,7 +18,8 @@ jobs:
         with:
           node-version: '24'
           cache: "npm"
-      - run: npm ci
+      - run: npm config set registry https://registry.npmjs.org/
+      - run: npm install --no-audit --no-fund --prefer-offline
       - run: npm run lint
       - run: npm run build
       - run: npm test
