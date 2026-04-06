@@ -1,20 +1,7 @@
 import { Markup } from "telegraf";
 import type { User } from "../storage/db";
 
-export type SetupStep =
-    | "gender"
-    | "age"
-    | "age_manual"
-    | "state"
-    | "state_north"
-    | "state_south"
-    | "state_east"
-    | "state_west"
-    | "state_central"
-    | "state_northeast"
-    | "state_ut"
-    | "state_other"
-    | "done";
+export type SetupStep = "gender" | "age" | "age_manual" | "state" | "state_other" | "done";
 
 export type LocationOption = {
     name: string;
@@ -23,61 +10,23 @@ export type LocationOption = {
 };
 
 export const indianLocationOptions: readonly LocationOption[] = [
-    { name: "Andhra Pradesh", code: "AP", storedValue: "Andhra Pradesh" },
-    { name: "Arunachal Pradesh", code: "AR", storedValue: "Arunachal Pradesh" },
-    { name: "Assam", code: "AS", storedValue: "Assam" },
-    { name: "Bihar", code: "BR", storedValue: "Bihar" },
-    { name: "Chhattisgarh", code: "CG", storedValue: "Chhattisgarh" },
-    { name: "Goa", code: "GA", storedValue: "Goa" },
-    { name: "Gujarat", code: "GJ", storedValue: "Gujarat" },
-    { name: "Haryana", code: "HR", storedValue: "Haryana" },
-    { name: "Himachal Pradesh", code: "HP", storedValue: "Himachal Pradesh" },
-    { name: "Jharkhand", code: "JH", storedValue: "Jharkhand" },
-    { name: "Karnataka", code: "KA", storedValue: "Karnataka" },
-    { name: "Kerala", code: "KL", storedValue: "Kerala" },
-    { name: "Madhya Pradesh", code: "MP", storedValue: "Madhya Pradesh" },
-    { name: "Maharashtra", code: "MH", storedValue: "Maharashtra" },
-    { name: "Manipur", code: "MN", storedValue: "Manipur" },
-    { name: "Meghalaya", code: "ML", storedValue: "Meghalaya" },
-    { name: "Mizoram", code: "MZ", storedValue: "Mizoram" },
-    { name: "Nagaland", code: "NL", storedValue: "Nagaland" },
-    { name: "Odisha", code: "OD", storedValue: "Odisha" },
-    { name: "Punjab", code: "PB", storedValue: "Punjab" },
-    { name: "Rajasthan", code: "RJ", storedValue: "Rajasthan" },
-    { name: "Sikkim", code: "SK", storedValue: "Sikkim" },
-    { name: "Tamil Nadu", code: "TN", storedValue: "Tamil Nadu" },
     { name: "Telangana", code: "TS", storedValue: "Telangana" },
-    { name: "Tripura", code: "TR", storedValue: "Tripura" },
-    { name: "Uttar Pradesh", code: "UP", storedValue: "Uttar Pradesh" },
-    { name: "Uttarakhand", code: "UK", storedValue: "Uttarakhand" },
-    { name: "West Bengal", code: "WB", storedValue: "West Bengal" },
-    { name: "Andaman & Nicobar Islands", code: "AN", storedValue: "Andaman & Nicobar" },
-    { name: "Chandigarh", code: "CH", storedValue: "Chandigarh" },
-    { name: "Dadra & Nagar Haveli and Daman & Diu", code: "DNDD", storedValue: "Dadra & Nagar Haveli and Daman & Diu" },
-    { name: "Delhi", code: "DL", storedValue: "Delhi" },
-    { name: "Jammu & Kashmir", code: "JK", storedValue: "Jammu & Kashmir" },
-    { name: "Ladakh", code: "LA", storedValue: "Ladakh" },
-    { name: "Lakshadweep", code: "LD", storedValue: "Lakshadweep" },
-    { name: "Puducherry", code: "PY", storedValue: "Puducherry" },
-    { name: "Outside India", code: "OTHER", storedValue: "Other" }
+    { name: "Andhra Pradesh", code: "AP", storedValue: "Andhra Pradesh" }
 ] as const;
 
 export const locationValues = indianLocationOptions.map((option) => option.storedValue);
 
-function buildLocationKeyboard(callbackPrefix: string, backCallback?: string) {
-    const rows = indianLocationOptions.map((option) => [
-        Markup.button.callback(option.name, `${callbackPrefix}${option.code}`)
-    ]);
+export const setupStateKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🟢 Telangana", "SETUP_STATE_TS")],
+    [Markup.button.callback("🔵 Andhra Pradesh", "SETUP_STATE_AP")],
+    [Markup.button.callback("🇮🇳 Other Indian State", "SETUP_STATE_OTHER")],
+    [Markup.button.callback("🌍 Outside India", "SETUP_COUNTRY_OTHER")]
+]);
 
-    if (backCallback) {
-        rows.push([Markup.button.callback("⬅️ Back", backCallback)]);
-    }
-
-    return Markup.inlineKeyboard(rows);
-}
-
-export const setupStateKeyboardPage1 = buildLocationKeyboard("SETUP_STATE_");
-export const settingsStateKeyboard = buildLocationKeyboard("STATE_", "OPEN_SETTINGS");
+export const settingsStateKeyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("🟢 Telangana", "STATE_TS")],
+    [Markup.button.callback("🔵 Andhra Pradesh", "STATE_AP")]
+]);
 
 export const setupGenderKeyboard = Markup.inlineKeyboard([
     [Markup.button.callback("👨 Male", "SETUP_GENDER_MALE")],
@@ -85,10 +34,10 @@ export const setupGenderKeyboard = Markup.inlineKeyboard([
 ]);
 
 export const setupAgeKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("15", "SETUP_AGE_13_17")],
-    [Markup.button.callback("22", "SETUP_AGE_18_25")],
-    [Markup.button.callback("33", "SETUP_AGE_26_40")],
-    [Markup.button.callback("45", "SETUP_AGE_40_PLUS")],
+    [Markup.button.callback("13-17", "SETUP_AGE_13_17")],
+    [Markup.button.callback("18-25", "SETUP_AGE_18_25")],
+    [Markup.button.callback("26-40", "SETUP_AGE_26_40")],
+    [Markup.button.callback("40+", "SETUP_AGE_40_PLUS")],
     [Markup.button.callback("📝 Type Age", "SETUP_AGE_MANUAL")]
 ]);
 
@@ -113,8 +62,8 @@ export function getSetupStepPrompt(step: SetupStep): { text: string; keyboard?: 
             return {
                 text:
                     "📝 *Step 2 of 3*\n\n" +
-                    "🎂 *Select your age:*\n" +
-                    "(Choose the option closest to your age)",
+                    "🎂 *Select your age range:*\n" +
+                    "(This helps us match you with people in similar age groups)",
                 keyboard: setupAgeKeyboard
             };
         case "age_manual":
@@ -126,19 +75,12 @@ export function getSetupStepPrompt(step: SetupStep): { text: string; keyboard?: 
                 keyboard: setupAgeManualKeyboard
             };
         case "state":
-        case "state_north":
-        case "state_south":
-        case "state_east":
-        case "state_west":
-        case "state_central":
-        case "state_northeast":
-        case "state_ut":
             return {
                 text:
                     "📝 *Step 3 of 3*\n\n" +
                     "📍 *Select your location:*\n" +
-                    "(Choose your Indian state/territory)",
-                keyboard: setupStateKeyboardPage1
+                    "(Choose Telangana or Andhra Pradesh)",
+                keyboard: setupStateKeyboard
             };
         case "state_other":
             return {
@@ -170,8 +112,8 @@ export function getSetupRequiredPrompt(user: Pick<User, "gender" | "age" | "stat
                 "📝 *Setup Required*\n\n" +
                 "⚠️ You must complete your profile before using the bot.\n\n" +
                 "👤 *Step 2 of 3*\n" +
-                "🎂 *Select your age:*\n" +
-                "(Choose the option closest to your age)",
+                "🎂 *Select your age range:*\n" +
+                "(This helps us match you with people in similar age groups)",
             keyboard: setupAgeKeyboard
         };
     }
@@ -183,8 +125,8 @@ export function getSetupRequiredPrompt(user: Pick<User, "gender" | "age" | "stat
                 "⚠️ You must complete your profile before using the bot.\n\n" +
                 "👤 *Step 3 of 3*\n" +
                 "📍 *Select your location:*\n" +
-                "(Choose your Indian state/territory)",
-            keyboard: setupStateKeyboardPage1
+                "(Choose Telangana or Andhra Pradesh)",
+            keyboard: setupStateKeyboard
         };
     }
 

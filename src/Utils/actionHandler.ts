@@ -12,10 +12,9 @@ import referralCommand from "../Commands/referral";
 import endCommand from "../Commands/end";
 import {
     getSetupCompleteText,
-    indianLocationOptions,
     locationValues,
     settingsStateKeyboard,
-    setupStateKeyboardPage1 as sharedSetupStateKeyboard
+    setupStateKeyboard as sharedSetupStateKeyboard
 } from "./setupFlow";
 import { showPremiumPurchaseMenu, isPremium } from "./starsPayments";
 import { isModerationEnabled, getAutoWarnThreshold, getAutoTempBanThreshold, getAutoBanThreshold, getTempBanDurationMs } from "../admin/moderationSettings";
@@ -1095,6 +1094,12 @@ bot.action("SETUP_STATE_AP", async (ctx) => {
     await showSetupComplete(ctx);
 });
 
+bot.action("SETUP_STATE_OTHER", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx, "Please type your state name:");
+    await updateUser(ctx.from.id, { setupStep: "state_other" });
+});
+
 // Outside India
 bot.action("SETUP_COUNTRY_OTHER", async (ctx) => {
     if (!ctx.from) return;
@@ -1103,16 +1108,12 @@ bot.action("SETUP_COUNTRY_OTHER", async (ctx) => {
     await showSetupComplete(ctx);
 });
 
-for (const option of indianLocationOptions) {
-    if (option.code === "AP") continue;
-
-    bot.action(`SETUP_STATE_${option.code}`, async (ctx) => {
-        if (!ctx.from) return;
-        await safeAnswerCbQuery(ctx);
-        await updateUser(ctx.from.id, { state: option.storedValue, setupStep: "done" });
-        await showSetupComplete(ctx);
-    });
-}
+bot.action("SETUP_STATE_TS", async (ctx) => {
+    if (!ctx.from) return;
+    await safeAnswerCbQuery(ctx);
+    await updateUser(ctx.from.id, { state: "Telangana", setupStep: "done" });
+    await showSetupComplete(ctx);
+});
 
 // Back actions
 bot.action("SETUP_BACK_GENDER", async (ctx) => {
@@ -1261,10 +1262,9 @@ bot.action("SET_STATE", async (ctx) => {
     await safeEditMessageText(ctx, "Select your state:", stateKeyboard);
 });
 
-bot.action("STATE_TELANGANA", async (ctx) => {
+bot.action("STATE_TS", async (ctx) => {
     if (!ctx.from) return;
     
-    // Validate state value
     const state: UserState = "Telangana";
     if (!stateOptions.includes(state)) {
         await safeAnswerCbQuery(ctx, "Invalid state value");
@@ -1290,24 +1290,6 @@ bot.action("STATE_AP", async (ctx) => {
     await safeAnswerCbQuery(ctx, "State set to Andhra Pradesh ✅");
     await showSettings(ctx);
 });
-
-for (const option of indianLocationOptions) {
-    if (option.code === "AP") continue;
-
-    bot.action(`STATE_${option.code}`, async (ctx) => {
-        if (!ctx.from) return;
-
-        const state: UserState = option.storedValue;
-        if (!stateOptions.includes(state)) {
-            await safeAnswerCbQuery(ctx, "Invalid state value");
-            return;
-        }
-
-        await updateUser(ctx.from.id, { state });
-        await safeAnswerCbQuery(ctx, `State set to ${option.storedValue} ✅`);
-        await showSettings(ctx);
-    });
-}
 
 // Preference action - check premium status and show appropriate message
 bot.action("SET_PREFERENCE", async (ctx) => {
