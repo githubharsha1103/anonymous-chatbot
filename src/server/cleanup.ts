@@ -194,23 +194,27 @@ export function hourlyMapCleanup(bot: ExtraTelegraf): void {
  * Register all cleanup intervals
  */
 export function registerCleanupTasks(bot: ExtraTelegraf): void {
-  // Run premium expiry cleanup once on startup
-  revokeExpiredPremiumUsers().then(revoked => {
-    if (revoked > 0) {
-      console.log(`[CLEANUP] - Revoked premium for ${revoked} expired users`);
-    }
-  }).catch(error => {
-    console.error("[CLEANUP] - Startup premium cleanup failed:", error);
-  });
+  // Run premium expiry cleanup once on startup (non-blocking)
+  revokeExpiredPremiumUsers()
+    .then(revoked => {
+      if (revoked > 0) {
+        console.log(`[CLEANUP] - Revoked premium for ${revoked} expired users`);
+      }
+    })
+    .catch(error => {
+      console.error("[CLEANUP] - Startup premium cleanup failed:", error);
+    });
 
-  // Run expired orders cleanup once on startup
-  expireOldPremiumOrders().then(expired => {
-    if (expired > 0) {
-      console.log(`[CLEANUP] - Expired ${expired} pending premium orders`);
-    }
-  }).catch(error => {
-    console.error("[CLEANUP] - Startup order expiry cleanup failed:", error);
-  });
+  // Run expired orders cleanup once on startup (non-blocking)
+  expireOldPremiumOrders()
+    .then(expired => {
+      if (expired > 0) {
+        console.log(`[CLEANUP] - Expired ${expired} pending premium orders`);
+      }
+    })
+    .catch(error => {
+      console.error("[CLEANUP] - Startup order expiry cleanup failed:", error);
+    });
 
   // Run cleanup every 5 minutes
   setInterval(() => cleanupStaleData(bot), 300000);

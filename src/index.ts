@@ -1195,7 +1195,11 @@ registerAdminCommands(bot);
 import { registerAdminCallbacks } from "./admin/index";
 import { loadModerationSettings } from "./admin/moderationSettings";
 registerAdminCallbacks(bot);
-loadModerationSettings().catch(err => console.error("[INIT] Failed to load moderation settings:", err));
+loadModerationSettings()
+  .then(() => {
+    console.log("[INFO] - Moderation settings loaded");
+  })
+  .catch(err => console.error("[INIT] Failed to load moderation settings:", err));
 
 /* ---------------- ADMIN CHECK ---------------- */
 // Admin check is now handled in adminCommands.ts
@@ -1220,7 +1224,6 @@ bot.command("setgender", async (ctx) => {
 /* ---------------- STARTUP ---------------- */
 console.log("[INFO] - Bot is online");
 
-// Load statistics
 if (process.env.NODE_ENV !== "test") {
   getTotalChats().then(chats => {
     bot.totalChats = chats;
@@ -1235,26 +1238,41 @@ import { createWebServer, startWebServer } from "./server/webServer";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
 
+const webhookUrl = process.env.WEBHOOK_URL || (process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : null);
+const isWebhookConfigured = webhookUrl && webhookUrl !== "https://";
+
 // Check deployment mode
 if (process.env.NODE_ENV === "test") {
   console.log("[INFO] - Test mode detected. Bot launch skipped.");
-} else if (isProduction()) {
-  // Production: Use webhooks if URL is provided, otherwise use long polling
-  const webhookUrl = process.env.WEBHOOK_URL || `https://${process.env.RENDER_EXTERNAL_HOSTNAME}`;
+} else if (isProduction() && isWebhookConfigured) {
+  console.log("[INFO] - Production mode with webhook configured. Starting webhook server...");
   
-  if (webhookUrl && webhookUrl !== "https://") {
-    // Use webhooks if URL is available
-    const app = createWebServer(bot);
-    startWebServer(app, bot, PORT);
-  } else {
-    // No webhook URL - use long polling for production
-    console.log("[INFO] - No webhook URL detected, using long polling for production");
+  (async () => {
+    try {
+      const app = createWebServer(bot);
+      await startWebServer(app, bot, PORT);
+      console.log("[INFO] - Webhook server started successfully");
+    } catch (error) {
+      console.error("[ERROR] - Failed to start webhook server:", error);
+      process.exit(1);
+    }
+  })();
+} else if (isProduction()) {
+  console.log("[INFO] - Production mode without webhook URL. Falling back to polling (NOT RECOMMENDED for production)...");
+  try {
     bot.launch();
+    console.log("[INFO] - Bot launched with long polling");
+  } catch (error) {
+    console.error("[ERROR] - Failed to launch bot:", error);
   }
 } else {
-  // Development: Use long polling
-  console.log("[INFO] - Using long polling (local development)");
-  bot.launch();
+  console.log("[INFO] - Development mode. Using long polling.");
+  try {
+    bot.launch();
+    console.log("[INFO] - Bot launched with long polling");
+  } catch (error) {
+    console.error("[ERROR] - Failed to launch bot:", error);
+  }
 }
 
 /* ---------------- CLEANUP TASKS (Modular) ---------------- */
