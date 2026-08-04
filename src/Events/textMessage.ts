@@ -9,7 +9,6 @@ import { showUserDetails } from "../Commands/adminaccess";
 import { waitingForAge } from "../Utils/actionHandler";
 import { getSetupCompleteText, getSetupStepPrompt } from "../Utils/setupFlow";
 import { getPendingModerationEdit, processThresholdEdit } from "../admin/moderationSettings";
-import DOMPurify from 'isomorphic-dompurify';
 import { buildPartnerLeftMessage, exitChatKeyboard } from "../Utils/chatFlow";
 import { handleSuccessfulPaymentMessage } from "../Utils/starsPayments";
 import { getUserDisplayNameFromDb } from "../Utils/userDisplayName";
@@ -86,7 +85,7 @@ export default {
 
         const broadcastText = text || "(No message content)";
         // Sanitize input to prevent XSS if web frontend is added later
-        const sanitizedText = DOMPurify.sanitize(broadcastText, { ALLOWED_TAGS: [] });
+        const sanitizedText = broadcastText.replace(/<[^>]*>/g, "").trim();
         const users = await getAllUsers();
 
         if (users.length === 0) {

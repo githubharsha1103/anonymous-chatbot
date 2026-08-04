@@ -22,7 +22,6 @@
   "dependencies": {
     "dotenv": "^17.3.1",
     "express": "^4.22.1",
-    "isomorphic-dompurify": "^3.7.1",
     "mongodb": "^7.1.0",
     "telegraf": "^4.16.3"
   },
